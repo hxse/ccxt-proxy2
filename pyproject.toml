@@ -1,0 +1,13 @@
+[project]
+name = "ccxt-proxy2"
+version = "1.0.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "ccxt",
+    "pydantic",
+]
+
+[dependency-groups]
+dev = ["pytest"]
