@@ -1,3 +1,6 @@
+database
+test_database
+data
 .venv
 **/modules
 **/__pycache__

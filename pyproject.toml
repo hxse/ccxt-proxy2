@@ -7,7 +7,12 @@ dependencies = [
     "uvicorn",
     "ccxt",
     "pydantic",
+    "pandas>=2.3.2",
+    "pyarrow>=21.0.0",
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest",
+]

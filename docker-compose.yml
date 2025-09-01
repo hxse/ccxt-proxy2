@@ -1,4 +1,3 @@
-version: '1.0.0'
 services:
   ccxt-proxy2:
     container_name: ccxt-proxy2
@@ -6,5 +5,5 @@ services:
     ports:
       - "5123:8000"
     volumes:
-      - ./cache:/app/cache
-      - ./static:/app/static
+      - ./data:/app/data
+      - ./database:/app/database

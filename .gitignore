@@ -1,7 +1,6 @@
-static/*
-!static/.gitkeep
-cache/*
-!cache/.gitkeep
+database/
+test_database/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
