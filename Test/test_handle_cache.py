@@ -153,3 +153,55 @@ def test_cache_full_hit(cache_setup, capsys):
 
     # 验证是否没有发起网络请求的日志
     assert "ℹ️ 缓存不足或无缓存，开始请求新数据。" not in captured.out
+
+
+# --- 新增测试：部分缓存命中 ---
+def test_get_ohlcv_with_partial_cache_hit(cache_setup, capsys):
+    """
+    测试 get_ohlcv_with_cache 函数在部分命中缓存时，是否能正确处理。
+    """
+    print("\ntest_get_ohlcv_with_partial_cache_hit")
+    tp = CacheTestParams(cache_dir=cache_setup)
+
+    # 第一次调用：生成包含 20 条数据的缓存
+    print("\n--- 第一次调用: 生成 20 条数据的缓存 ---")
+    _ = get_ohlcv_with_cache(**vars(tp), fetch_callback=mock_fetch_ohlcv)
+
+    # 定义部分请求的参数：从第 6 条数据开始，请求 15 条
+    interval_ms = 15 * 60 * 1000
+    partial_start_time = tp.start_time + 15 * interval_ms
+    partial_count = 10
+
+    # 捕获并清空之前的日志
+    capsys.readouterr()
+
+    # 第二次调用：请求部分数据
+    print("\n--- 第二次调用: 请求部分数据 ---")
+    df_partial = get_ohlcv_with_cache(
+        symbol=tp.symbol,
+        period=tp.period,
+        start_time=partial_start_time,
+        count=partial_count,
+        cache_dir=tp.cache_dir,
+        cache_size=tp.cache_size,
+        page_size=tp.page_size,
+        file_type=tp.file_type,
+        fetch_callback=mock_fetch_ohlcv,
+    )
+
+    # 捕获第二次调用的日志
+    captured = capsys.readouterr()
+
+    # 验证返回的数据
+    assert not df_partial.empty, "返回的DataFrame不应为空"
+    assert len(df_partial) == partial_count, (
+        f"返回行数应为 {partial_count}，但实际为 {len(df_partial)}"
+    )
+    assert df_partial.iloc[0]["time"] == partial_start_time, "返回数据的起始时间不正确"
+
+    # 验证日志输出，确认缓存命中和网络请求都发生了
+    assert "✅ 缓存命中" in captured.out, "应该从缓存读取数据"
+    assert "ℹ️ 缓存不足或无缓存，开始请求新数据。" in captured.out, (
+        "应该发起网络请求以获取缺失数据"
+    )
+    print("✅ 部分缓存命中测试通过。")
