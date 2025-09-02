@@ -10,7 +10,7 @@ from src.tools.shared import (
     kraken_symbol_dict,
     config,
 )
-from src.cache_tool.handle_cache import (
+from cache_tool.cache_entry import (
     get_ohlcv_with_cache,
     fetch_ohlcv,
     mock_fetch_ohlcv,
