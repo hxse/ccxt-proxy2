@@ -9,7 +9,7 @@ from .cache_core import (
 from .cache_read_chunk import get_next_continuous_cache_chunk
 from .cache_data_processor import merge_with_deduplication
 
-from .cache_consolidator import consolidate_cache
+from .cache_consolidator import consolidate_cache, check_for_overlaps
 
 
 def get_ohlcv_with_cache(
@@ -104,6 +104,7 @@ def get_ohlcv_with_cache(
 
     # 返回之前先清理与合并一下小文件
     consolidate_cache(cache_dir, cache_size, symbol, period, file_type)
+    check_for_overlaps(cache_dir, cache_size, symbol, period, file_type)
 
     # 5. 返回最终数据，并确保数量正确
     return fetched_data.iloc[:count]

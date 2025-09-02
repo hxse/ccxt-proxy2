@@ -105,3 +105,76 @@ def consolidate_cache(
         print("✅ 没有需要合并的文件块，缓存已是最优状态。")
 
     print("--- 缓存整理完成 ---")
+
+
+def check_for_overlaps(
+    cache_dir: Path,
+    cache_size: int,
+    symbol: str,
+    period: str,
+    file_type: str = "parquet",
+) -> None:
+    """
+    检查缓存目录中是否存在文件时间重叠，并处理重叠部分。
+
+    如果发现重叠，将保留最新文件中的数据，并删除旧文件中的重叠部分。
+    """
+    print(f"\n--- 开始检查 {symbol} {period} 的缓存文件重叠情况 ---")
+
+    sorted_files = get_sorted_cache_files(cache_dir, symbol, period, file_type)
+    if len(sorted_files) < 2:
+        print("✅ 文件数量不足，无需检查重叠。")
+        return
+
+    # 遍历所有文件，将第一个文件的结束时间与后续文件的开始时间进行比较
+    for i in range(len(sorted_files) - 1):
+        file_a = sorted_files[i]
+        file_b = sorted_files[i + 1]
+
+        info_a = get_file_info(file_a.name)
+        info_b = get_file_info(file_b.name)
+
+        if not info_a or not info_b:
+            continue
+
+        # 检查是否存在重叠
+        # 如果 A 的结束时间 > B 的开始时间，说明有重叠
+        if info_a["end_time"] > info_b["start_time"]:
+            print(f"⚠️ 发现重叠！文件 {file_a.name} 和 {file_b.name} 存在时间重叠。")
+            print(f"   > 文件A时间范围: {info_a['start_time']} - {info_a['end_time']}")
+            print(f"   > 文件B时间范围: {info_b['start_time']} - {info_b['end_time']}")
+
+            # 加载文件A的数据
+            df_a = read_cache_file(file_a, file_type)
+            if df_a.empty:
+                print(f"❌ 无法读取文件 {file_a.name}，跳过处理。")
+                continue
+
+            # 确定重叠时间段的开始点 (取文件B的开始时间，这是新数据的起点)
+            overlap_start_time = info_b["start_time"]
+
+            # 从文件A中删除与文件B重叠的部分
+            original_len_a = len(df_a)
+            # 保留A中时间戳 <= 文件B开始时间的数据
+            df_a_new = df_a[df_a["time"] <= overlap_start_time]
+
+            if len(df_a_new) < original_len_a:
+                print(
+                    f"🔄 正在移除文件 {file_a.name} 中的 {original_len_a - len(df_a_new)} 条重叠数据。"
+                )
+
+                # 如果A中所有数据都重叠，则删除文件A
+                if df_a_new.empty:
+                    print(f"🗑️ 文件 {file_a.name} 已被完全覆盖，删除旧文件。")
+                    file_a.unlink()
+                else:
+                    # 删除旧文件A
+                    file_a.unlink()
+                    print(f"🗑️ 删除旧文件: {file_a.name}")
+
+                    # 使用写缓存函数，它可以处理文件命名和路径
+                    write_to_cache(
+                        symbol, period, df_a_new, cache_dir, cache_size, file_type
+                    )
+
+    print("\n--- 重叠检查和清理完成 ---")

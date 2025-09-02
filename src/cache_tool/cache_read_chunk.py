@@ -29,20 +29,9 @@ def get_next_continuous_cache_chunk(
         if not info:
             continue
 
-        if info["start_time"] == start_time:
-            # 优先级1：精确匹配，请求的起始时间等于文件的起始时间
+        if info["start_time"] <= start_time <= info["end_time"]:
             start_file = f
-            print("优先级1")
-            break
-        elif info["start_time"] < start_time < info["end_time"]:
-            # 优先级2：请求的起始时间位于文件时间区间内
-            start_file = f
-            print("优先级2")
-            break
-        elif start_time == info["end_time"]:
-            # 优先级3：默认匹配，如果存在多个时间区间重叠的文件，找到第一个匹配的
-            start_file = f
-            print("优先级3")
+            print("✅ 找到匹配文件。")
             break
 
     if start_file is None:
