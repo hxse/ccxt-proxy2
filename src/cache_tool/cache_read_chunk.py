@@ -39,7 +39,7 @@ def get_next_continuous_cache_chunk(
             start_file = f
             print("优先级2")
             break
-        elif info["start_time"] <= start_time <= info["end_time"]:
+        elif start_time == info["end_time"]:
             # 优先级3：默认匹配，如果存在多个时间区间重叠的文件，找到第一个匹配的
             start_file = f
             print("优先级3")
