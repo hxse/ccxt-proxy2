@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
-from src.cache_tool.cache_utils import parse_timestamp_string
+from src.cache_tool.cache_utils import parse_timestamp_string, get_sorted_cache_files
 from src.cache_tool.cache_file_io import read_cache_file
 from Test.utils import clear_cache_directory, assert_uniform_time_intervals
 from src.cache_tool.cache_data_processor import merge_with_deduplication
@@ -52,15 +52,14 @@ def test_get_ohlcv_with_cache(cache_setup):
         **vars(tp), fetch_callback=mock_fetch_ohlcv, enable_consolidate=False
     )
 
-    assert not df_write.empty, "第一次调用返回的DataFrame不应为空"
     assert len(df_write) == tp.count, (
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
     )
 
     # 验证缓存文件是否已创建
-    cache_files = list(tp.cache_dir.rglob(f"*.{tp.file_type}"))
-    assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
-
+    cache_files = get_sorted_cache_files(
+        tp.cache_dir, tp.symbol, tp.period, tp.file_type
+    )
     cached_data = pd.DataFrame()
     for i in cache_files:
         chunk = read_cache_file(i, tp.file_type)
@@ -86,15 +85,14 @@ def test_get_ohlcv_with_cache_consolidate(cache_setup):
         **vars(tp), fetch_callback=mock_fetch_ohlcv, enable_consolidate=True
     )
 
-    assert not df_write.empty, "第一次调用返回的DataFrame不应为空"
     assert len(df_write) == tp.count, (
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
     )
 
     # 验证缓存文件是否已创建
-    cache_files = list(tp.cache_dir.rglob(f"*.{tp.file_type}"))
-    assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
-
+    cache_files = get_sorted_cache_files(
+        tp.cache_dir, tp.symbol, tp.period, tp.file_type
+    )
     cached_data = pd.DataFrame()
     for i in cache_files:
         chunk = read_cache_file(i, tp.file_type)
@@ -123,24 +121,20 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
+
     tp.start_time = parse_timestamp_string("20230101T051500Z")
     df_write2 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
-    import pdb
 
-    pdb.set_trace()
     tp.start_time = parse_timestamp_string("20230101T083000Z")
     df_write3 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
-    import pdb
-
-    pdb.set_trace()
 
     assert len(df_write) == tp.count, (
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
@@ -178,7 +172,9 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     )
 
     # 验证缓存文件是否已创建
-    cache_files = list(tp.cache_dir.rglob(f"*.{tp.file_type}"))
+    cache_files = get_sorted_cache_files(
+        tp.cache_dir, tp.symbol, tp.period, tp.file_type
+    )
     assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
 
     cached_data = pd.DataFrame()
