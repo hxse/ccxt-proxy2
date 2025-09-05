@@ -9,17 +9,19 @@ root_path = next(
 if root_path:
     sys.path.insert(0, str(root_path))
 
-from src.tools.shared import app, binance_exchange, kraken_exchange
+from src.tools.shared import app
+from fastapi.staticfiles import StaticFiles
 
 
 from src.router.trader_router import ccxt_router
 from src.router.demo_router import demo_router
 from src.router.downloader_router import downloader_router
 
-
 app.include_router(ccxt_router)
 app.include_router(demo_router)
 app.include_router(downloader_router)
+
+app.mount("/static", StaticFiles(directory="src/router/static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -4,7 +4,9 @@ from .cache_utils import (
     convert_ms_timestamp_to_utc_datetime,
     format_timestamp,
     sanitize_symbol,
+    get_chunk_slices,
 )
+from typing import List, Tuple
 
 
 def read_cache_file(filepath: Path, file_type: str) -> pd.DataFrame:
@@ -48,32 +50,25 @@ def write_to_cache(
     cache_dir: Path,
     cache_size: int,
     file_type: str = "parquet",
+    reverse: bool = False,
 ) -> None:
     """
     将数据写入缓存，并根据 cache_size 分割成多个文件。
-
-    Args:
-        symbol (str): 交易对。
-        period (str): K线周期。
-        data (pd.DataFrame): 待写入的 OHLCV 数据。
-        cache_dir (Path): 缓存目录路径。
-        cache_size (int): 每个缓存文件存储的数据行数。
+    可选择正向或反向写入。
     """
     if data.empty:
-        return
+        return []
 
     if not cache_dir.exists():
         cache_dir.mkdir(parents=True)
 
-    start_index = 0
     total_rows = len(data)
+    slices = get_chunk_slices(total_rows, cache_size, reverse=reverse)
+    print("cache slices", slices, total_rows, cache_size)
 
-    while start_index < total_rows:
-        end_index = min(start_index + cache_size, total_rows)
-        chunk = data.iloc[start_index:end_index]
-
-        if chunk.empty:
-            break
+    files_arr = []
+    for start, end in slices:
+        chunk = data.iloc[start:end]
 
         chunk_start_ts = chunk.iloc[0, 0]
         chunk_end_ts = chunk.iloc[-1, 0]
@@ -88,6 +83,7 @@ def write_to_cache(
         filepath = cache_dir / filename
 
         write_cache_file(filepath, chunk, file_type)
-        print(f"  > 写入缓存文件: {filename}")
 
-        start_index += cache_size - 1
+        files_arr.append(filepath)
+
+    return files_arr

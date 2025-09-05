@@ -10,14 +10,12 @@ from src.tools.shared import (
     kraken_symbol_dict,
     config,
 )
-from cache_tool.cache_entry import (
+from src.cache_tool.cache_entry import (
     get_ohlcv_with_cache,
     fetch_ohlcv,
     mock_fetch_ohlcv,
-    sanitize_symbol,
 )
-from datetime import datetime, timezone
-import numpy as np
+from src.cache_tool.cache_utils import sanitize_symbol
 
 
 # 创建 APIRouter 实例
@@ -51,7 +49,6 @@ def get_ohlcv(
     """
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
-
     try:
         if exchange_name == "binance":
             exchange = binance_exchange
@@ -79,6 +76,7 @@ def get_ohlcv(
 
         return ohlcv_df.to_numpy().tolist()
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

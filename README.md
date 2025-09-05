@@ -1,13 +1,11 @@
 # ccxt-proxy2
 
-## docker local test
+## docker local dev
   * `docker-compose down`
   * `docker image prune -a`
-  * `docker-compose up --build`
-    * or use
-    * `docker build --no-cache -t ccxt_proxy2 .`
-    * `docker-compose up`
-
+  * `docker build --no-cache-filter app -t ccxt_proxy2 . ; docker-compose up`
+## local dev
+  * `uv run uvicorn src.main:app --host localhost --port 5123 --reload`
 ## docker run on linux
 
   ```
