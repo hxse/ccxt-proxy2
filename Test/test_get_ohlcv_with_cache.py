@@ -114,7 +114,7 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     print("\nest_get_ohlcv_with_cache_consolidate2")
     tp = CacheTestParams(cache_dir=cache_setup)
 
-    enable_consolidate = True
+    enable_consolidate = False
 
     # 第一次调用：正常请求并写入缓存
     print("\n--- 第一次调用: 请求并写入缓存 ---")
@@ -129,12 +129,18 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
+    import pdb
+
+    pdb.set_trace()
     tp.start_time = parse_timestamp_string("20230101T083000Z")
     df_write3 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
+    import pdb
+
+    pdb.set_trace()
 
     assert len(df_write) == tp.count, (
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"

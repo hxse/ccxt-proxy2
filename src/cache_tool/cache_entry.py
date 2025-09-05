@@ -64,7 +64,8 @@ def get_ohlcv_with_cache(
             print(f"✅ 缓存命中，已加载 {len(cached_chunk)} 条数据")
             fetched_data = merge_with_deduplication(fetched_data, cached_chunk)
 
-            need_count = current_count - len(cached_chunk) + 1
+            need_count = current_count - len(cached_chunk)
+            need_count = 0 if need_count <= 0 else need_count + 1
             current_time = fetched_data.iloc[-1, 0]
 
         if need_count > 0:
@@ -76,10 +77,10 @@ def get_ohlcv_with_cache(
 
             if new_data.empty:
                 print("❌ 数据源返回空，提前停止请求。")
-                import pdb
-
-                pdb.set_trace()
                 break
+
+            fetched_data = merge_with_deduplication(fetched_data, new_data)
+            current_time = fetched_data.iloc[-1, 0]
 
             # 4. 如果启用缓存，将新数据写入缓存
             if enable_cache:
@@ -89,15 +90,7 @@ def get_ohlcv_with_cache(
 
             if len(new_data) < need_count:
                 print("❌ 请求数组不足，提前停止请求。")
-                import pdb
-
-                pdb.set_trace()
                 break
-
-            fetched_data = merge_with_deduplication(fetched_data, new_data)
-
-            need_count = current_count - len(new_data)
-            current_time = fetched_data.iloc[-1, 0]
 
     if enable_consolidate:
         check_for_overlaps(cache_dir, cache_size, symbol, period, file_type)
