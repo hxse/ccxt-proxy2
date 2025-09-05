@@ -123,38 +123,36 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
-    import pdb
-
-    pdb.set_trace()
-
     tp.start_time = parse_timestamp_string("20230101T051500Z")
     df_write2 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
-    import pdb
-
-    pdb.set_trace()
-
     tp.start_time = parse_timestamp_string("20230101T083000Z")
     df_write3 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
         enable_consolidate=enable_consolidate,
     )
-    # import pdb
 
-    # pdb.set_trace()
-
+    assert len(df_write) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
+    )
     print(
         "df_write", len(df_write), df_write.iloc[0]["date"], df_write.iloc[-1]["date"]
+    )
+    assert len(df_write2) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write2)}"
     )
     print(
         "df_write2",
         len(df_write2),
         df_write2.iloc[0]["date"],
         df_write2.iloc[-1]["date"],
+    )
+    assert len(df_write3) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write3)}"
     )
     print(
         "df_write3",
@@ -189,7 +187,4 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     assert_uniform_time_intervals(df_write, "time")
     assert_uniform_time_intervals(cached_data, "time")
 
-    import pdb
-
-    pdb.set_trace()
     clear_cache_directory(tp.cache_dir)
