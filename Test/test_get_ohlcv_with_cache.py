@@ -4,7 +4,13 @@ from pathlib import Path
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
 from src.cache_tool.cache_utils import parse_timestamp_string, get_sorted_cache_files
 from src.cache_tool.cache_file_io import read_cache_file
-from Test.utils import clear_cache_directory, assert_uniform_time_intervals
+from Test.utils import (
+    clear_cache_directory,
+    assert_uniform_time_intervals,
+    calculate_future_timestamp,
+    calculate_kline_count,
+    validate_merged_data,
+)
 from src.cache_tool.cache_data_processor import merge_with_deduplication
 
 from dataclasses import dataclass
@@ -116,6 +122,7 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
 
     # 第一次调用：正常请求并写入缓存
     print("\n--- 第一次调用: 请求并写入缓存 ---")
+    start_time1 = tp.start_time
     df_write = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
@@ -123,6 +130,7 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     )
 
     tp.start_time = parse_timestamp_string("20230101T051500Z")
+    start_time2 = tp.start_time
     df_write2 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
@@ -130,6 +138,7 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     )
 
     tp.start_time = parse_timestamp_string("20230101T083000Z")
+    start_time3 = tp.start_time
     df_write3 = get_ohlcv_with_cache(
         **vars(tp),
         fetch_callback=mock_fetch_ohlcv,
@@ -185,6 +194,9 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
     assert len(cached_data) == len(df_write_merge), (
         f"cached_data行数应为 {len(df_write_merge)}，但实际为 {len(df_write)}"
     )
+
+    start_times = [start_time1, start_time2, start_time3]
+    validate_merged_data(cached_data, start_times, tp.period, tp.count)
 
     assert_uniform_time_intervals(df_write, "time")
     assert_uniform_time_intervals(cached_data, "time")
