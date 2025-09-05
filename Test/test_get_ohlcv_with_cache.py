@@ -48,70 +48,39 @@ class CacheTestParams:
     file_type: str = "csv"
 
 
-def test_get_ohlcv_with_cache(cache_setup):
-    print("\ntest_get_ohlcv_with_cache_consolidate")
-    tp = CacheTestParams(cache_dir=cache_setup)
-
-    # 第一次调用：正常请求并写入缓存
-    print("\n--- 第一次调用: 请求并写入缓存 ---")
-    df_write = get_ohlcv_with_cache(
-        **vars(tp), fetch_callback=mock_fetch_ohlcv, enable_consolidate=False
-    )
-
-    assert len(df_write) == tp.count, (
-        f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
-    )
-
-    # 验证缓存文件是否已创建
-    cache_files = get_sorted_cache_files(
-        tp.cache_dir, tp.symbol, tp.period, tp.file_type
-    )
-    cached_data = pd.DataFrame()
-    for i in cache_files:
-        chunk = read_cache_file(i, tp.file_type)
-        cached_data = merge_with_deduplication(cached_data, chunk)
-
-    assert len(cached_data) == tp.count, (
-        f"cached_data行数应为 {tp.count}，但实际为 {len(df_write)}"
-    )
-
-    assert_uniform_time_intervals(df_write, "time")
-    assert_uniform_time_intervals(cached_data, "time")
-
-    clear_cache_directory(tp.cache_dir)
-
-
 def test_get_ohlcv_with_cache_consolidate(cache_setup):
     print("\ntest_get_ohlcv_with_cache_consolidate")
     tp = CacheTestParams(cache_dir=cache_setup)
 
-    # 第一次调用：正常请求并写入缓存
-    print("\n--- 第一次调用: 请求并写入缓存 ---")
-    df_write = get_ohlcv_with_cache(
-        **vars(tp), fetch_callback=mock_fetch_ohlcv, enable_consolidate=True
-    )
+    for ec in [True, False]:
+        print("enable_consolidate", ec)
+        # 第一次调用：正常请求并写入缓存
+        print("\n--- 第一次调用: 请求并写入缓存 ---")
+        df_write = get_ohlcv_with_cache(
+            **vars(tp), fetch_callback=mock_fetch_ohlcv, enable_consolidate=ec
+        )
 
-    assert len(df_write) == tp.count, (
-        f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
-    )
+        assert len(df_write) == tp.count, (
+            f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
+        )
 
-    # 验证缓存文件是否已创建
-    cache_files = get_sorted_cache_files(
-        tp.cache_dir, tp.symbol, tp.period, tp.file_type
-    )
-    cached_data = pd.DataFrame()
-    for i in cache_files:
-        chunk = read_cache_file(i, tp.file_type)
-        cached_data = merge_with_deduplication(cached_data, chunk)
+        # 验证缓存文件是否已创建
+        cache_files = get_sorted_cache_files(
+            tp.cache_dir, tp.symbol, tp.period, tp.file_type
+        )
+        cached_data = pd.DataFrame()
+        for i in cache_files:
+            chunk = read_cache_file(i, tp.file_type)
+            cached_data = merge_with_deduplication(cached_data, chunk)
 
-    assert len(cached_data) == tp.count, (
-        f"cached_data行数应为 {tp.count}，但实际为 {len(df_write)}"
-    )
+        assert len(cached_data) == tp.count, (
+            f"cached_data行数应为 {tp.count}，但实际为 {len(df_write)}"
+        )
 
-    assert_uniform_time_intervals(df_write, "time")
-    assert_uniform_time_intervals(cached_data, "time")
+        assert_uniform_time_intervals(df_write, "time")
+        assert_uniform_time_intervals(cached_data, "time")
 
-    clear_cache_directory(tp.cache_dir)
+        clear_cache_directory(tp.cache_dir)
 
 
 def test_get_ohlcv_with_cache_consolidate2(cache_setup):
