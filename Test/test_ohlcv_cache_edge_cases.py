@@ -8,7 +8,7 @@ from src.cache_tool.cache_data_processor import merge_with_deduplication
 from Test.conftest import CacheTestParams
 
 
-@pytest.mark.parametrize("count", [0, 1, 5])
+@pytest.mark.parametrize("count", [0, 1, 5, 10, 13, 25, 33, 66, 79])
 def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
     print(f"\ntest_get_ohlcv_with_cache_edge_cases with count={count}")
     tp = CacheTestParams(cache_dir=cache_setup, count=count)

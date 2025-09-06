@@ -40,6 +40,9 @@ def get_ohlcv_with_cache(
     fetched_data = pd.DataFrame()
     current_time = start_time
 
+    if count == 0:
+        return fetched_data
+
     print(
         "start_time",
         start_time,
