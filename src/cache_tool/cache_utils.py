@@ -224,6 +224,31 @@ def find_consecutive_sequences(data: List[Any]) -> List[Tuple[Any, int, int]]:
     return results
 
 
+def find_cache_size_sequences(
+    all_files: List[Any], cache_size: int
+) -> List[Tuple[int, int, int]]:
+    """
+    从文件信息中提取 'count'，找出连续重复的行数序列，并筛选出等于 cache_size 的序列。
+
+    Args:
+        all_files (List[Any]): 文件信息对象的列表，每个对象都有 'name' 属性。
+        cache_size (int): 要匹配的缓存大小。
+
+    Returns:
+        List[Tuple[int, int, int]]: 筛选后的 cache_size 序列。
+    """
+    # 从 all_files 中提取每个文件的 count 信息
+    counts = [get_file_info(file.name)["count"] for file in all_files]
+
+    # 调用 find_consecutive_sequences 函数来找出所有连续重复的行数序列
+    all_sequences = find_consecutive_sequences(counts)
+
+    # 从这些序列中，筛选出那些行数等于 cache_size 的序列
+    cache_size_sequences = [seq for seq in all_sequences if seq[0] == cache_size]
+
+    return cache_size_sequences
+
+
 def find_max_diff_sequence(
     sequences: List[Tuple[Any, int, int]],
 ) -> Tuple[Any, int, int]:

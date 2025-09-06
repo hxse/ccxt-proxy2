@@ -1,6 +1,12 @@
 import pandas as pd
+import pytest
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
-from src.cache_tool.cache_utils import parse_timestamp_string, get_sorted_cache_files
+from src.cache_tool.cache_utils import (
+    parse_timestamp_string,
+    get_sorted_cache_files,
+    find_cache_size_sequences,
+    group_continuous_files,
+)
 from src.cache_tool.cache_file_io import read_cache_file
 from Test.utils import (
     clear_cache_directory,
@@ -11,14 +17,14 @@ from src.cache_tool.cache_data_processor import merge_with_deduplication
 from Test.conftest import CacheTestParams
 
 
-def test_get_ohlcv_with_cache_consolidate2(cache_setup):
+@pytest.mark.parametrize("enable_consolidate", [False, True])
+def test_get_ohlcv_with_cache_consolidate(cache_setup, enable_consolidate):
     print("\nest_get_ohlcv_with_cache_consolidate2")
     tp = CacheTestParams(cache_dir=cache_setup)
 
-    enable_consolidate = False
-
     # 第一次调用：正常请求并写入缓存
     print("\n--- 第一次调用: 请求并写入缓存 ---")
+    tp.start_time = parse_timestamp_string("20230101T060000Z")
     start_time1 = tp.start_time
     df_write = get_ohlcv_with_cache(
         **vars(tp),
@@ -97,5 +103,107 @@ def test_get_ohlcv_with_cache_consolidate2(cache_setup):
 
     assert_uniform_time_intervals(df_write, "time")
     assert_uniform_time_intervals(cached_data, "time")
+
+    clear_cache_directory(tp.cache_dir)
+
+
+@pytest.mark.parametrize("enable_consolidate", [False, True])
+def test_get_ohlcv_with_cache_consolidate2(cache_setup, enable_consolidate):
+    print("\nest_get_ohlcv_with_cache_consolidate2")
+    tp = CacheTestParams(cache_dir=cache_setup)
+    tp.count = 10
+
+    # 第一次调用：正常请求并写入缓存
+    print("\n--- 第一次调用: 请求并写入缓存 ---")
+    tp.start_time = parse_timestamp_string("20230101T060000Z")
+    start_time1 = tp.start_time
+    df_write = get_ohlcv_with_cache(
+        **vars(tp),
+        fetch_callback=mock_fetch_ohlcv,
+        enable_consolidate=enable_consolidate,
+    )
+
+    tp.start_time = parse_timestamp_string("20230101T041500Z")
+    start_time2 = tp.start_time
+    df_write2 = get_ohlcv_with_cache(
+        **vars(tp),
+        fetch_callback=mock_fetch_ohlcv,
+        enable_consolidate=enable_consolidate,
+    )
+
+    tp.start_time = parse_timestamp_string("20230101T021500Z")
+    start_time3 = tp.start_time
+    df_write3 = get_ohlcv_with_cache(
+        **vars(tp),
+        fetch_callback=mock_fetch_ohlcv,
+        enable_consolidate=enable_consolidate,
+    )
+
+    assert len(df_write) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
+    )
+    print(
+        "df_write", len(df_write), df_write.iloc[0]["date"], df_write.iloc[-1]["date"]
+    )
+    assert len(df_write2) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write2)}"
+    )
+    print(
+        "df_write2",
+        len(df_write2),
+        df_write2.iloc[0]["date"],
+        df_write2.iloc[-1]["date"],
+    )
+    assert len(df_write3) == tp.count, (
+        f"df_write行数应为 {tp.count}，但实际为 {len(df_write3)}"
+    )
+    print(
+        "df_write3",
+        len(df_write3),
+        df_write3.iloc[0]["date"],
+        df_write3.iloc[-1]["date"],
+    )
+
+    print(len(df_write))
+    df_write_merge = merge_with_deduplication(df_write, df_write2)
+    print(
+        len(df_write_merge),
+    )
+    df_write_merge = merge_with_deduplication(df_write_merge, df_write3)
+    print(
+        len(df_write_merge),
+    )
+
+    # 验证缓存文件是否已创建
+    cache_files = get_sorted_cache_files(
+        tp.cache_dir, tp.symbol, tp.period, tp.file_type
+    )
+    assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
+
+    cached_data = pd.DataFrame()
+    for i in cache_files:
+        chunk = read_cache_file(i, tp.file_type)
+        cached_data = merge_with_deduplication(cached_data, chunk)
+
+    assert len(cached_data) == len(df_write_merge), (
+        f"cached_data行数应为 {len(df_write_merge)}，但实际为 {len(df_write)}"
+    )
+
+    start_times = [start_time1, start_time2, start_time3]
+    validate_merged_data(cached_data, start_times, tp.period, tp.count)
+
+    assert_uniform_time_intervals(df_write, "time")
+    assert_uniform_time_intervals(cached_data, "time")
+
+    sorted_cache_files_2d = group_continuous_files(cache_files)
+    assert len(sorted_cache_files_2d) == 1, "预期只有一个连续缓存组合"
+    cache_size_sequences = find_cache_size_sequences(
+        sorted_cache_files_2d[0], tp.cache_size
+    )
+
+    if enable_consolidate:
+        assert len(cache_size_sequences) == 1, "预期连续cache_size的段落 == 1"
+    else:
+        assert len(cache_size_sequences) > 1, "预期连续cache_size的段落 > 1"
 
     clear_cache_directory(tp.cache_dir)

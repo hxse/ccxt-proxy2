@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
-from src.cache_tool.cache_utils import get_sorted_cache_files, parse_timestamp_string
+from src.cache_tool.cache_utils import get_sorted_cache_files
 from src.cache_tool.cache_file_io import read_cache_file
 from Test.utils import clear_cache_directory, assert_uniform_time_intervals
 from src.cache_tool.cache_data_processor import merge_with_deduplication

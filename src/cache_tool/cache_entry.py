@@ -8,7 +8,11 @@ from .cache_read_chunk import get_next_continuous_cache_chunk
 from .cache_data_processor import merge_with_deduplication
 
 from .cache_consolidator import consolidate_cache, check_for_overlaps
-from .cache_utils import get_chunk_slices
+from .cache_utils import (
+    get_chunk_slices,
+    format_timestamp,
+    convert_ms_timestamp_to_utc_datetime,
+)
 
 
 def get_ohlcv_with_cache(
@@ -27,6 +31,8 @@ def get_ohlcv_with_cache(
 ) -> pd.DataFrame:
     """
     根据新的统一逻辑获取K线数据，支持缓存。
+    start_time: 如果为None, 不会读取缓存, 但是会写入缓存=
+
     """
     cache_dir = Path(cache_dir)
     file_type = file_type = file_type.lstrip(".")
@@ -34,7 +40,16 @@ def get_ohlcv_with_cache(
     fetched_data = pd.DataFrame()
     current_time = start_time
 
-    print("count", count, "page_size", page_size, "cache_size", cache_size)
+    print(
+        "start_time",
+        start_time,
+        "count",
+        count,
+        "page_size",
+        page_size,
+        "cache_size",
+        cache_size,
+    )
 
     chunk_slices = get_chunk_slices(count, page_size)
 
@@ -60,8 +75,12 @@ def get_ohlcv_with_cache(
                 file_type,
             )
 
+        _current_time = format_timestamp(
+            convert_ms_timestamp_to_utc_datetime(current_time)
+        )
+
         if not cached_chunk.empty:
-            print(f"✅ 缓存命中，已加载 {len(cached_chunk)} 条数据")
+            print(f"✅ 缓存命中，已加载 {len(cached_chunk)} 条数据。{_current_time}")
             fetched_data = merge_with_deduplication(fetched_data, cached_chunk)
 
             need_count = current_count - len(cached_chunk)
@@ -69,7 +88,7 @@ def get_ohlcv_with_cache(
             current_time = fetched_data.iloc[-1, 0]
 
         if need_count > 0:
-            print(f"ℹ️ 需要 {need_count} 条数据，开始请求新数据。")
+            print(f"ℹ️ 需要 {need_count} 条数据，开始请求新数据。{_current_time}")
 
             new_data = fetch_callback(
                 symbol, period, current_time, need_count, **fetch_callback_params

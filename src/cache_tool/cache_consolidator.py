@@ -5,11 +5,13 @@ from .cache_utils import (
     get_sorted_cache_files,
     get_file_info,
     group_continuous_files,
-    parse_timestamp_string,
 )
 from .cache_file_io import write_to_cache, read_cache_file
 from .cache_data_processor import merge_with_deduplication
-from .cache_utils import find_consecutive_sequences, find_max_diff_sequence
+from .cache_utils import (
+    find_max_diff_sequence,
+    find_cache_size_sequences,
+)
 
 
 def _process_stream(
@@ -72,7 +74,7 @@ def _process_stream(
 
             current_df = pd.DataFrame()
             if written_files:
-                last_file = written_files[-1]
+                last_file = written_files[0] if reverse else written_files[-1]
                 last_file_info = get_file_info(last_file.name)
                 if last_file_info and last_file_info.get("count", 0) < cache_size:
                     current_df = read_cache_file(last_file, file_type)
@@ -122,14 +124,7 @@ def _get_files_to_process(
 
     # 2. 遍历每个文件组并处理
     for all_files in sorted_cache_files_2d:
-        # 提取每个文件的行数（count）信息
-        count_keys = [get_file_info(i.name)["count"] for i in all_files]
-
-        # 找出所有连续重复的行数序列
-        all_sequences = find_consecutive_sequences(count_keys)
-
-        # 从所有序列中，筛选出那些行数等于 cache_size 的序列
-        cache_size_sequences = [i for i in all_sequences if i[0] == cache_size]
+        cache_size_sequences = find_cache_size_sequences(all_files, cache_size)
 
         # 3. 根据是否有满文件序列来划分文件
         if not cache_size_sequences:
