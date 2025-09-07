@@ -13,12 +13,21 @@ from .cache_utils import (
     format_timestamp,
     convert_ms_timestamp_to_utc_datetime,
 )
+from filelock import Timeout, FileLock
+
+
+def get_ohlcv_with_cache_lock(*args, **kargs):
+    cache_dir = kargs.get("cache_dir") or (args[4] if len(args) > 4 else None)
+
+    lock = FileLock(f"{cache_dir}/cache.lock")
+    with lock:
+        return get_ohlcv_with_cache(*args, **kargs)
 
 
 def get_ohlcv_with_cache(
     symbol: str,
     period: str,
-    start_time: int,
+    start_time: int | None,
     count: int,
     cache_dir: Path,
     cache_size: int,
@@ -40,9 +49,6 @@ def get_ohlcv_with_cache(
     fetched_data = pd.DataFrame()
     current_time = start_time
 
-    if count == 0:
-        return fetched_data
-
     print(
         "start_time",
         start_time,
@@ -53,6 +59,24 @@ def get_ohlcv_with_cache(
         "cache_size",
         cache_size,
     )
+
+    if count == 0:
+        print("ℹ️ count为0, 返回空dataframe")
+        return fetched_data
+
+    if start_time is None:
+        print(f"ℹ️ start_time为None, 开始请求新数据。{count}")
+
+        new_data = fetch_callback(
+            symbol, period, current_time, count, **fetch_callback_params
+        )
+
+        if enable_cache:
+            print("ℹ️ start_time为None, 只写入缓存, 不读取缓存")
+            handle_cache_write(
+                symbol, period, new_data, cache_dir, cache_size, file_type
+            )
+        return new_data
 
     chunk_slices = get_chunk_slices(count, page_size)
 

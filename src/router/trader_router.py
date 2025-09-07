@@ -11,7 +11,7 @@ from src.tools.shared import (
     config,
 )
 from src.cache_tool.cache_entry import (
-    get_ohlcv_with_cache,
+    get_ohlcv_with_cache_lock,
     fetch_ohlcv,
     mock_fetch_ohlcv,
 )
@@ -60,7 +60,7 @@ def get_ohlcv(
             raise HTTPException(status_code=400, detail="Invalid exchange name")
 
         print("market_type:", config["market_type"])
-        ohlcv_df = get_ohlcv_with_cache(
+        ohlcv_df = get_ohlcv_with_cache_lock(
             symbol=symbol_to_use,
             period=period,
             start_time=start_time,

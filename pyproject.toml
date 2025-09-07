@@ -9,6 +9,7 @@ dependencies = [
     "pydantic",
     "pandas>=2.3.2",
     "pyarrow>=21.0.0",
+    "filelock>=3.19.1",
 ]
 
 [dependency-groups]
