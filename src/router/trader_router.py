@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 
 # 从主应用中导入你的交易所实例和验证函数
@@ -16,11 +15,6 @@ from src.tools.ccxt_utils import (
     cancel_all_orders_ccxt,
     get_exchange_instance,
     create_exit_percentage_order,
-)
-from src.tools.adjust_trade_utils_decimal import (
-    adjust_coin_amount_wrapper,
-    adjust_usd_to_coin_amount_wrapper,
-    adjusted_market_price_wrapper,
 )
 
 # 创建 APIRouter 实例
@@ -45,6 +39,7 @@ class LimitOrderRequest(BaseModel):
     side: str
     amount: float
     price: float
+    is_usd_amount: bool = False
 
 
 class StopMarketOrderRequest(BaseModel):
@@ -54,6 +49,7 @@ class StopMarketOrderRequest(BaseModel):
     amount: float
     reduceOnly: bool = True
     stopLossPrice: float | None = None
+    is_usd_amount: bool = False
 
 
 class TakeProfitMarketOrderRequest(BaseModel):
@@ -63,6 +59,7 @@ class TakeProfitMarketOrderRequest(BaseModel):
     amount: float
     reduceOnly: bool = True
     takeProfitPrice: float | None = None
+    is_usd_amount: bool = False
 
 
 class StopMarketOrderPercentageRequest(BaseModel):
@@ -72,6 +69,8 @@ class StopMarketOrderPercentageRequest(BaseModel):
     side: str
     reduceOnly: bool = True
     stopLossPrice: float | None = None
+    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
+    is_usd_amount: bool = False
 
 
 class TakeProfitMarketOrderPercentageRequest(BaseModel):
@@ -81,6 +80,8 @@ class TakeProfitMarketOrderPercentageRequest(BaseModel):
     side: str
     reduceOnly: bool = True
     takeProfitPrice: float | None = None
+    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
+    is_usd_amount: bool = False
 
 
 class CloseAllOrderRequest(BaseModel):
@@ -91,6 +92,31 @@ class CloseAllOrderRequest(BaseModel):
 class CancelAllOrdersRequest(BaseModel):
     exchange_name: str
     symbol: str
+
+
+class OHLCVParams(BaseModel):
+    exchange_name: str
+    symbol: str
+    period: str
+    start_time: int | None = None
+    count: int | None = None
+    enable_cache: bool = True
+    enable_test: bool = False
+    file_type: str = ".parquet"
+    cache_size: int = 1000
+    page_size: int = 1500
+    cache_dir: str = "./database"
+
+
+@ccxt_router.get("/balance")
+def get_balance(exchange_name: str):
+    try:
+        result = fetch_balance_ccxt(exchange_name)
+        return result
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @ccxt_router.get("/tickers")
@@ -112,36 +138,12 @@ def get_tickers(
 
 
 @ccxt_router.get("/ohlcv")
-def get_ohlcv(
-    exchange_name: str,
-    symbol: str,
-    period: str,
-    start_time: int | None = None,
-    count: int | None = None,
-    enable_cache: bool = True,
-    enable_test: bool = False,
-    file_type: str = ".parquet",  # .parquet or .csv
-    cache_size: int = 1000,
-    page_size: int = 1500,
-    cache_dir: str = "./database",
-):
+def get_ohlcv(params: OHLCVParams = Depends()):
     """
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
     try:
-        ohlcv_data = fetch_ohlcv_ccxt(
-            exchange_name=exchange_name,
-            symbol=symbol,
-            period=period,
-            start_time=start_time,
-            count=count,
-            enable_cache=enable_cache,
-            enable_test=enable_test,
-            file_type=file_type,
-            cache_size=cache_size,
-            page_size=page_size,
-            cache_dir=cache_dir,
-        )
+        ohlcv_data = fetch_ohlcv_ccxt(**params.model_dump())
         return ohlcv_data
     except HTTPException as e:
         raise e
@@ -150,29 +152,15 @@ def get_ohlcv(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ccxt_router.get("/balance")
-def get_balance(exchange_name: str):
-    try:
-        result = fetch_balance_ccxt(exchange_name)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @ccxt_router.post("/market")
-def create_market_order(order: MarketOrderRequest):
+def create_market_order(params: MarketOrderRequest):
     """
     在指定交易所创建市价订单。
     """
     try:
         result = create_order_ccxt(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
+            **params.model_dump(),
             type="market",
-            side=order.side,
-            amount=order.amount,
             price=None,
         )
         return result
@@ -184,18 +172,14 @@ def create_market_order(order: MarketOrderRequest):
 
 
 @ccxt_router.post("/limit")
-def create_limit_order(order: LimitOrderRequest):
+def create_limit_order(params: LimitOrderRequest):
     """
     在指定交易所创建限价订单。
     """
     try:
         result = create_order_ccxt(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
+            **params.model_dump(),
             type="limit",
-            side=order.side,
-            amount=order.amount,
-            price=order.price,
         )
         return result
     except HTTPException as e:
@@ -206,25 +190,22 @@ def create_limit_order(order: LimitOrderRequest):
 
 
 @ccxt_router.post("/stop_market")
-def create_stop_market_order(order: StopMarketOrderRequest):
+def create_stop_market_order(params: StopMarketOrderRequest):
     """
     在指定交易所创建止损市价订单。
     """
     try:
         type = "market"
-        if order.exchange_name == "binance":
+        if params.exchange_name == "binance":
             type = "STOP_MARKET"
 
         result = create_order_ccxt(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
+            **params.model_dump(exclude={"reduceOnly", "stopLossPrice"}),
             type=type,
-            side=order.side,
-            amount=order.amount,
             price=None,
             params={
-                "reduceOnly": order.reduceOnly,
-                "stopLossPrice": order.stopLossPrice,
+                "reduceOnly": params.reduceOnly,
+                "stopLossPrice": params.stopLossPrice,
             },
         )
         return result
@@ -236,25 +217,22 @@ def create_stop_market_order(order: StopMarketOrderRequest):
 
 
 @ccxt_router.post("/take_profit_market")
-def create_take_profit_market_order(order: TakeProfitMarketOrderRequest):
+def create_take_profit_market_order(params: TakeProfitMarketOrderRequest):
     """
     在指定交易所创建止盈市价订单。
     """
     try:
         type = "market"
-        if order.exchange_name == "binance":
+        if params.exchange_name == "binance":
             type = "TAKE_PROFIT_MARKET"
 
         result = create_order_ccxt(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
+            **params.model_dump(exclude={"reduceOnly", "takeProfitPrice"}),
             type=type,
-            side=order.side,
-            amount=order.amount,
             price=None,
             params={
-                "reduceOnly": order.reduceOnly,
-                "takeProfitPrice": order.takeProfitPrice,
+                "reduceOnly": params.reduceOnly,
+                "takeProfitPrice": params.takeProfitPrice,
             },
         )
         return result
@@ -266,27 +244,23 @@ def create_take_profit_market_order(order: TakeProfitMarketOrderRequest):
 
 
 @ccxt_router.post("/stop_market_percentage")
-def create_stop_market_order_percentage(order: StopMarketOrderPercentageRequest):
+def create_stop_market_order_percentage(params: StopMarketOrderPercentageRequest):
     """
     在指定交易所创建基于百分比的止损市价订单。
     根据仓位大小的百分比来计算订单数量。
     """
     try:
         type = "market"
-        if order.exchange_name == "binance":
+        if params.exchange_name == "binance":
             type = "STOP_MARKET"
 
-        extra_params = {
-            "reduceOnly": order.reduceOnly,
-            "stopLossPrice": order.stopLossPrice,
-        }
         result = create_exit_percentage_order(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
-            side=order.side,
+            **params.model_dump(exclude={"reduceOnly", "stopLossPrice"}),
             type=type,
-            amount_percentage=order.amount_percentage,
-            params=extra_params,
+            params={
+                "reduceOnly": params.reduceOnly,
+                "stopLossPrice": params.stopLossPrice,
+            },
         )
         return result
     except HTTPException as e:
@@ -298,7 +272,7 @@ def create_stop_market_order_percentage(order: StopMarketOrderPercentageRequest)
 
 @ccxt_router.post("/take_profit_market_percentage")
 def create_take_profit_market_order_percentage(
-    order: TakeProfitMarketOrderPercentageRequest,
+    params: TakeProfitMarketOrderPercentageRequest,
 ):
     """
     在指定交易所创建基于百分比的止盈市价订单。
@@ -306,20 +280,16 @@ def create_take_profit_market_order_percentage(
     """
     try:
         type = "market"
-        if order.exchange_name == "binance":
+        if params.exchange_name == "binance":
             type = "TAKE_PROFIT_MARKET"
 
-        extra_params = {
-            "reduceOnly": order.reduceOnly,
-            "takeProfitPrice": order.takeProfitPrice,
-        }
         result = create_exit_percentage_order(
-            exchange_name=order.exchange_name,
-            symbol=order.symbol,
-            side=order.side,
+            **params.model_dump(exclude={"reduceOnly", "takeProfitPrice"}),
             type=type,
-            amount_percentage=order.amount_percentage,
-            params=extra_params,
+            params={
+                "reduceOnly": params.reduceOnly,
+                "takeProfitPrice": params.takeProfitPrice,
+            },
         )
         return result
     except HTTPException as e:
@@ -330,12 +300,12 @@ def create_take_profit_market_order_percentage(
 
 
 @ccxt_router.post("/close_all_orders")
-def close_all_orders(order: CloseAllOrderRequest):
+def close_all_orders(params: CloseAllOrderRequest):
     """
     关闭指定品种所有仓位和挂单
     """
     try:
-        result = close_all_order_ccxt(order.exchange_name, order.symbol)
+        result = close_all_order_ccxt(**params.model_dump())
         return result
     except HTTPException as e:
         raise e
@@ -345,15 +315,12 @@ def close_all_orders(order: CloseAllOrderRequest):
 
 
 @ccxt_router.post("/cancel_all_orders")
-def cancel_all_orders(order: CancelAllOrdersRequest):
+def cancel_all_orders(params: CancelAllOrdersRequest):
     """
     取消指定交易对所有挂单
     """
     try:
-        result = cancel_all_orders_ccxt(
-            order.exchange_name,
-            order.symbol,
-        )
+        result = cancel_all_orders_ccxt(**params.model_dump())
         return result
     except HTTPException as e:
         raise e

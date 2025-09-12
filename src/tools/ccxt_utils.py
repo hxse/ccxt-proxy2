@@ -9,15 +9,23 @@ from src.tools.shared import (
     kraken_exchange,
     config,
 )
-from src.tools.adjust_trade_utils_decimal import (
-    get_symbol,
-)
+from src.tools.adjust_trade_utils_decimal import get_symbol
 from src.cache_tool.cache_entry import (
     get_ohlcv_with_cache_lock,
     fetch_ohlcv,
     mock_fetch_ohlcv,
 )
 from src.cache_tool.cache_utils import sanitize_symbol
+
+from src.tools.adjust_trade_utils_decimal import (
+    adjust_coin_amount_wrapper,
+    adjust_usd_to_coin_amount_wrapper,
+    adjusted_market_price_wrapper,
+)
+
+
+def get_currency_type(is_usd_amount: bool):
+    return "usd" if is_usd_amount else "coin"
 
 
 def get_exchange_instance(exchange_name: str):
@@ -97,15 +105,30 @@ def create_order_ccxt(
     side: str,
     amount: float,
     price: float | None = None,
+    is_usd_amount: bool = False,
     params: dict = {},
 ):
     """
     在指定交易所创建订单。
     """
+
     exchange = get_exchange_instance(exchange_name)
     symbol_to_use = get_symbol(exchange_name, symbol)
+
+    if is_usd_amount:
+        adjusted_amount = adjust_usd_to_coin_amount_wrapper(
+            exchange, symbol_to_use, amount
+        )
+        print(f"convert amount {amount} usd -> {adjusted_amount} coin")
+    else:
+        adjusted_amount = adjust_coin_amount_wrapper(exchange, symbol_to_use, amount)
+        print(f"convert amount {amount} coin -> {adjusted_amount} coin")
+
+    adjusted_price = adjusted_market_price_wrapper(exchange, symbol_to_use, price)
+    print(f"convert price {price} -> {adjusted_price}")
+
     result = exchange.create_order(
-        symbol_to_use, type, side, amount, price, params=params
+        symbol_to_use, type, side, adjusted_amount, adjusted_price, params=params
     )
     return {"order": result}
 
@@ -152,6 +175,7 @@ def create_exit_percentage_order(
     type: str,
     amount_percentage: float,
     params: dict = {},
+    is_usd_amount: bool = False,
 ):
     results = []  # 初始化 results 列表
     exchange = get_exchange_instance(exchange_name)
@@ -166,15 +190,25 @@ def create_exit_percentage_order(
             if (side == "sell" and i["side"] == "long") or (
                 side == "buy" and i["side"] == "short"
             ):
+                # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
                 target_amount = i["contracts"] * amount_percentage
+                adjusted_amount = adjust_coin_amount_wrapper(
+                    exchange, symbol_to_use, target_amount
+                )
+
+                print(
+                    f"exit convert amount {target_amount} coin -> {adjusted_amount} coin"
+                )
+
                 if target_amount > 0:  # 只有当计算出的订单数量大于0时才创建订单
                     order_result = create_order_ccxt(
                         exchange_name=exchange_name,
                         symbol=symbol,
                         type=type,
                         side=side,
-                        amount=target_amount,
+                        amount=adjusted_amount,
                         price=None,
+                        is_usd_amount=is_usd_amount,
                         params=params,
                     )
                     results.append(order_result)

@@ -1,11 +1,11 @@
 meta {
-  name: binance
+  name: binance usd
   type: http
-  seq: 1
+  seq: 3
 }
 
 post {
-  url: {{baseUrl}}/ccxt/limit
+  url: {{baseUrl}}/ccxt/market
   body: json
   auth: bearer
 }
@@ -19,8 +19,7 @@ body:json {
     "exchange_name": "binance",
     "symbol": "BTC/USDT",
     "side": "buy",
-    "amount": 0.001,
-    "price": 107331.2,
-    "is_usd_amount": false
+    "amount": 150,
+    "is_usd_amount": true
   }
 }

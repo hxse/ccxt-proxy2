@@ -1,11 +1,11 @@
 meta {
-  name: binance
+  name: kraken usd
   type: http
-  seq: 1
+  seq: 4
 }
 
 post {
-  url: {{baseUrl}}/ccxt/limit
+  url: {{baseUrl}}/ccxt/market
   body: json
   auth: bearer
 }
@@ -16,11 +16,10 @@ auth:bearer {
 
 body:json {
   {
-    "exchange_name": "binance",
+    "exchange_name": "kraken",
     "symbol": "BTC/USDT",
     "side": "buy",
-    "amount": 0.001,
-    "price": 107331.2,
-    "is_usd_amount": false
+    "amount": 15,
+    "is_usd_amount": true
   }
 }

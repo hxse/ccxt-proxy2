@@ -167,6 +167,9 @@ def adjust_coin_amount_wrapper(exchange, symbol: str, coin_amount: float) -> Dec
         ccxt.NetworkError: 如果获取市场信息失败。
         InsufficientAmountError: 如果调整后的数量为零或过小。
     """
+    if coin_amount is None:
+        return None
+
     exchange_market_info = exchange.market(symbol)
     amount_precision_value = exchange_market_info["precision"]["amount"]
 
@@ -197,6 +200,9 @@ def adjust_usd_to_coin_amount_wrapper(
         ValueError: 如果当前价格无效。
         InsufficientAmountError: 如果调整后的数量为零或过小。
     """
+    if usd_amount is None:
+        return None
+
     exchange_market_data = exchange.market(trading_pair)
     amount_precision_step = exchange_market_data["precision"]["amount"]
 
@@ -229,6 +235,9 @@ def adjusted_market_price_wrapper(
     抛出:
         ccxt.NetworkError: 如果获取市场信息失败。
     """
+    if original_price is None:
+        return None
+
     market_info = exchange.market(symbol)
     market_price_precision_step = market_info["precision"]["price"]
 

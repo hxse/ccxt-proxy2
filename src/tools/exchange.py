@@ -23,6 +23,9 @@ def get_binance_exchange(config):
     binance_exchange.httpProxy = http_proxy if binance_enable_proxy else None
     if Sandbox_mode == "test":
         binance_exchange.set_sandbox_mode(True)
+
+    binance_exchange.load_markets()
+
     return binance_exchange
 
 
@@ -57,4 +60,7 @@ def get_kraken_exchange(config):
         kraken_exchange.httpProxy = http_proxy if kraken_enable_proxy else None
         if Sandbox_mode == "test":
             kraken_exchange.set_sandbox_mode(True)
+
+    kraken_exchange.load_markets()
+
     return kraken_exchange
