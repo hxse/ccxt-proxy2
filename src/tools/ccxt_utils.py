@@ -192,13 +192,6 @@ def create_exit_percentage_order(
             ):
                 # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
                 target_amount = i["contracts"] * amount_percentage
-                adjusted_amount = adjust_coin_amount_wrapper(
-                    exchange, symbol_to_use, target_amount
-                )
-
-                print(
-                    f"exit convert amount {target_amount} coin -> {adjusted_amount} coin"
-                )
 
                 if target_amount > 0:  # 只有当计算出的订单数量大于0时才创建订单
                     order_result = create_order_ccxt(
@@ -206,7 +199,7 @@ def create_exit_percentage_order(
                         symbol=symbol,
                         type=type,
                         side=side,
-                        amount=adjusted_amount,
+                        amount=target_amount,
                         price=None,
                         is_usd_amount=is_usd_amount,
                         params=params,
