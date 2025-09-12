@@ -1,0 +1,29 @@
+meta {
+  name: kraken
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/ccxt/ohlcv?exchange_name=kraken&symbol=BTC/USDT&period=15m&start_time=1740758400000&count=10&enable_cache=true
+  body: none
+  auth: bearer
+}
+
+params:query {
+  exchange_name: kraken
+  symbol: BTC/USDT
+  period: 15m
+  start_time: 1740758400000
+  count: 10
+  enable_cache: true
+  ~enable_test: 
+  ~file_type: 
+  ~cache_size: 
+  ~page_size: 
+  ~cache_dir: 
+}
+
+auth:bearer {
+  token: {{token}}
+}

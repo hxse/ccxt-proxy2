@@ -5,9 +5,6 @@ from pathlib import Path
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 
 
-kraken_symbol_dict = {"BTC/USDT": "BTC/USD:BTC"}
-
-
 app = FastAPI()
 
 
@@ -38,8 +35,6 @@ binance_exchange = get_binance_exchange(config)
 kraken_exchange = get_kraken_exchange(config)
 
 # kraken_exchange.fetchMarkets()
-
-kraken_symbol_dict = {"BTC/USDT": "BTC/USD:BTC"}
 
 
 # Bearer Token 鉴权

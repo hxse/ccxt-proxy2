@@ -1,0 +1,23 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/ccxt/balance?exchange_name=kraken
+  body: json
+  auth: bearer
+}
+
+params:query {
+  exchange_name: kraken
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {}
+}

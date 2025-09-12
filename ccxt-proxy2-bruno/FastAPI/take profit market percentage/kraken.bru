@@ -1,0 +1,26 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/take_profit_market_percentage
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "amount_percentage": 1,
+    "exchange_name": "kraken",
+    "symbol": "BTC/USDT",
+    "side": "sell",
+    "reduceOnly": true,
+    "takeProfitPrice": 116465.07
+  }
+}

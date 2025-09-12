@@ -1,0 +1,24 @@
+meta {
+  name: binance
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ccxt/tickers?exchange_name=binance&symbols=BTC/USDT
+  body: json
+  auth: bearer
+}
+
+params:query {
+  exchange_name: binance
+  symbols: BTC/USDT
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {}
+}
