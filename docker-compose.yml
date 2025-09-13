@@ -6,4 +6,3 @@ services:
       - "5123:8000"
     volumes:
       - ./data:/app/data
-      - ./database:/app/database

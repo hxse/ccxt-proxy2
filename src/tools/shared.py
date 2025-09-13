@@ -8,6 +8,14 @@ from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 app = FastAPI()
 
 
+OHLCV_DIR = Path("./data/ohlcv")
+OHLCV_DIR.mkdir(exist_ok=True)
+
+
+STRATEGY_DIR = Path("./data/strategy")
+STRATEGY_DIR.mkdir(exist_ok=True)
+
+
 json_path = "./data/config.json"
 try:
     with open(json_path, "r", encoding="utf-8") as file:

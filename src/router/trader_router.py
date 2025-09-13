@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-
 # 从主应用中导入你的交易所实例和验证函数
-from src.tools.shared import verify_token, config
+from src.tools.shared import verify_token, config, OHLCV_DIR
 
 # 导入封装的 ccxt 工具函数
 from src.tools.ccxt_utils import (
@@ -19,7 +18,7 @@ from src.tools.ccxt_utils import (
 
 # 创建 APIRouter 实例
 ccxt_router = APIRouter(
-    prefix="/ccxt",  # 设置所有路由的前缀，例如 /ccxt/balance
+    prefix="/ccxt",  # 设置所有路由的前缀
     dependencies=[Depends(verify_token)],  # 设置全局依赖项
 )
 
@@ -105,7 +104,6 @@ class OHLCVParams(BaseModel):
     file_type: str = ".parquet"
     cache_size: int = 1000
     page_size: int = 1500
-    cache_dir: str = "./database"
 
 
 @ccxt_router.get("/balance")
@@ -143,7 +141,7 @@ def get_ohlcv(params: OHLCVParams = Depends()):
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
     try:
-        ohlcv_data = fetch_ohlcv_ccxt(**params.model_dump())
+        ohlcv_data = fetch_ohlcv_ccxt(**params.model_dump(), cache_dir=OHLCV_DIR)
         return ohlcv_data
     except HTTPException as e:
         raise e

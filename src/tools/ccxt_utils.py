@@ -64,7 +64,7 @@ def fetch_ohlcv_ccxt(
     file_type: str = ".parquet",
     cache_size: int = 1000,
     page_size: int = 1500,
-    cache_dir: str = "./database",
+    cache_dir: str = "./data",
 ):
     """
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
