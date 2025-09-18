@@ -5,13 +5,13 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
-from src.tools.shared import verify_token, config, STRATEGY_DIR
+from src.tools.shared import config, STRATEGY_DIR
+from src.router.auth_handler import manager
 
 
-# 创建 APIRouter 实例
+# 创建文件处理路由，并添加鉴权依赖
 file_router = APIRouter(
-    prefix="/file",
-    dependencies=[Depends(verify_token)],
+    prefix="/file", dependencies=[Depends(manager)], tags=["File Management"]
 )
 
 

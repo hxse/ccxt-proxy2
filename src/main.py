@@ -13,9 +13,11 @@ if root_path:
 from src.tools.shared import app
 from src.router.trader_router import ccxt_router
 from src.router.file_handler import file_router
+from src.router.auth_handler import auth_router
 from scalar_fastapi import get_scalar_api_reference
 
 
+app.include_router(auth_router)
 app.include_router(ccxt_router)
 app.include_router(file_router)
 

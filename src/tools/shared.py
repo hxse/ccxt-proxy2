@@ -36,24 +36,7 @@ CACHE_DIR = "./data/cache"
 STATIC_DIR = "./data/static"
 
 
-api_token = config["api_token"]  # 路由鉴权用
-
-
 binance_exchange = get_binance_exchange(config)
 kraken_exchange = get_kraken_exchange(config)
 
-# kraken_exchange.fetchMarkets()
-
-
-# Bearer Token 鉴权
-security = HTTPBearer()
-
-
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials.credentials != api_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return credentials.credentials
+kraken_exchange.fetchMarkets()

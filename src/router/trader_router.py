@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 # 从主应用中导入你的交易所实例和验证函数
-from src.tools.shared import verify_token, config, OHLCV_DIR
 
 # 导入封装的 ccxt 工具函数
 from src.tools.ccxt_utils import (
@@ -16,10 +15,13 @@ from src.tools.ccxt_utils import (
     create_exit_percentage_order,
 )
 
-# 创建 APIRouter 实例
+from src.tools.shared import config, OHLCV_DIR
+from src.router.auth_handler import manager
+
+
+# 创建文件处理路由，并添加鉴权依赖
 ccxt_router = APIRouter(
-    prefix="/ccxt",  # 设置所有路由的前缀
-    dependencies=[Depends(verify_token)],  # 设置全局依赖项
+    prefix="/ccxt", dependencies=[Depends(manager)], tags=["CCXT PROXY"]
 )
 
 

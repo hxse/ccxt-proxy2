@@ -15,6 +15,7 @@ dependencies = [
     "polars>=1.33.1",
     "numpy>=2.3.3",
     "tzdata>=2025.2",
+    "fastapi-login>=1.10.3",
 ]
 
 [dependency-groups]
