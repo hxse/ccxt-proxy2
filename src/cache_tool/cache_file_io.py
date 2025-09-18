@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 from .cache_utils import (
     convert_ms_timestamp_to_utc_datetime,
@@ -6,26 +6,25 @@ from .cache_utils import (
     sanitize_symbol,
     get_chunk_slices,
 )
-from typing import List, Tuple
 
 
-def read_cache_file(filepath: Path, file_type: str) -> pd.DataFrame:
+def read_cache_file(filepath: Path, file_type: str) -> pl.DataFrame:
     """
     根据文件类型读取缓存文件。
     """
     try:
         if file_type == "parquet":
-            return pd.read_parquet(filepath)
+            return pl.read_parquet(filepath)
         elif file_type == "csv":
-            return pd.read_csv(filepath)
+            return pl.read_csv(filepath)
         else:
             raise ValueError(f"Unsupported file type for reading: {file_type}")
     except Exception as e:
         print(f"❌ 无法读取文件 {filepath.name} ({file_type}): {e}")
-        return pd.DataFrame()
+        return pl.DataFrame()
 
 
-def write_cache_file(filepath: Path, data: pd.DataFrame, file_type: str) -> None:
+def write_cache_file(filepath: Path, data: pl.DataFrame, file_type: str) -> None:
     """
     根据文件类型写入缓存文件。
     """
@@ -33,10 +32,10 @@ def write_cache_file(filepath: Path, data: pd.DataFrame, file_type: str) -> None
         filepath.parent.mkdir(parents=True, exist_ok=True)  # 创建父目录
         if file_type == "parquet":
             print("写入缓存文件", filepath)
-            data.to_parquet(filepath, index=False)
+            data.write_parquet(filepath)
         elif file_type == "csv":
             print("写入缓存文件", filepath)
-            data.to_csv(filepath, index=False)
+            data.write_csv(filepath)
         else:
             raise ValueError(f"Unsupported file type for writing: {file_type}")
     except Exception as e:
@@ -46,7 +45,7 @@ def write_cache_file(filepath: Path, data: pd.DataFrame, file_type: str) -> None
 def write_to_cache(
     symbol: str,
     period: str,
-    data: pd.DataFrame,
+    data: pl.DataFrame,
     cache_dir: Path,
     cache_size: int,
     file_type: str = "parquet",
@@ -56,7 +55,7 @@ def write_to_cache(
     将数据写入缓存，并根据 cache_size 分割成多个文件。
     可选择正向或反向写入。
     """
-    if data.empty:
+    if data.is_empty():
         return []
 
     if not cache_dir.exists():
@@ -68,10 +67,10 @@ def write_to_cache(
 
     files_arr = []
     for start, end in slices:
-        chunk = data.iloc[start:end]
+        chunk = data.slice(start, end - start)
 
-        chunk_start_ts = chunk.iloc[0, 0]
-        chunk_end_ts = chunk.iloc[-1, 0]
+        chunk_start_ts = chunk.head(1)["time"].item()
+        chunk_end_ts = chunk.tail(1)["time"].item()
         chunk_count = len(chunk)
 
         chunk_start_dt = convert_ms_timestamp_to_utc_datetime(chunk_start_ts)

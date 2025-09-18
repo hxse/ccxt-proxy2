@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 
 from .cache_utils import get_sorted_cache_files, get_file_info
@@ -13,11 +13,11 @@ def get_next_continuous_cache_chunk(
     start_time: int,
     target_count: int,
     file_type: str = "parquet",
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """
     寻找并加载从指定时间开始的连续缓存数据块。
     """
-    cached_data = pd.DataFrame()
+    cached_data = pl.DataFrame()
 
     sorted_files = get_sorted_cache_files(cache_dir, symbol, period, file_type)
 
@@ -42,14 +42,17 @@ def get_next_continuous_cache_chunk(
 
     # 精确切片：找到 start_time 对应的行并切片
     try:
-        start_index = first_chunk.index[first_chunk["time"] == start_time][0]
-        cached_data = first_chunk.iloc[start_index:]
+        # 找到满足条件的行，并获取其在 DataFrame 中的行号
+        start_index = first_chunk.select(
+            pl.arg_where(pl.col("time") == start_time).first()
+        ).item()
+        cached_data = first_chunk.slice(start_index, None)
     except IndexError:
         # 如果找不到精确匹配的索引，则返回空 DataFrame
-        return pd.DataFrame()
+        return pl.DataFrame()
 
     # 将当前时间更新为已加载数据的最后一个时间点，用于后续的连续性检查
-    current_time = cached_data.iloc[-1, 0]
+    current_time = cached_data.tail(1)["time"].item()
 
     # 继续加载后续连续的缓存文件
     start_file_index = sorted_files.index(start_file)
@@ -64,11 +67,11 @@ def get_next_continuous_cache_chunk(
             cached_data = merge_with_deduplication(cached_data, chunk)
 
             # 更新当前时间为新合并数据的最后一个时间点
-            current_time = cached_data.iloc[-1, 0]
+            current_time = cached_data.tail(1)["time"].item()
 
             if len(cached_data) >= target_count:
                 # 如果已加载的数据量达到目标数量，进行切片并停止加载
-                cached_data = cached_data.iloc[:target_count]
+                cached_data = cached_data.head(target_count)
                 break
         else:
             # 文件不连续，停止查找

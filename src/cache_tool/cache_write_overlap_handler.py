@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 
 from .cache_utils import (
@@ -12,7 +12,7 @@ from .cache_file_io import write_to_cache
 
 def adjust_write_range_and_delete_overlapped(
     sorted_cache_files: list[Path],
-    new_data: pd.DataFrame,
+    new_data: pl.DataFrame,
     new_data_start: int,
     new_data_end: int,
 ) -> tuple[int, int, list[Path]]:
@@ -76,9 +76,6 @@ def adjust_write_range_and_delete_overlapped(
             print(
                 f"⚠️ 新数据 ({_new_data_start}-{_new_data_end}) 与旧缓存 ({_old_data_start}-{_old_data_end}) 重叠，调整写入起始时间 {_start_time_to_write}"
             )
-            import pdb
-
-            pdb.set_trace()
 
     return start_time_to_write, end_time_to_write, files_to_delete
 
@@ -86,7 +83,7 @@ def adjust_write_range_and_delete_overlapped(
 def handle_cache_write(
     symbol: str,
     period: str,
-    new_data: pd.DataFrame,
+    new_data: pl.DataFrame,
     cache_dir: Path,
     cache_size: int,
     file_type: str = "parquet",
@@ -96,13 +93,13 @@ def handle_cache_write(
 
     此函数采用“先处理后写入”的策略，通过记录重叠边界，最后一次性对新数据进行切片并写入。
     """
-    if new_data.empty:
+    if new_data.is_empty():
         return
 
     # 调整写入范围并标记完全覆盖的旧文件为待删除
     sorted_cache_files = get_sorted_cache_files(cache_dir, symbol, period, file_type)
-    new_data_start = new_data.iloc[0, 0]
-    new_data_end = new_data.iloc[-1, 0]
+    new_data_start = new_data["time"].head(1).item()
+    new_data_end = new_data["time"].tail(1).item()
 
     start_time_to_write, end_time_to_write, files_to_delete_overlap = (
         adjust_write_range_and_delete_overlapped(
@@ -120,12 +117,11 @@ def handle_cache_write(
         return
 
     # 最后根据调整后的时间范围进行切片和写入
-    data_to_write = new_data[
-        (new_data["time"] >= start_time_to_write)
-        & (new_data["time"] <= end_time_to_write)
-    ]
+    data_to_write = new_data.filter(
+        (pl.col("time") >= start_time_to_write) & (pl.col("time") <= end_time_to_write)
+    )
 
-    if not data_to_write.empty:
+    if not data_to_write.is_empty():
         write_to_cache(symbol, period, data_to_write, cache_dir, cache_size, file_type)
     else:
         print("❌ 经过处理，没有数据需要写入缓存。")

@@ -1,7 +1,9 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Tuple, Any
+
+time_format = "%Y%m%dT%H%M%SZ"
 
 
 def convert_ms_timestamp_to_utc_datetime(ms_timestamp: int) -> datetime:
@@ -16,14 +18,14 @@ def format_timestamp(dt: datetime) -> str:
     格式化 datetime 对象为 'YYYYMMDDTHHMMSSZ' UTC 格式。
     """
     dt = dt.astimezone(timezone.utc)
-    return dt.strftime("%Y%m%dT%H%M%SZ")
+    return dt.strftime(time_format)
 
 
 def parse_timestamp_string(ts_str: str) -> int:
     """
     解析 'YYYYMMDDTHHMMSSZ' 格式的字符串为毫秒级时间戳。
     """
-    dt = datetime.strptime(ts_str, "%Y%m%dT%H%M%SZ")
+    dt = datetime.strptime(ts_str, time_format)
     return int(dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 

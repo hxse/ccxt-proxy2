@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import pytest
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
 from src.cache_tool.cache_utils import get_sorted_cache_files
@@ -21,7 +21,7 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
     )
 
     if count == 0:
-        assert df_result.empty, (
+        assert df_result.is_empty(), (
             f"当count为0时，结果DataFrame应为空，但实际有 {len(df_result)} 行"
         )
         # 验证没有缓存文件被创建
@@ -39,7 +39,7 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
         )
         assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
 
-        cached_data = pd.DataFrame()
+        cached_data = pl.DataFrame()
         for i in cache_files:
             chunk = read_cache_file(i, tp.file_type)
             cached_data = merge_with_deduplication(cached_data, chunk)

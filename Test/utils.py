@@ -1,10 +1,13 @@
-from typing import Optional, Union, List
+import polars as pl
+from typing import Union, List
 from pathlib import Path
 import shutil
-
-import pandas as pd
-import numpy as np
-from pandas import Timestamp
+from datetime import datetime, timezone
+import re
+from src.cache_tool.cache_utils import (
+    convert_ms_timestamp_to_utc_datetime,
+    parse_timestamp_string,
+)
 
 
 def clear_cache_directory(cache_dir: Union[str, Path]) -> None:
@@ -33,12 +36,12 @@ def clear_cache_directory(cache_dir: Union[str, Path]) -> None:
             item.unlink()
 
 
-def assert_uniform_time_intervals(df: pd.DataFrame, time_column: str = "time") -> None:
+def assert_uniform_time_intervals(df: pl.DataFrame, time_column: str = "time") -> None:
     """
     验证 DataFrame 中 time 列的时间间隔是否相等，不改变原始 DataFrame。
 
     Args:
-        df (pd.DataFrame): 包含时间序列数据的 DataFrame。
+        df (pl.DataFrame): 包含时间序列数据的 DataFrame。
         time_column (str): 时间戳列的名称，默认为 'time'。
 
     Raises:
@@ -49,144 +52,148 @@ def assert_uniform_time_intervals(df: pd.DataFrame, time_column: str = "time") -
         print("✅ 验证通过：数据行数不足，无需检查间隔。")
         return
 
-    # 创建 DataFrame 的副本，以避免修改原始数据
-    temp_df = df.copy()
-
-    # 转换时间列为 datetime 类型
-    temp_df[time_column] = pd.to_datetime(temp_df[time_column])
-
-    # 计算相邻时间戳的差值
-    time_diffs = temp_df[time_column].diff()
+    # 转换时间列为 Datetime 类型并计算相邻时间戳的差值time_diffs_series = df[time_column].cast(pl.Datetime(time_unit="ms")).diff()
+    time_diffs_series = df[time_column].cast(pl.Datetime(time_unit="ms")).diff()
 
     # 移除第一个 NaN 值并检查所有差值的唯一数量
-    unique_diffs = time_diffs.dropna().nunique()
+    unique_diffs = time_diffs_series.drop_nulls().n_unique()
 
     if unique_diffs > 1:
         # 如果不只一种差值，则断言失败
-        diff_counts = time_diffs.dropna().value_counts()
+        diff_counts = time_diffs_series.drop_nulls().value_counts()
         error_message = f"时间间隔不相等。发现多种间隔：\n{diff_counts}"
         raise AssertionError(error_message)
     else:
         # 如果所有间隔都相等
-        interval = time_diffs.iloc[1] if len(time_diffs) > 1 else "无"
+        interval = time_diffs_series.item(1) if len(time_diffs_series) > 1 else "无"
         print(f"✅ 验证通过：所有时间间隔都相等，为 {interval}。")
 
 
-def calculate_future_timestamp(
-    start_time: Union[str, Timestamp], period: str, k_lines: int
-) -> Timestamp:
+def _to_duration(period: str) -> pl.Duration:
+    """将周期字符串转换为 Polars Duration 对象。"""
+    match = re.match(r"(\d+)(\w+)", period)
+    if not match:
+        raise ValueError("无效的 period 格式")
+
+    num, unit = match.groups()
+    num = int(num)
+
+    unit_map = {
+        "s": "seconds",
+        "m": "minutes",
+        "h": "hours",
+        "d": "days",
+        "w": "weeks",
+    }
+
+    unit_plural = unit_map.get(unit)
+    if not unit_plural:
+        raise ValueError(f"无效的 period 单位: {unit}")
+
+    return pl.duration(**{unit_plural: num})
+
+
+def _to_datetime(_time: Union[str, int, datetime]) -> datetime:
     """
-    计算给定起始时间后，经过指定周期和K线数量后的时间戳。
+    将多种时间类型转换为原生的 UTC datetime 对象，无需额外库。
+    """
+    if isinstance(_time, int):
+        return convert_ms_timestamp_to_utc_datetime(_time)
+    if isinstance(_time, str):
+        return parse_timestamp_string(_time)
+
+    if isinstance(_time, datetime):
+        # 对于传入的原生 datetime 对象
+        if _time.tzinfo is None:
+            # 如果是天真的 datetime，假设它代表 UTC，并设置时区
+            return _time.replace(tzinfo=timezone.utc)
+        else:
+            # 如果有其他时区，转换为 UTC
+            return _time.astimezone(timezone.utc)
+    return _time
+
+
+def calculate_future_timestamps(
+    start_times_series: pl.Series, period: str, k_lines: int
+) -> pl.Series:
+    """
+    计算给定 Polars Series 中每个起始时间对应的未来时间戳。
 
     Args:
-        start_time (Union[str, Timestamp]): 起始时间戳，可以是字符串或pandas Timestamp对象。
-        period (str): K线周期，例如 '1m' (1分钟), '15m' (15分钟), '1H' (1小时)。
-        k_lines (int): 经过的K线数量。
+        start_times_series (pl.Series): 包含起始时间的 Polars Series。
+        period (str): K线周期字符串，例如 "15m"。
+        k_lines (int): 要计算的K线数量。
 
     Returns:
-        Timestamp: 计算后的未来时间戳。
-
-    Raises:
-        ValueError: 如果period格式无效，会抛出异常。
+        pl.Series: 包含所有计算后未来时间戳的 Polars Series。
     """
-    # 确保起始时间是pandas Timestamp对象
-    start_time = pd.to_datetime(start_time)
+    # 获取 Duration 表达式
+    time_delta = _to_duration(period)
 
-    # 将周期字符串转换为pandas的Timedelta
-    time_delta = pd.to_timedelta(period)
+    # 计算偏移量表达式
+    offset_expr = time_delta * (k_lines - 1)
 
-    # 计算总共经过的时间
-    total_time_passed = time_delta * k_lines
+    # 表达式求值
+    future_time_series = pl.select(
+        (pl.Series("start", start_times_series) + offset_expr)
+    ).to_series()
 
-    # 计算最终的时间戳
-    future_time = start_time + total_time_passed
-
-    return future_time
+    return future_time_series
 
 
 def calculate_kline_count(
-    start_time: Union[str, Timestamp], end_time: Union[str, Timestamp], period: str
+    start_time: Union[str, datetime],
+    end_time: Union[str, datetime],
+    period: str,
 ) -> int:
     """
     根据起始时间、结束时间和周期计算K线数量。
-
-    Args:
-        start_time (Union[str, Timestamp]): 起始时间戳，可以是字符串或pandas Timestamp对象。
-        end_time (Union[str, Timestamp]): 结束时间戳，可以是字符串或pandas Timestamp对象。
-        period (str): K线周期，例如 '1m' (1分钟), '15m' (15分钟), '1H' (1小时)。
-
-    Returns:
-        int: 这段时间内K线的数量。
-
-    Raises:
-        ValueError: 如果period格式无效或结束时间早于起始时间，会抛出异常。
     """
-    # 1. 确保时间戳是pandas Timestamp对象
-    start_time_ts = pd.to_datetime(start_time)
-    end_time_ts = pd.to_datetime(end_time)
+
+    # 1. 确保时间戳是 Datetime 对象
+    start_time_ts = _to_datetime(start_time)
+    end_time_ts = _to_datetime(end_time)
 
     # 2. 检查结束时间是否早于起始时间
     if end_time_ts < start_time_ts:
         raise ValueError("结束时间不能早于起始时间。")
 
-    # 3. 将周期字符串转换为pandas的Timedelta
-    period_timedelta = pd.to_timedelta(period)
+    # 3. 将周期字符串转换为 Polars 的 Duration
+    period_timedelta = _to_duration(period)
 
-    # 4. 计算总时间差并除以周期得到K线数量
+    # 4. 计算总时间差
     total_duration = end_time_ts - start_time_ts
 
-    # 将总时长转换为秒，然后除以周期的秒数，确保类型匹配
-    # 这里加1是因为你需要计算"包含"起始和结束时间点的K线数量
-    count = int(total_duration / period_timedelta) + 1
-
+    # 5. 表达式求值
+    count_expr = total_duration / period_timedelta
+    count = int(pl.select(count_expr).item()) + 1
     return count
 
 
-import pandas as pd
-from typing import List, Union
-from pandas import Timestamp
-
-
 def validate_merged_data(
-    cached_data: pd.DataFrame,
-    start_times: List[Union[str, int, Timestamp]],
+    cached_data: pl.DataFrame,
+    start_times: List[Union[str, int, datetime]],
     period: str,
     count: int,
 ) -> None:
     """
     验证合并后的 DataFrame 的时间范围和K线数量是否正确。
-
-    Args:
-        cached_data (pd.DataFrame): 合并后的数据 DataFrame。
-        start_times (List[Union[str, int, Timestamp]]): 原始数据的起始时间列表。
-        period (str): K线周期，例如 '15m'。
-        count (int): 每段原始数据的K线数量。
-
-    Raises:
-        AssertionError: 如果合并后的数据时间范围或K线数量不符合预期，则抛出异常。
     """
-    if cached_data.empty:
+    if cached_data.is_empty():
         print("✅ 验证通过：合并数据为空，无需进一步验证。")
         return
 
-    # 将所有起始时间转换为 Timestamp 对象
-    start_times_ts = [pd.to_datetime(t, unit="ms") for t in start_times]
+    start_times_series = pl.Series([_to_datetime(t) for t in start_times])
 
-    # 计算每个数据块的结束时间
-    end_times_ts = [
-        calculate_future_timestamp(start, period, k_lines=count - 1)
-        for start in start_times_ts
-    ]
+    future_time_series = calculate_future_timestamps(start_times_series, period, count)
 
-    # 确定理论上合并后的首尾时间戳 (Timestamp对象)
-    first_timestamp = min(start_times_ts)
-    last_timestamp = max(end_times_ts)
+    first_timestamp = start_times_series.min()
+    last_timestamp = future_time_series.max()
 
     # 计算理论上的总K线数量
     expected_count = calculate_kline_count(first_timestamp, last_timestamp, period)
 
-    # 将 Pandas Timestamp 对象转换为毫秒时间戳，以便与 DataFrame 中的整数值进行比较
-    # .timestamp() 方法返回秒，需要乘以1000得到毫秒，然后转换为整数
+    # 将 Datetime 对象转换为毫秒时间戳
     first_timestamp_ms = int(first_timestamp.timestamp() * 1000)
     last_timestamp_ms = int(last_timestamp.timestamp() * 1000)
 
@@ -195,18 +202,19 @@ def validate_merged_data(
     print(f"预期最后一个时间戳 (ms): {last_timestamp_ms}")
     print(f"预期总行数 (K线数量): {expected_count}")
 
+    # 获取实际的首尾时间戳和总行数
+    actual_first_ts = cached_data.head(1)["time"].item()
+    actual_last_ts = cached_data.tail(1)["time"].item()
+    actual_count = len(cached_data)
+
     print("\n--- 实际的缓存数据信息 ---")
-    print(f"实际首个时间戳 (ms): {cached_data.iloc[0]['time']}")
-    print(f"实际最后一个时间戳 (ms): {cached_data.iloc[-1]['time']}")
-    print(f"实际总行数 (K线数量): {len(cached_data)}")
+    print(f"实际首个时间戳 (ms): {actual_first_ts}")
+    print(f"实际最后一个时间戳 (ms): {actual_last_ts}")
+    print(f"实际总行数 (K线数量): {actual_count}")
 
     # 添加断言验证计算结果
-    assert cached_data.iloc[0]["time"] == first_timestamp_ms, (
-        "实际首个时间戳与预期不符。"
-    )
-    assert cached_data.iloc[-1]["time"] == last_timestamp_ms, (
-        "实际最后一个时间戳与预期不符。"
-    )
-    assert len(cached_data) == expected_count, "实际总行数与预期不符。"
+    assert actual_first_ts == first_timestamp_ms, "实际首个时间戳与预期不符。"
+    assert actual_last_ts == last_timestamp_ms, "实际最后一个时间戳与预期不符。"
+    assert actual_count == expected_count, "实际总行数与预期不符。"
 
     print("\n✅ 所有计算和断言验证通过，合并后的数据信息正确。")

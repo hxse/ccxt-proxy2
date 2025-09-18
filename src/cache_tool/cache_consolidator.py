@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 
 from .cache_utils import (
@@ -36,7 +36,7 @@ def _process_stream(
     6. 函数会读取新文件列表中的最后一个文件（代表剩余数据），将其加载到内存作为新的 `current_df`，并从磁盘中删除该文件。
     7. 每处理完一个文件，就立即将其从磁盘中删除，避免等待。
     """
-    current_df = pd.DataFrame()
+    current_df = pl.DataFrame()
 
     # 根据 reverse 参数决定文件遍历顺序
     if reverse:
@@ -45,7 +45,7 @@ def _process_stream(
     for file_path in files_to_process:
         df_to_add = read_cache_file(file_path, file_type)
 
-        if df_to_add.empty:
+        if df_to_add.is_empty():
             file_path.unlink()  # 文件为空，直接删除
             continue
 
@@ -72,7 +72,7 @@ def _process_stream(
                 reverse=reverse,
             )
 
-            current_df = pd.DataFrame()
+            current_df = pl.DataFrame()
             if written_files:
                 last_file = written_files[0] if reverse else written_files[-1]
                 last_file_info = get_file_info(last_file.name)
@@ -81,7 +81,7 @@ def _process_stream(
                     last_file.unlink()
 
     # 循环结束后，处理缓冲区中剩余的数据（如果有）
-    if not current_df.empty:
+    if not current_df.is_empty():
         write_to_cache(
             symbol,
             period,
@@ -242,7 +242,7 @@ def check_for_overlaps(
 
             # 加载文件A的数据
             df_a = read_cache_file(file_a, file_type)
-            if df_a.empty:
+            if df_a.is_empty():
                 print(f"❌ 无法读取文件 {file_a.name}，跳过处理。")
                 continue
 
@@ -252,7 +252,7 @@ def check_for_overlaps(
             # 从文件A中删除与文件B重叠的部分
             original_len_a = len(df_a)
             # 保留A中时间戳 <= 文件B开始时间的数据
-            df_a_new = df_a[df_a["time"] <= overlap_start_time]
+            df_a_new = df_a.filter(pl.col("time") <= overlap_start_time)
 
             if len(df_a_new) < original_len_a:
                 print(
@@ -260,7 +260,7 @@ def check_for_overlaps(
                 )
 
                 # 如果A中所有数据都重叠，则删除文件A
-                if df_a_new.empty:
+                if df_a_new.is_empty():
                     print(f"🗑️ 文件 {file_a.name} 已被完全覆盖，删除旧文件。")
                     file_a.unlink()
                 else:

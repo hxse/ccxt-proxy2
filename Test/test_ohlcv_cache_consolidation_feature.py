@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import pytest
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
 from src.cache_tool.cache_utils import get_sorted_cache_files
@@ -14,6 +14,7 @@ def test_get_ohlcv_with_cache_consolidate(cache_setup, enable_consolidate):
         f"\ntest_get_ohlcv_with_cache_consolidate with enable_consolidate={enable_consolidate}"
     )
     tp = CacheTestParams(cache_dir=cache_setup)
+    tp.count = 16
 
     # 第一次调用：正常请求并写入缓存
     print("\n--- 第一次调用: 请求并写入缓存 ---")
@@ -26,12 +27,11 @@ def test_get_ohlcv_with_cache_consolidate(cache_setup, enable_consolidate):
     assert len(df_write) == tp.count, (
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
     )
-
     # 验证缓存文件是否已创建
     cache_files = get_sorted_cache_files(
         tp.cache_dir, tp.symbol, tp.period, tp.file_type
     )
-    cached_data = pd.DataFrame()
+    cached_data = pl.DataFrame()
     for i in cache_files:
         chunk = read_cache_file(i, tp.file_type)
         cached_data = merge_with_deduplication(cached_data, chunk)

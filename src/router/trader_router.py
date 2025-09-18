@@ -144,6 +144,7 @@ def get_ohlcv(params: OHLCVParams = Depends()):
         ohlcv_data = fetch_ohlcv_ccxt(**params.model_dump(), cache_dir=OHLCV_DIR)
         return ohlcv_data
     except HTTPException as e:
+        print(e)
         raise e
     except Exception as e:
         print(e)

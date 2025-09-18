@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from pathlib import Path
 from typing import Callable
 
@@ -37,7 +37,7 @@ def get_ohlcv_with_cache(
     fetch_callback: Callable = mock_fetch_ohlcv,
     fetch_callback_params: dict = {},
     enable_consolidate: bool = True,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """
     根据新的统一逻辑获取K线数据，支持缓存。
     start_time: 如果为None, 不会读取缓存, 但是会写入缓存=
@@ -46,7 +46,7 @@ def get_ohlcv_with_cache(
     cache_dir = Path(cache_dir)
     file_type = file_type = file_type.lstrip(".")
 
-    fetched_data = pd.DataFrame()
+    fetched_data = pl.DataFrame()
     current_time = start_time
 
     print(
@@ -90,7 +90,7 @@ def get_ohlcv_with_cache(
         )
 
         # 1. 优先从缓存获取数据
-        cached_chunk = pd.DataFrame()
+        cached_chunk = pl.DataFrame()
         if enable_cache and current_time is not None:
             # 找到从 current_time 开始的连续缓存数据块
             cached_chunk = get_next_continuous_cache_chunk(
@@ -106,13 +106,13 @@ def get_ohlcv_with_cache(
             convert_ms_timestamp_to_utc_datetime(current_time)
         )
 
-        if not cached_chunk.empty:
+        if not cached_chunk.is_empty():
             print(f"✅ 缓存命中，已加载 {len(cached_chunk)} 条数据。{_current_time}")
             fetched_data = merge_with_deduplication(fetched_data, cached_chunk)
 
             need_count = current_count - len(cached_chunk)
             need_count = 0 if need_count <= 0 else need_count + 1
-            current_time = fetched_data.iloc[-1, 0]
+            current_time = fetched_data.tail(1)["time"].item()
 
         if need_count > 0:
             print(f"ℹ️ 需要 {need_count} 条数据，开始请求新数据。{_current_time}")
@@ -121,12 +121,12 @@ def get_ohlcv_with_cache(
                 symbol, period, current_time, need_count, **fetch_callback_params
             )
 
-            if new_data.empty:
+            if new_data.is_empty():
                 print("❌ 数据源返回空，提前停止请求。")
                 break
 
             fetched_data = merge_with_deduplication(fetched_data, new_data)
-            current_time = fetched_data.iloc[-1, 0]
+            current_time = fetched_data.tail(1)["time"].item()
 
             # 4. 如果启用缓存，将新数据写入缓存
             if enable_cache:

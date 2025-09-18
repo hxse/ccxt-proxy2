@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import pytest
 from src.cache_tool.cache_entry import get_ohlcv_with_cache, mock_fetch_ohlcv
 from src.cache_tool.cache_utils import (
@@ -49,11 +49,16 @@ def test_get_ohlcv_with_cache_multiple_calls(
             enable_consolidate=enable_consolidate,
         )
         assert len(df) == tp.count, f"df行数应为 {tp.count}，但实际为 {len(df)}"
-        print(f"df{i + 1}", len(df), df.iloc[0]["date"], df.iloc[-1]["date"])
+        print(
+            f"df{i + 1}",
+            len(df),
+            df.head(1)["date"].item(),
+            df.tail(1)["date"].item(),
+        )
         df_writes.append(df)
 
     # 合并所有结果
-    df_write_merge = pd.DataFrame()
+    df_write_merge = pl.DataFrame()
     for df in df_writes:
         df_write_merge = merge_with_deduplication(df_write_merge, df)
     print("总合并后数据行数:", len(df_write_merge))
@@ -65,7 +70,7 @@ def test_get_ohlcv_with_cache_multiple_calls(
     assert len(cache_files) > 0, "缓存目录中应存在缓存文件"
 
     # 从缓存中读取并合并数据
-    cached_data = pd.DataFrame()
+    cached_data = pl.DataFrame()
     for file in cache_files:
         chunk = read_cache_file(file, tp.file_type)
         cached_data = merge_with_deduplication(cached_data, chunk)
