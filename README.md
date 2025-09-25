@@ -3,7 +3,7 @@
 ## docker local dev
   * `docker-compose down`
   * `docker image prune -a`
-  * `docker build --no-cache-filter app -t ccxt_proxy2 . ; docker-compose up`
+  * `docker-compose up -d --build`
 ## local dev
   * `uv run uvicorn src.main:app --host 127.0.0.1 --port 5123 --reload`
     * on windows: `localhost` with --reload is slowly , use `127.0.0.1` to avoid slowly
