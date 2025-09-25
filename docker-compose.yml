@@ -2,6 +2,7 @@ services:
   ccxt-proxy2:
     container_name: ccxt-proxy2
     build: .
+    restart: unless-stopped
     ports:
       - "5123:8000"
     volumes:
