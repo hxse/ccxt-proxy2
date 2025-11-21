@@ -1,0 +1,22 @@
+meta {
+  name: binance
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/ccxt/limit
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "exchange_name": "binance",
+    "symbol": "BTC/USDT",
+    "side": "buy",
+    "amount": 0.001,
+    "price": 107331.2,
+    "is_usd_amount": false
+  }
+}

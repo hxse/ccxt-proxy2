@@ -22,7 +22,10 @@ def get_binance_exchange(config):
     )
     binance_exchange.httpProxy = http_proxy if binance_enable_proxy else None
     if Sandbox_mode == "test":
-        binance_exchange.set_sandbox_mode(True)
+        # 币安test模式已废弃, 改用demo模式
+        # https://www.binance.com/zh-CN/support/faq/detail/9be58f73e5e14338809e3b705b9687dd
+        # binance_exchange.set_sandbox_mode(True)
+        binance_exchange.enable_demo_trading(True)
 
     binance_exchange.load_markets()
 

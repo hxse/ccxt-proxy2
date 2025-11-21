@@ -1,0 +1,20 @@
+meta {
+  name: upload
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/file/upload
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(D:\my_repo\ccxt-proxy2\README.md)
+  path: test/path
+}
+
+settings {
+  encodeUrl: true
+}

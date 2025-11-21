@@ -1,0 +1,19 @@
+meta {
+  name: show list
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/file/list
+  body: none
+  auth: inherit
+}
+
+body:multipart-form {
+  : @file(D:\my_repo\ccxt-proxy2\README.md)
+}
+
+settings {
+  encodeUrl: true
+}

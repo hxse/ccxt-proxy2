@@ -1,0 +1,20 @@
+meta {
+  name: download
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/file/download?filename=README.md&path=test/path
+  body: none
+  auth: inherit
+}
+
+params:query {
+  filename: README.md
+  path: test/path
+}
+
+settings {
+  encodeUrl: true
+}
