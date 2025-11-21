@@ -5,20 +5,19 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi",
     "uvicorn",
-    "ccxt>=4.5.3",
+    "ccxt",
     "pydantic",
-    "pyarrow>=21.0.0",
-    "filelock>=3.19.1",
-    "jinja2>=3.1.6",
-    "scalar-fastapi>=1.4.0",
-    "python-multipart>=0.0.20",
-    "polars>=1.33.1",
-    "numpy>=2.3.3",
-    "tzdata>=2025.2",
-    "fastapi-login>=1.10.3",
+    "pyarrow",
+    "filelock",
+    "jinja2",
+    "scalar-fastapi",
+    "python-multipart",
+    "polars",
+    "numpy",
+    "tzdata",
+    "fastapi-login",
 ]
 
+
 [dependency-groups]
-dev = [
-    "pytest",
-]
+dev = ["pytest"]
