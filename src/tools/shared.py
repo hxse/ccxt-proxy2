@@ -1,11 +1,21 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 import json
 from pathlib import Path
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 
 
 app = FastAPI()
+
+# 添加 CORS 中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # 允许的源
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有 HTTP 方法
+    allow_headers=["*"],  # 允许所有 HTTP 头
+)
 
 
 OHLCV_DIR = Path("./data/ohlcv")
