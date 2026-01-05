@@ -31,7 +31,7 @@ def login(response: Response, data: OAuth2PasswordRequestForm = Depends()):
     """
     用户登录，成功后将 Token 写入 Cookie。
     """
-    user = get_user(data.username)  # 调用本地的 get_user 函数
+    user = get_user(data.username)  # type: ignore
 
     if not user or user["password"] != data.password:
         raise InvalidCredentialsException

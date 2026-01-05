@@ -102,6 +102,11 @@ def get_ohlcv_with_cache(
                 file_type,
             )
 
+        # 确保 current_time 不为 None
+        if current_time is None:
+            # This should not happen if logic is correct, but satisfies type checker
+            raise ValueError("Unexpected None for current_time")
+
         _current_time = format_timestamp(
             convert_ms_timestamp_to_utc_datetime(current_time)
         )

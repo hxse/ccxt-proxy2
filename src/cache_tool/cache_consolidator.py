@@ -133,12 +133,18 @@ def _get_files_to_process(
             files_to_process_backward = all_files
         else:
             # 找到由满文件组成的最长连续序列的起始和结束索引
-            _, max_seq_start, max_seq_end = find_max_diff_sequence(cache_size_sequences)
+            max_seq_info = find_max_diff_sequence(cache_size_sequences)
 
-            # 将最长序列之前的文件作为向前合并的数组
-            files_to_process_forward = all_files[:max_seq_start]
-            # 将最长序列之后的文件作为向后合并的数组
-            files_to_process_backward = all_files[max_seq_end:]
+            if max_seq_info is None:
+                files_to_process_forward = []
+                files_to_process_backward = all_files
+            else:
+                _, max_seq_start, max_seq_end = max_seq_info
+
+                # 将最长序列之前的文件作为向前合并的数组
+                files_to_process_forward = all_files[:max_seq_start]
+                # 将最长序列之后的文件作为向后合并的数组
+                files_to_process_backward = all_files[max_seq_end:]
 
         # 4. 生成文件列表，供后续处理
         yield files_to_process_forward, files_to_process_backward

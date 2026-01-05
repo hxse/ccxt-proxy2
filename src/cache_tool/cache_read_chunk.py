@@ -61,6 +61,8 @@ def get_next_continuous_cache_chunk(
         info = get_file_info(filepath.name)
 
         # 检查是否连续：下一个文件的起始时间是否等于当前已加载数据的结束时间
+        if not info:
+            continue
         if info["start_time"] == current_time:
             chunk = read_cache_file(filepath, file_type)
 

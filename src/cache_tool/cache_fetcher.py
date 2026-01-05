@@ -1,4 +1,5 @@
 import polars as pl
+from typing import Any
 from .cache_utils import (
     period_to_ms,
     format_timestamp,
@@ -8,7 +9,7 @@ from .cache_utils import (
 
 
 def mock_fetch_ohlcv(
-    symbol: str, period: str, start_time: int, count: int, exchange: any = None
+    symbol: str, period: str, start_time: int, count: int, exchange: Any = None
 ) -> pl.DataFrame:
     """
     模拟生成 OHLCV 数据的 Pandas DataFrame。
@@ -52,7 +53,7 @@ def mock_fetch_ohlcv(
 
 
 def fetch_ohlcv(
-    symbol: str, period: str, start_time: int, count: int, exchange: any = None
+    symbol: str, period: str, start_time: int, count: int, exchange: Any = None
 ) -> pl.DataFrame:
     if not exchange:
         return pl.DataFrame()

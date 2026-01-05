@@ -28,6 +28,7 @@ def test_get_ohlcv_with_cache_consolidate(cache_setup, enable_consolidate):
         f"df_write行数应为 {tp.count}，但实际为 {len(df_write)}"
     )
     # 验证缓存文件是否已创建
+    assert tp.cache_dir is not None
     cache_files = get_sorted_cache_files(
         tp.cache_dir, tp.symbol, tp.period, tp.file_type
     )
@@ -43,4 +44,5 @@ def test_get_ohlcv_with_cache_consolidate(cache_setup, enable_consolidate):
     assert_uniform_time_intervals(df_write, "time")
     assert_uniform_time_intervals(cached_data, "time")
 
+    assert tp.cache_dir is not None
     clear_cache_directory(tp.cache_dir)

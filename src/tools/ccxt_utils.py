@@ -1,5 +1,6 @@
 # src/tools/ccxt_utils.py
 from typing import Optional, Literal
+from pathlib import Path
 from fastapi import HTTPException, status
 import ccxt
 
@@ -69,7 +70,7 @@ def fetch_ohlcv_ccxt(
     file_type: str = ".parquet",
     cache_size: int = 1000,
     page_size: int = 1500,
-    cache_dir: str = "./data",
+    cache_dir: str | Path = "./data",
     sandbox: bool = False,
 ):
     """
@@ -131,7 +132,9 @@ def create_order_ccxt(
         adjusted_amount = adjust_coin_amount_wrapper(exchange, symbol_to_use, amount)
         print(f"convert amount {amount} coin -> {adjusted_amount} coin")
 
-    adjusted_price = adjusted_market_price_wrapper(exchange, symbol_to_use, price)
+    adjusted_price = None
+    if price is not None:
+        adjusted_price = adjusted_market_price_wrapper(exchange, symbol_to_use, price)
     print(f"convert price {price} -> {adjusted_price}")
 
     result = exchange.create_order(

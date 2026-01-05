@@ -25,96 +25,17 @@ ccxt_router = APIRouter(
 )
 
 
-# Pydantic 请求体模型
-class MarketOrderRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    side: str
-    amount: float
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class LimitOrderRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    side: str
-    amount: float
-    price: float
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class StopMarketOrderRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    side: str
-    amount: float
-    reduceOnly: bool = True
-    stopLossPrice: float | None = None
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class TakeProfitMarketOrderRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    side: str
-    amount: float
-    reduceOnly: bool = True
-    takeProfitPrice: float | None = None
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class StopMarketOrderPercentageRequest(BaseModel):
-    amount_percentage: float = 1
-    exchange_name: str
-    symbol: str
-    side: str
-    reduceOnly: bool = True
-    stopLossPrice: float | None = None
-    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class TakeProfitMarketOrderPercentageRequest(BaseModel):
-    amount_percentage: float = 1
-    exchange_name: str
-    symbol: str
-    side: str
-    reduceOnly: bool = True
-    takeProfitPrice: float | None = None
-    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
-    is_usd_amount: bool = False
-    sandbox: bool = True
-
-
-class CloseAllOrderRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    sandbox: bool = True
-
-
-class CancelAllOrdersRequest(BaseModel):
-    exchange_name: str
-    symbol: str
-    sandbox: bool = True
-
-
-class OHLCVParams(BaseModel):
-    exchange_name: str
-    symbol: str
-    period: str
-    start_time: int | None = None
-    count: int | None = None
-    enable_cache: bool = True
-    enable_test: bool = False
-    file_type: str = ".parquet"
-    cache_size: int = 1000
-    page_size: int = 1500
-    sandbox: bool = False
+from src.types import (
+    MarketOrderRequest,
+    LimitOrderRequest,
+    StopMarketOrderRequest,
+    TakeProfitMarketOrderRequest,
+    StopMarketOrderPercentageRequest,
+    TakeProfitMarketOrderPercentageRequest,
+    CloseAllOrderRequest,
+    CancelAllOrdersRequest,
+    OHLCVParams,
+)
 
 
 @ccxt_router.get("/balance")
@@ -153,7 +74,20 @@ def get_ohlcv(params: OHLCVParams = Depends()):
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
     try:
-        ohlcv_data = fetch_ohlcv_ccxt(**params.model_dump(), cache_dir=OHLCV_DIR)
+        # fetch_ohlcv_ccxt expects cache_dir as str, but params.cache_dir is Path (if using the new model)
+        # However, we are passing cache_dir=OHLCV_DIR which is a Path object from shared.py
+        # We need to convert it to string.
+        params_dict = params.model_dump()
+        if "cache_dir" in params_dict:
+            # cache_dir provided in params is likely the default or user provided,
+            # but here we seem to override it with OHLCV_DIR from shared.
+            # Actually the original code was: fetch_ohlcv_ccxt(**params.model_dump(), cache_dir=OHLCV_DIR)
+            # So we should just cast OHLCV_DIR to str.
+            pass
+
+        ohlcv_data = fetch_ohlcv_ccxt(
+            **params.model_dump(exclude={"cache_dir"}), cache_dir=str(OHLCV_DIR)
+        )
         return ohlcv_data
     except HTTPException as e:
         print(e)

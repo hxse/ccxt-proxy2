@@ -14,6 +14,7 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
     tp = CacheTestParams(cache_dir=cache_setup, count=count)
 
     # 清理缓存目录以确保测试独立性
+    assert tp.cache_dir is not None
     clear_cache_directory(tp.cache_dir)
 
     df_result = get_ohlcv_with_cache(
@@ -25,6 +26,7 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
             f"当count为0时，结果DataFrame应为空，但实际有 {len(df_result)} 行"
         )
         # 验证没有缓存文件被创建
+        assert tp.cache_dir is not None
         cache_files = get_sorted_cache_files(
             tp.cache_dir, tp.symbol, tp.period, tp.file_type
         )
@@ -34,6 +36,7 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
             f"df_result行数应为 {count}，但实际为 {len(df_result)}"
         )
         # 验证缓存文件是否已创建并包含正确数量的数据
+        assert tp.cache_dir is not None
         cache_files = get_sorted_cache_files(
             tp.cache_dir, tp.symbol, tp.period, tp.file_type
         )
@@ -50,4 +53,5 @@ def test_get_ohlcv_with_cache_edge_cases(cache_setup, count):
         assert_uniform_time_intervals(df_result, "time")
         assert_uniform_time_intervals(cached_data, "time")
 
+    assert tp.cache_dir is not None
     clear_cache_directory(tp.cache_dir)

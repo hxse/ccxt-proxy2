@@ -60,7 +60,9 @@ class InsufficientCostError(Exception):
     pass
 
 
-def adjust_coin_amount(amount: float, precision_amount: float) -> Decimal:
+def adjust_coin_amount(
+    amount: float | Decimal, precision_amount: float | Decimal
+) -> Decimal:
     """
     根据给定的精度调整币的数量。
 
@@ -148,7 +150,9 @@ def adjusted_market_price(price, precision_price):
     return adjusted_price
 
 
-def adjust_coin_amount_wrapper(exchange, symbol: str, coin_amount: float) -> Decimal:
+def adjust_coin_amount_wrapper(
+    exchange, symbol: str, coin_amount: float
+) -> Decimal | None:
     """
     根据交易所的数量精度，调整并返回符合要求的币单位交易数量。
 
@@ -179,7 +183,7 @@ def adjust_coin_amount_wrapper(exchange, symbol: str, coin_amount: float) -> Dec
 
 def adjust_usd_to_coin_amount_wrapper(
     exchange, trading_pair: str, usd_amount: float
-) -> Decimal:
+) -> Decimal | None:
     """
     将 U 单位金额转换为币单位数量，并根据市场精度进行调整。
 
@@ -216,8 +220,8 @@ def adjust_usd_to_coin_amount_wrapper(
 
 
 def adjusted_market_price_wrapper(
-    exchange, symbol: str, original_price: float
-) -> Decimal:
+    exchange, symbol: str, original_price: float | int
+) -> Decimal | None:
     """
     根据交易所的市场价格精度，调整并返回符合交易规则的价格。
 

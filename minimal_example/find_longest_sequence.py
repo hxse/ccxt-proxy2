@@ -3,7 +3,7 @@ from typing import List, Tuple, Any
 
 def find_max_diff_sequence(
     sequences: List[Tuple[Any, int, int]],
-) -> Tuple[Any, int, int]:
+) -> Tuple[Any, int, int] | None:
     """
     找出列表中 end - start 差值最大的元组。
 

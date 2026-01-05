@@ -49,17 +49,14 @@ def get_sorted_cache_files(
     all_files = [f for f in cache_dir.iterdir() if f.suffix == f".{file_type}"]
     sanitized_symbol = sanitize_symbol(symbol)
 
-    valid_and_matched_files = [
-        f
-        for f in all_files
-        if (info := get_file_info(f.name))
-        and info["symbol"] == sanitized_symbol
-        and info["period"] == period
-    ]
+    files_with_info = []
+    for f in all_files:
+        info = get_file_info(f.name)
+        if info and info["symbol"] == sanitized_symbol and info["period"] == period:
+            files_with_info.append((f, info))
 
-    return sorted(
-        valid_and_matched_files, key=lambda f: get_file_info(f.name)["start_time"]
-    )
+    sorted_files = sorted(files_with_info, key=lambda x: x[1]["start_time"])
+    return [f for f, info in sorted_files]
 
 
 # ================

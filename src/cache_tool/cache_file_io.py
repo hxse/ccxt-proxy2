@@ -50,7 +50,7 @@ def write_to_cache(
     cache_size: int,
     file_type: str = "parquet",
     reverse: bool = False,
-) -> None:
+) -> list[Path] | None:
     """
     将数据写入缓存，并根据 cache_size 分割成多个文件。
     可选择正向或反向写入。

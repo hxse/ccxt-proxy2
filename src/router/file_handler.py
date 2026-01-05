@@ -53,6 +53,8 @@ async def upload_file(path: str = Form(default=""), file: UploadFile = File(...)
     上传单个文件并保存到服务器。支持任意文件类型和相对路径。
     """
     # 结合相对路径和文件名，并进行标准化
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail="Filename is missing")
     safe_path = (BASE_DIR / path / file.filename).resolve()
 
     # --- 安全检查：验证文件路径是否在 BASE_DIR 目录下 ---

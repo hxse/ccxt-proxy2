@@ -87,17 +87,18 @@ def get_sorted_cache_files(
 
     all_files = [f for f in cache_dir.iterdir() if f.suffix == f".{file_type}"]
 
-    valid_and_matched_files = [
-        f
-        for f in all_files
-        if (info := get_file_info(f.name))
-        and info["symbol"] == sanitize_symbol(symbol)
-        and info["period"] == period
-    ]
+    files_with_info = []
+    for f in all_files:
+        info = get_file_info(f.name)
+        if (
+            info
+            and info["symbol"] == sanitize_symbol(symbol)
+            and info["period"] == period
+        ):
+            files_with_info.append((f, info))
 
-    return sorted(
-        valid_and_matched_files, key=lambda f: get_file_info(f.name)["start_time"]
-    )
+    sorted_files = sorted(files_with_info, key=lambda x: x[1]["start_time"])
+    return [f for f, info in sorted_files]
 
 
 def get_chunk_slices(
@@ -240,7 +241,11 @@ def find_cache_size_sequences(
         List[Tuple[int, int, int]]: 筛选后的 cache_size 序列。
     """
     # 从 all_files 中提取每个文件的 count 信息
-    counts = [get_file_info(file.name)["count"] for file in all_files]
+    counts = []
+    for file in all_files:
+        info = get_file_info(file.name)
+        if info:
+            counts.append(info["count"])
 
     # 调用 find_consecutive_sequences 函数来找出所有连续重复的行数序列
     all_sequences = find_consecutive_sequences(counts)
@@ -253,7 +258,7 @@ def find_cache_size_sequences(
 
 def find_max_diff_sequence(
     sequences: List[Tuple[Any, int, int]],
-) -> Tuple[Any, int, int]:
+) -> Tuple[Any, int, int] | None:
     """
     找出列表中 end - start 差值最大的元组。
 

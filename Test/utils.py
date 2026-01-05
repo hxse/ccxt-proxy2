@@ -69,7 +69,7 @@ def assert_uniform_time_intervals(df: pl.DataFrame, time_column: str = "time") -
         print(f"✅ 验证通过：所有时间间隔都相等，为 {interval}。")
 
 
-def _to_duration(period: str) -> pl.Duration:
+def _to_duration(period: str) -> pl.Expr:
     """将周期字符串转换为 Polars Duration 对象。"""
     match = re.match(r"(\d+)(\w+)", period)
     if not match:
@@ -90,7 +90,7 @@ def _to_duration(period: str) -> pl.Duration:
     if not unit_plural:
         raise ValueError(f"无效的 period 单位: {unit}")
 
-    return pl.duration(**{unit_plural: num})
+    return pl.duration(**{unit_plural: num})  # type: ignore
 
 
 def _to_datetime(_time: Union[str, int, datetime]) -> datetime:
@@ -100,7 +100,7 @@ def _to_datetime(_time: Union[str, int, datetime]) -> datetime:
     if isinstance(_time, int):
         return convert_ms_timestamp_to_utc_datetime(_time)
     if isinstance(_time, str):
-        return parse_timestamp_string(_time)
+        return convert_ms_timestamp_to_utc_datetime(parse_timestamp_string(_time))
 
     if isinstance(_time, datetime):
         # 对于传入的原生 datetime 对象
@@ -189,6 +189,11 @@ def validate_merged_data(
 
     first_timestamp = start_times_series.min()
     last_timestamp = future_time_series.max()
+
+    if not isinstance(first_timestamp, datetime) or not isinstance(
+        last_timestamp, datetime
+    ):
+        raise TypeError("Timestamp is not a datetime object")
 
     # 计算理论上的总K线数量
     expected_count = calculate_kline_count(first_timestamp, last_timestamp, period)

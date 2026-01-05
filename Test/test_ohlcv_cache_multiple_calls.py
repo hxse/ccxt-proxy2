@@ -64,6 +64,7 @@ def test_get_ohlcv_with_cache_multiple_calls(
     print("总合并后数据行数:", len(df_write_merge))
 
     # 验证缓存文件是否已创建
+    assert tp.cache_dir is not None
     cache_files = get_sorted_cache_files(
         tp.cache_dir, tp.symbol, tp.period, tp.file_type
     )
@@ -96,4 +97,5 @@ def test_get_ohlcv_with_cache_multiple_calls(
     else:
         assert len(cache_size_sequences) > 1, "预期连续cache_size的段落 > 1"
 
+    assert tp.cache_dir is not None
     clear_cache_directory(tp.cache_dir)
