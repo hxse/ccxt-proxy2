@@ -32,6 +32,7 @@ class MarketOrderRequest(BaseModel):
     side: str
     amount: float
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class LimitOrderRequest(BaseModel):
@@ -41,6 +42,7 @@ class LimitOrderRequest(BaseModel):
     amount: float
     price: float
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class StopMarketOrderRequest(BaseModel):
@@ -51,6 +53,7 @@ class StopMarketOrderRequest(BaseModel):
     reduceOnly: bool = True
     stopLossPrice: float | None = None
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class TakeProfitMarketOrderRequest(BaseModel):
@@ -61,6 +64,7 @@ class TakeProfitMarketOrderRequest(BaseModel):
     reduceOnly: bool = True
     takeProfitPrice: float | None = None
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class StopMarketOrderPercentageRequest(BaseModel):
@@ -72,6 +76,7 @@ class StopMarketOrderPercentageRequest(BaseModel):
     stopLossPrice: float | None = None
     # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class TakeProfitMarketOrderPercentageRequest(BaseModel):
@@ -83,16 +88,19 @@ class TakeProfitMarketOrderPercentageRequest(BaseModel):
     takeProfitPrice: float | None = None
     # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
     is_usd_amount: bool = False
+    sandbox: bool = True
 
 
 class CloseAllOrderRequest(BaseModel):
     exchange_name: str
     symbol: str
+    sandbox: bool = True
 
 
 class CancelAllOrdersRequest(BaseModel):
     exchange_name: str
     symbol: str
+    sandbox: bool = True
 
 
 class OHLCVParams(BaseModel):
@@ -106,12 +114,13 @@ class OHLCVParams(BaseModel):
     file_type: str = ".parquet"
     cache_size: int = 1000
     page_size: int = 1500
+    sandbox: bool = False
 
 
 @ccxt_router.get("/balance")
-def get_balance(exchange_name: str):
+def get_balance(exchange_name: str, sandbox: bool = True):
     try:
-        result = fetch_balance_ccxt(exchange_name)
+        result = fetch_balance_ccxt(exchange_name, sandbox=sandbox)
         return result
     except HTTPException as e:
         raise e
@@ -123,12 +132,13 @@ def get_balance(exchange_name: str):
 def get_tickers(
     exchange_name: str,
     symbols: str | None = None,
+    sandbox: bool = False,
 ):
     """
     获取指定交易所的交易对报价（tickers）数据。
     """
     try:
-        result = fetch_tickers_ccxt(exchange_name, symbols)
+        result = fetch_tickers_ccxt(exchange_name, symbols, sandbox=sandbox)
         return result
     except HTTPException as e:
         raise e

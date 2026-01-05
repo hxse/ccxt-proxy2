@@ -5,12 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/file/download?filename=README.md&path=test/path
+  url: {{baseUrl}}/file/download?filename=README.md&path=test/path&sandbox=true
   body: none
   auth: inherit
 }
 
 params:query {
+  sandbox: true
   filename: README.md
   path: test/path
 }

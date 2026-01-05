@@ -5,16 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/tickers?exchange_name=binance&symbols=BTC/USDT
+  url: {{baseUrl}}/ccxt/tickers?exchange_name=binance&symbols=BTC/USDT&sandbox=false
   body: json
   auth: inherit
 }
 
 params:query {
+  sandbox: false
   exchange_name: binance
   symbols: BTC/USDT
-}
-
-body:json {
-  {}
 }

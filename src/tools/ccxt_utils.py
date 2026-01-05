@@ -5,8 +5,10 @@ import ccxt
 
 # 从主应用中导入你的交易所实例和验证函数
 from src.tools.shared import (
-    binance_exchange,
-    kraken_exchange,
+    binance_exchange_sandbox,
+    binance_exchange_live,
+    kraken_exchange_sandbox,
+    kraken_exchange_live,
     config,
 )
 from src.tools.adjust_trade_utils_decimal import get_symbol
@@ -28,23 +30,26 @@ def get_currency_type(is_usd_amount: bool):
     return "usd" if is_usd_amount else "coin"
 
 
-def get_exchange_instance(exchange_name: str):
+def get_exchange_instance(exchange_name: str, sandbox: bool = True):
     """根据交易所名称获取 CCXT 交易所实例。"""
     if exchange_name == "binance":
-        return binance_exchange
+        return binance_exchange_sandbox if sandbox else binance_exchange_live
     elif exchange_name == "kraken":
-        return kraken_exchange
+        return kraken_exchange_sandbox if sandbox else kraken_exchange_live
     else:
         raise HTTPException(status_code=400, detail="Invalid exchange name")
 
 
 def fetch_tickers_ccxt(
-    exchange_name: str, symbols: str | None = None, params: dict = {}
+    exchange_name: str,
+    symbols: str | None = None,
+    params: dict = {},
+    sandbox: bool = False,
 ):
     """
     获取指定交易所的交易对报价（tickers）数据。
     """
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbols_list = None
     if symbols:
         symbols_list = [s.strip() for s in symbols.split(",")]
@@ -65,11 +70,12 @@ def fetch_ohlcv_ccxt(
     cache_size: int = 1000,
     page_size: int = 1500,
     cache_dir: str = "./data",
+    sandbox: bool = False,
 ):
     """
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
 
     print("market_type:", config["market_type"])
@@ -89,11 +95,11 @@ def fetch_ohlcv_ccxt(
     return ohlcv_df.to_numpy().tolist()
 
 
-def fetch_balance_ccxt(exchange_name: str, params: dict = {}):
+def fetch_balance_ccxt(exchange_name: str, params: dict = {}, sandbox: bool = True):
     """
     获取指定交易所的余额信息。
     """
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     balance = exchange.fetch_balance(params=params)
     return {"balance": balance}
 
@@ -107,12 +113,13 @@ def create_order_ccxt(
     price: float | None = None,
     is_usd_amount: bool = False,
     params: dict = {},
+    sandbox: bool = True,
 ):
     """
     在指定交易所创建订单。
     """
 
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
 
     if is_usd_amount:
@@ -137,11 +144,12 @@ def close_all_order_ccxt(
     exchange_name: str,
     symbol: str,
     params: dict = {},
+    sandbox: bool = True,
 ):
     """
     关闭指定品种所有仓位和挂单
     """
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
 
     params = {"reduceOnly": True}
@@ -158,11 +166,12 @@ def cancel_all_orders_ccxt(
     exchange_name: str,
     symbol: str,
     params: dict = {},
+    sandbox: bool = True,
 ):
     """
     取消指定交易对的所有挂单。
     """
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
     result = exchange.cancelAllOrders(symbol_to_use, params)
     return {"result": result}
@@ -176,9 +185,10 @@ def create_exit_percentage_order(
     amount_percentage: float,
     params: dict = {},
     is_usd_amount: bool = False,
+    sandbox: bool = True,
 ):
     results = []  # 初始化 results 列表
-    exchange = get_exchange_instance(exchange_name)
+    exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
 
     positions = exchange.fetch_positions([symbol_to_use])
@@ -203,6 +213,7 @@ def create_exit_percentage_order(
                         price=None,
                         is_usd_amount=is_usd_amount,
                         params=params,
+                        sandbox=sandbox,
                     )
                     results.append(order_result)
                 break

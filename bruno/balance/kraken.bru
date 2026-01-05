@@ -5,15 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/balance?exchange_name=kraken
+  url: {{baseUrl}}/ccxt/balance?exchange_name=kraken&sandbox=true
   body: json
   auth: inherit
 }
 
 params:query {
+  sandbox: true
   exchange_name: kraken
 }
 
-body:json {
-  {}
-}

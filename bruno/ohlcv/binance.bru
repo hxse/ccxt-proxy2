@@ -5,12 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/ohlcv?exchange_name=binance&symbol=BTC/USDT&period=15m&start_time=1740787200000&count=10&enable_cache=true
+  url: {{baseUrl}}/ccxt/ohlcv?exchange_name=binance&symbol=BTC/USDT&period=15m&start_time=1740787200000&count=10&enable_cache=true&sandbox=false
   body: none
   auth: inherit
 }
 
 params:query {
+  sandbox: false
   exchange_name: binance
   symbol: BTC/USDT
   period: 15m

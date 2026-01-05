@@ -46,7 +46,13 @@ CACHE_DIR = "./data/cache"
 STATIC_DIR = "./data/static"
 
 
-binance_exchange = get_binance_exchange(config)
-kraken_exchange = get_kraken_exchange(config)
+# 创建 sandbox 实例（模拟环境）
+binance_exchange_sandbox = get_binance_exchange(config, sandbox=True)
+kraken_exchange_sandbox = get_kraken_exchange(config, sandbox=True)
 
-kraken_exchange.fetchMarkets()
+# 创建 live 实例（实盘环境）
+binance_exchange_live = get_binance_exchange(config, sandbox=False)
+kraken_exchange_live = get_kraken_exchange(config, sandbox=False)
+
+kraken_exchange_sandbox.fetchMarkets()
+kraken_exchange_live.fetchMarkets()
