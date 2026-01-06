@@ -179,3 +179,51 @@ class TestCacheAlgorithmSimple:
         # 中间经过 2000000 时不会复用缓存
         assert len(request_starts) >= 1
         assert request_starts[0] == 500000
+
+    def test_enable_cache_false(self, temp_dir, sample_loc, period_ms):
+        """禁用缓存时数据不写入磁盘"""
+        from src.cache_tool.config import get_data_dir
+
+        call_count = {"value": 0}
+
+        def counting_fetch(symbol, period, start_time, count, **kwargs):
+            call_count["value"] += 1
+            return mock_ohlcv(start_time, count, period_ms)
+
+        # 第一次请求，禁用缓存
+        result1 = get_ohlcv_with_cache(
+            temp_dir,
+            sample_loc,
+            start_time=1000000,
+            count=10,
+            fetch_callback=counting_fetch,
+            enable_cache=False,
+        )
+
+        assert len(result1) == 10
+        assert call_count["value"] == 1
+
+        # 验证没有写入磁盘
+        data_dir = get_data_dir(
+            temp_dir,
+            sample_loc.exchange,
+            sample_loc.mode,
+            sample_loc.market,
+            sample_loc.symbol,
+            sample_loc.period,
+        )
+        parquet_files = list(data_dir.glob("*.parquet")) if data_dir.exists() else []
+        assert len(parquet_files) == 0, "禁用缓存时不应写入 parquet 文件"
+
+        # 第二次相同请求，应再次触发网络请求
+        result2 = get_ohlcv_with_cache(
+            temp_dir,
+            sample_loc,
+            start_time=1000000,
+            count=10,
+            fetch_callback=counting_fetch,
+            enable_cache=False,
+        )
+
+        assert len(result2) == 10
+        assert call_count["value"] == 2, "禁用缓存时每次都应发起网络请求"

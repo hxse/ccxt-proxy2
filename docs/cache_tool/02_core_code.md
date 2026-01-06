@@ -26,6 +26,7 @@ src/cache_tool/
 - **`LogEntry`**: 单条获取日志。记录数据的时间范围 (`data_start`, `data_end`) 和条数。
     *   **关于 `count`**: 为 `Optional[int]`。单次写入(`append_log`)时准确，合并(`compact_log`)后置为 `None` 以避免误导。
 - **`DataRange`** / **`Gap`**: 用于连续性检查的辅助模型。
+- **`PartitionWindow`**: 分块窗口类型，值为 `"month"` / `"year"` / `"decade"`。
 - **`DataLocation`**: 唯一定位数据的参数组合 (Exchange, Mode, Market, Symbol, Period)。
 
 ---
@@ -46,6 +47,7 @@ src/cache_tool/
 
 - `get_partition_key(timestamp_ms, period)`: 计算时间戳对应的分块文件名。
 - `get_data_dir(...)`: 生成数据的标准存储路径。
+- `period_to_ms(period)`: 将周期字符串（如 `"15m"`）转换为毫秒数。
 
 ---
 
@@ -83,6 +85,10 @@ src/cache_tool/
 **核心维护函数**。合并可连接的日志条目，减少碎片。
 *   **合并条件**：首尾衔接 (`end == start`) 或 重叠/包含。
 *   **运行时机**：每次读取缓存前必须运行。
+
+#### `read_log(data_dir) -> list[LogEntry]`
+读取日志文件为 `LogEntry` 列表。
+*   **自动重建**：如果日志文件损坏（包含无法解析的行），会打印警告并自动调用 `rebuild_log_from_data` 重建。
 
 #### `rebuild_log_from_data(data_dir)`
 （灾难恢复）从数据文件重建日志。

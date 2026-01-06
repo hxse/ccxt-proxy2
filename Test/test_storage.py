@@ -111,3 +111,101 @@ class TestStorage:
         assert len(result_live) == 10
         assert len(result_demo) == 5
         assert result_live["time"].min() != result_demo["time"].min()
+
+    def test_save_with_lock(self, temp_dir, sample_loc):
+        """验证 save_ohlcv_with_lock 正常工作"""
+        from src.cache_tool.storage import save_ohlcv_with_lock
+
+        data = mock_ohlcv(start=1000000, count=10)
+        save_ohlcv_with_lock(temp_dir, sample_loc, data)
+
+        result = read_ohlcv(temp_dir, sample_loc)
+        assert len(result) == 10
+
+        # 验证数据目录存在
+        data_dir = get_data_dir(
+            temp_dir,
+            sample_loc.exchange,
+            sample_loc.mode,
+            sample_loc.market,
+            sample_loc.symbol,
+            sample_loc.period,
+        )
+        assert data_dir.exists()
+        assert len(list(data_dir.glob("*.parquet"))) >= 1
+
+    def test_cross_month_partition(self, temp_dir):
+        """验证跨月数据正确分块到不同文件"""
+        from datetime import datetime, timezone
+
+        # 使用分钟级周期（按月分块）
+        loc = make_loc(period="15m")
+
+        # 2023年1月31日 23:45 和 2023年2月1日 00:00 (UTC)
+        jan_end = int(
+            datetime(2023, 1, 31, 23, 45, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        feb_start = int(
+            datetime(2023, 2, 1, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
+        )
+
+        # 创建跨月数据
+        data = pl.DataFrame(
+            {
+                "time": [jan_end, feb_start],
+                "open": [100.0, 101.0],
+                "high": [105.0, 106.0],
+                "low": [95.0, 96.0],
+                "close": [102.0, 103.0],
+                "volume": [1000.0, 1001.0],
+            }
+        )
+
+        save_ohlcv(temp_dir, loc, data)
+
+        data_dir = get_data_dir(
+            temp_dir, loc.exchange, loc.mode, loc.market, loc.symbol, loc.period
+        )
+
+        # 应生成两个分块文件
+        parquet_files = sorted(data_dir.glob("*.parquet"))
+        assert len(parquet_files) == 2, f"应生成2个分块文件，实际 {len(parquet_files)}"
+
+        file_names = [f.stem for f in parquet_files]
+        assert "2023-01" in file_names, "应有 2023-01.parquet"
+        assert "2023-02" in file_names, "应有 2023-02.parquet"
+
+    def test_decade_partition(self, temp_dir):
+        """验证10年分块规则: 2023 -> 2020s, 2030 -> 2030s"""
+        from datetime import datetime, timezone
+
+        # 使用日线周期（按10年分块）
+        loc = make_loc(period="1d")
+
+        # 2023年和2030年的时间戳
+        ts_2023 = int(datetime(2023, 6, 15, tzinfo=timezone.utc).timestamp() * 1000)
+        ts_2030 = int(datetime(2030, 6, 15, tzinfo=timezone.utc).timestamp() * 1000)
+
+        data = pl.DataFrame(
+            {
+                "time": [ts_2023, ts_2030],
+                "open": [100.0, 200.0],
+                "high": [105.0, 205.0],
+                "low": [95.0, 195.0],
+                "close": [102.0, 202.0],
+                "volume": [1000.0, 2000.0],
+            }
+        )
+
+        save_ohlcv(temp_dir, loc, data)
+
+        data_dir = get_data_dir(
+            temp_dir, loc.exchange, loc.mode, loc.market, loc.symbol, loc.period
+        )
+
+        parquet_files = sorted(data_dir.glob("*.parquet"))
+        assert len(parquet_files) == 2, f"应生成2个分块文件，实际 {len(parquet_files)}"
+
+        file_names = [f.stem for f in parquet_files]
+        assert "2020s" in file_names, "2023年应分块到 2020s.parquet"
+        assert "2030s" in file_names, "2030年应分块到 2030s.parquet"
