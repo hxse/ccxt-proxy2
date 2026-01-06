@@ -5,12 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/balance?exchange_name=binance&sandbox=true
+  url: {{baseUrl}}/ccxt/balance?exchange_name=binance&market=future&mode=sandbox
   body: json
   auth: inherit
 }
 
 params:query {
-  sandbox: true
   exchange_name: binance
+  market: future
+  mode: sandbox
 }

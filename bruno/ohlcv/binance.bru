@@ -5,13 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/ohlcv?exchange_name=binance&symbol=BTC/USDT&period=15m&start_time=1740787200000&count=10&enable_cache=true&sandbox=false
+  url: {{baseUrl}}/ccxt/ohlcv?mode=live&market=future&exchange_name=binance&symbol=BTC/USDT&period=15m&start_time=1740787200000&count=10&enable_cache=true
   body: none
   auth: inherit
 }
 
 params:query {
-  sandbox: false
+  mode: live
+  market: future
   exchange_name: binance
   symbol: BTC/USDT
   period: 15m
@@ -19,8 +20,4 @@ params:query {
   count: 10
   enable_cache: true
   ~enable_test: 
-  ~file_type: 
-  ~cache_size: 
-  ~page_size: 
-  ~cache_dir: 
 }

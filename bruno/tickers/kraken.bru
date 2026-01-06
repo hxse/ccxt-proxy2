@@ -5,13 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/tickers?exchange_name=kraken&symbols=BTC/USDT&sandbox=false
+  url: {{baseUrl}}/ccxt/tickers?exchange_name=kraken&symbols=BTC/USDT&mode=live&market=future
   body: json
   auth: inherit
 }
 
 params:query {
-  sandbox: false
+  mode: live
+  market: future
   exchange_name: kraken
   symbols: BTC/USDT
 }

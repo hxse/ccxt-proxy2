@@ -1,9 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from pathlib import Path
-from src.tools.exchange import get_binance_exchange, get_kraken_exchange
+from src.tools.exchange_manager import exchange_manager
 
 
 app = FastAPI()
@@ -47,12 +46,5 @@ STATIC_DIR = "./data/static"
 
 
 # 创建 sandbox 实例（模拟环境）
-binance_exchange_sandbox = get_binance_exchange(config, sandbox=True)
-kraken_exchange_sandbox = get_kraken_exchange(config, sandbox=True)
-
-# 创建 live 实例（实盘环境）
-binance_exchange_live = get_binance_exchange(config, sandbox=False)
-kraken_exchange_live = get_kraken_exchange(config, sandbox=False)
-
-kraken_exchange_sandbox.fetchMarkets()
-kraken_exchange_live.fetchMarkets()
+# 根据白名单初始化交易所实例
+exchange_manager.init_from_config(config)
