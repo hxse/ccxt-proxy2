@@ -1,24 +1,9 @@
 from pydantic import BaseModel
 from typing import Optional, Literal
 from pathlib import Path
-from decimal import Decimal
 
 
-class OHLCVParams(BaseModel):
-    """OHLCV 请求参数模型"""
-
-    exchange_name: str
-    symbol: str
-    period: str
-    start_time: Optional[int] = None
-    count: Optional[int] = None
-    enable_cache: bool = True
-    enable_test: bool = False
-    file_type: str = ".parquet"
-    cache_size: int = 1000
-    page_size: int = 1500
-    cache_dir: Path = Path("./data")
-    sandbox: bool = False
+VALID_PERIODS = Literal["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 
 
 class FileInfo(BaseModel):
@@ -29,6 +14,21 @@ class FileInfo(BaseModel):
     start_time: int
     end_time: int
     count: int
+
+
+class OHLCVParams(BaseModel):
+    """OHLCV 请求参数模型"""
+
+    exchange_name: str
+    market: Literal["future", "spot"]
+    symbol: str
+    period: VALID_PERIODS
+    start_time: Optional[int] = None
+    count: Optional[int] = None
+    enable_cache: bool = True
+    enable_test: bool = False
+    cache_dir: Path = Path("./data")
+    sandbox: bool = False
 
 
 class MarketOrderRequest(BaseModel):
@@ -106,3 +106,18 @@ class CancelAllOrdersRequest(BaseModel):
     exchange_name: str
     symbol: str
     sandbox: bool = True
+
+
+class BalanceRequest(BaseModel):
+    """获取余额请求参数"""
+
+    exchange_name: str
+    sandbox: bool = True
+
+
+class TickersRequest(BaseModel):
+    """获取报价请求参数"""
+
+    exchange_name: str
+    symbols: str | None = None
+    sandbox: bool = False

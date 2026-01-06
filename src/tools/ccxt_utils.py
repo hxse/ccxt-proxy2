@@ -1,8 +1,6 @@
-# src/tools/ccxt_utils.py
-from typing import Optional, Literal
+from typing import Optional, Literal, cast
 from pathlib import Path
-from fastapi import HTTPException, status
-import ccxt
+from fastapi import HTTPException
 
 # 从主应用中导入你的交易所实例和验证函数
 from src.tools.shared import (
@@ -10,15 +8,13 @@ from src.tools.shared import (
     binance_exchange_live,
     kraken_exchange_sandbox,
     kraken_exchange_live,
-    config,
 )
 from src.tools.adjust_trade_utils_decimal import get_symbol
-from src.cache_tool.cache_entry import (
-    get_ohlcv_with_cache_lock,
-    fetch_ohlcv,
-    mock_fetch_ohlcv,
-)
-from src.cache_tool.cache_utils import sanitize_symbol
+
+# 新缓存系统引入
+import polars as pl
+from src.cache_tool import get_ohlcv_with_cache, DataLocation
+from src.cache_tool.models import VALID_PERIODS
 
 from src.tools.adjust_trade_utils_decimal import (
     adjust_coin_amount_wrapper,
@@ -63,13 +59,11 @@ def fetch_ohlcv_ccxt(
     exchange_name: str,
     symbol: str,
     period: str,
+    market: Literal["future", "spot"],
     start_time: Optional[int] = None,
     count: Optional[int] = None,
     enable_cache: bool = True,
     enable_test: bool = False,
-    file_type: str = ".parquet",
-    cache_size: int = 1000,
-    page_size: int = 1500,
     cache_dir: str | Path = "./data",
     sandbox: bool = False,
 ):
@@ -79,20 +73,70 @@ def fetch_ohlcv_ccxt(
     exchange = get_exchange_instance(exchange_name, sandbox=sandbox)
     symbol_to_use = get_symbol(exchange_name, symbol)
 
-    print("market_type:", config["market_type"])
-    ohlcv_df = get_ohlcv_with_cache_lock(
-        symbol=symbol_to_use,
-        period=period,
-        start_time=start_time,
-        count=count,
-        cache_dir=f"{cache_dir}/{exchange_name}/{config['market_type']}/{sanitize_symbol(symbol)}/{period}",
-        cache_size=cache_size,
-        page_size=page_size,
-        enable_cache=enable_cache,
-        file_type=file_type,
-        fetch_callback=mock_fetch_ohlcv if enable_test else fetch_ohlcv,
-        fetch_callback_params={"exchange": exchange},
+    # 根据 sandbox 推导 mode（用于缓存目录路径）
+    mode: Literal["live", "demo"] = "demo" if sandbox else "live"
+
+    # 构造数据位置对象
+    # 显式 cast period 以满足类型检查
+    # 注意：这里假设调用者传入的 period 是合法的，实际应该在 Pydantic 层做校验
+    loc = DataLocation(
+        exchange=exchange_name,
+        mode=mode,
+        market=market,
+        symbol=symbol,  # 使用标准 symbol 命名目录
+        period=cast(VALID_PERIODS, period),
     )
+
+    def fetch_callback(
+        symbol: str, period: str, start_time: int | None, count: int, **kwargs
+    ) -> pl.DataFrame:
+        exchange_instance = kwargs.get("exchange")
+        limit = count if count is not None else 1500
+
+        if exchange_instance is None:
+            return pl.DataFrame()
+
+        # 使用 ccxt 获取数据
+        # 注意：start_time 为 None 时，ccxt 会获取最新数据
+        data = exchange_instance.fetch_ohlcv(
+            symbol_to_use, period, since=start_time, limit=limit
+        )  # type: ignore
+
+        if not data:
+            return pl.DataFrame()
+
+        df = pl.DataFrame(
+            data,
+            schema=["time", "open", "high", "low", "close", "volume"],
+            orient="row",
+        )
+        return df.with_columns(
+            [
+                pl.col("time").cast(pl.Int64),
+                pl.col("open").cast(pl.Float64),
+                pl.col("high").cast(pl.Float64),
+                pl.col("low").cast(pl.Float64),
+                pl.col("close").cast(pl.Float64),
+                pl.col("volume").cast(pl.Float64),
+            ]
+        )
+
+    def mock_fetch_callback(
+        symbol: str, period: str, start_time: int | None, count: int, **kwargs
+    ) -> pl.DataFrame:
+        # 简单模拟返回空数据，实际测试应在 test 环境中控制
+        return pl.DataFrame()
+
+    ohlcv_df = get_ohlcv_with_cache(
+        base_dir=Path(cache_dir),
+        loc=loc,
+        start_time=start_time,
+        count=count or 100,  # 默认获取100条？
+        fetch_callback=mock_fetch_callback if enable_test else fetch_callback,
+        fetch_callback_params={"exchange": exchange},
+        enable_cache=enable_cache,
+    )
+
     return ohlcv_df.to_numpy().tolist()
 
 

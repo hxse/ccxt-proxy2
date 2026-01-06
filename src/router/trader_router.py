@@ -35,13 +35,15 @@ from src.types import (
     CloseAllOrderRequest,
     CancelAllOrdersRequest,
     OHLCVParams,
+    BalanceRequest,
+    TickersRequest,
 )
 
 
 @ccxt_router.get("/balance")
-def get_balance(exchange_name: str, sandbox: bool = True):
+def get_balance(params: BalanceRequest = Depends()):
     try:
-        result = fetch_balance_ccxt(exchange_name, sandbox=sandbox)
+        result = fetch_balance_ccxt(**params.model_dump())
         return result
     except HTTPException as e:
         raise e
@@ -50,16 +52,12 @@ def get_balance(exchange_name: str, sandbox: bool = True):
 
 
 @ccxt_router.get("/tickers")
-def get_tickers(
-    exchange_name: str,
-    symbols: str | None = None,
-    sandbox: bool = False,
-):
+def get_tickers(params: TickersRequest = Depends()):
     """
     获取指定交易所的交易对报价（tickers）数据。
     """
     try:
-        result = fetch_tickers_ccxt(exchange_name, symbols, sandbox=sandbox)
+        result = fetch_tickers_ccxt(**params.model_dump())
         return result
     except HTTPException as e:
         raise e
