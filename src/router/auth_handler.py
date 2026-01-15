@@ -37,7 +37,7 @@ def login(response: Response, data: OAuth2PasswordRequestForm = Depends()):
         raise InvalidCredentialsException
 
     access_token = manager.create_access_token(
-        data={"sub": data.username}, expires=timedelta(minutes=10)
+        data={"sub": data.username}, expires=timedelta(minutes=60)
     )
     manager.set_cookie(response, access_token)
 

@@ -1,13 +1,16 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
-
-
-VALID_PERIODS = Literal["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
-OrderType = Literal["market", "limit", "STOP_MARKET", "TAKE_PROFIT_MARKET"]
-SideType = Literal["buy", "sell"]
-ExchangeName = Literal["binance", "kraken"]
-MarketType = Literal["future", "spot"]
-ModeType = Literal["sandbox", "live"]
+from typing import Optional, Annotated
+from fastapi import Query
+from src.base_types import (
+    ExchangeName,
+    MarketType,
+    ModeType,
+    SideType,
+    PositionSide,
+    VALID_PERIODS,
+    BaseExchangeRequest,
+    BaseSymbolRequest,
+)
 
 
 class ExchangeWhitelistItem(BaseModel):
@@ -26,117 +29,100 @@ class FileInfo(BaseModel):
     count: int
 
 
-class OHLCVParams(BaseModel):
+class OHLCVParams(BaseSymbolRequest):
     """OHLCV 请求参数模型"""
 
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
-    period: VALID_PERIODS
-    start_time: Optional[int] = None
-    count: Optional[int] = None
+    timeframe: VALID_PERIODS
+    since: Optional[int] = None
+    limit: Optional[int] = None
     enable_cache: bool = True
     enable_test: bool = False
 
 
-class MarketOrderRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
+class MarketOrderRequest(BaseSymbolRequest):
     side: SideType
     amount: float
-    is_usd_amount: bool = False
+    clientOrderId: str | None = None
+    model_config = {"extra": "allow"}
 
 
-class LimitOrderRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
+class LimitOrderRequest(BaseSymbolRequest):
     side: SideType
     amount: float
     price: float
-    is_usd_amount: bool = False
+    clientOrderId: str | None = None
+    timeInForce: str | None = None
+    postOnly: bool = False
+    model_config = {"extra": "allow"}
 
 
-class StopMarketOrderRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
+class StopMarketOrderRequest(BaseSymbolRequest):
     side: SideType
     amount: float
     reduceOnly: bool = True
-    stopLossPrice: float | None = None
-    is_usd_amount: bool = False
+    triggerPrice: float | None = None
+    clientOrderId: str | None = None
+    timeInForce: str | None = None
+    model_config = {"extra": "allow"}
 
 
-class TakeProfitMarketOrderRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
+class TakeProfitMarketOrderRequest(BaseSymbolRequest):
     side: SideType
     amount: float
     reduceOnly: bool = True
-    takeProfitPrice: float | None = None
-    is_usd_amount: bool = False
+    triggerPrice: float | None = None
+    clientOrderId: str | None = None
+    timeInForce: str | None = None
+    model_config = {"extra": "allow"}
 
 
-class StopMarketOrderPercentageRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
-    side: SideType
-    reduceOnly: bool = True
-    stopLossPrice: float | None = None
-    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
-    is_usd_amount: bool = False
-    amount_percentage: float = 1
+class ClosePositionRequest(BaseSymbolRequest):
+    side: PositionSide | None = None
+    model_config = {"extra": "allow"}
 
 
-class TakeProfitMarketOrderPercentageRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
-    side: SideType
-    reduceOnly: bool = True
-    takeProfitPrice: float | None = None
-    # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
-    is_usd_amount: bool = False
-    amount_percentage: float = 1
+class CancelAllOrdersRequest(BaseExchangeRequest):
+    symbol: str | None = None
+    model_config = {"extra": "allow"}
 
 
-class CloseAllOrderRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
-
-
-class CancelAllOrdersRequest(BaseModel):
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbol: str
-
-
-class BalanceRequest(BaseModel):
+class BalanceRequest(BaseExchangeRequest):
     """获取余额请求参数"""
 
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
+    pass
 
 
-class TickersRequest(BaseModel):
+class TickersRequest(BaseExchangeRequest):
     """获取报价请求参数"""
 
-    exchange_name: ExchangeName
-    market: MarketType
-    mode: ModeType = "sandbox"
-    symbols: str | None = None
+    symbols: Annotated[
+        str | None,
+        Query(
+            default=None,
+            description="交易对列表，多个用逗号分隔，例如：BTC/USDT,ETH/USDT",
+            examples=["BTC/USDT", "BTC/USDT,ETH/USDT"],
+        ),
+    ]
+
+    @property
+    def symbols_list(self) -> list[str] | None:
+        """将逗号分隔的 symbols 字符串转换为列表"""
+        if not self.symbols or not isinstance(self.symbols, str):
+            return None
+        return [s.strip() for s in self.symbols.split(",") if s.strip()]
+
+
+class MarketInfoRequest(BaseSymbolRequest):
+    """获取市场信息请求参数"""
+
+    pass
+
+
+class FetchOrderRequest(BaseExchangeRequest):
+    """获取特定订单请求参数"""
+
+    symbol: str | None = None
+    id: str
+
+
+# MarketInfoResponse has been moved to src/responses.py

@@ -1,0 +1,24 @@
+meta {
+  name: binance
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/create_take_profit_market_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "market": "future",
+    "exchange_name": "binance",
+    "symbol": "BTC/USDT",
+    "side": "sell",
+    "amount": 0.001,
+    "reduceOnly": true,
+    "triggerPrice": 131569.0
+  }
+}

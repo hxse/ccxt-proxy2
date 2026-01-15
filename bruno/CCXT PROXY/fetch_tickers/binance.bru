@@ -1,0 +1,18 @@
+meta {
+  name: binance
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ccxt/fetch_tickers?mode=live&market=future&exchange_name=binance&symbols=BTC/USDT,ETH/USDT
+  body: json
+  auth: inherit
+}
+
+params:query {
+  mode: live
+  market: future
+  exchange_name: binance
+  symbols: BTC/USDT,ETH/USDT
+}

@@ -1,0 +1,21 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/cancel_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "exchange_name": "kraken",
+    "market": "future",
+    "mode": "sandbox",
+    "symbol": "BTC/USD:USD",
+    "id": "a0d793c0-536b-4ad3-ba38-6ff9efbb83fa"
+  }
+}

@@ -1,0 +1,21 @@
+meta {
+  name: binance
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/ccxt/set_leverage
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "exchange_name": "binance",
+    "market": "future",
+    "mode": "sandbox",
+    "symbol": "BTC/USDT",
+    "leverage": 10
+  }
+}

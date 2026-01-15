@@ -1,0 +1,21 @@
+meta {
+  name: binance
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/close_position
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "market": "future",
+    "exchange_name": "binance",
+    "side": null,
+    "symbol": "BTC/USDT"
+  }
+}

@@ -1,0 +1,19 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/ccxt/fetch_my_trades?exchange_name=kraken&market=future&mode=sandbox&symbol=BTC/USD:USD&limit=3
+  body: none
+  auth: inherit
+}
+
+params:query {
+  exchange_name: kraken
+  market: future
+  mode: sandbox
+  symbol: BTC/USD:USD
+  limit: 3
+}

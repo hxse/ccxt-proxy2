@@ -1,0 +1,17 @@
+meta {
+  name: binance
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ccxt/fetch_positions?exchange_name=binance&market=future&mode=sandbox
+  body: none
+  auth: inherit
+}
+
+params:query {
+  exchange_name: binance
+  market: future
+  mode: sandbox
+}

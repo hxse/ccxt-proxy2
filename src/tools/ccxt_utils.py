@@ -1,9 +1,11 @@
 from typing import Literal
-from src.types import ExchangeName, MarketType, OrderType, SideType, ModeType
-
-
-import polars as pl
-
+from src.base_types import (
+    ExchangeName,
+    MarketType,
+    OrderType,
+    SideType,
+    ModeType,
+)
 from src.types import (
     BalanceRequest,
     TickersRequest,
@@ -12,32 +14,17 @@ from src.types import (
     LimitOrderRequest,
     StopMarketOrderRequest,
     TakeProfitMarketOrderRequest,
-    StopMarketOrderPercentageRequest,
-    TakeProfitMarketOrderPercentageRequest,
-    CloseAllOrderRequest,
+    ClosePositionRequest,
     CancelAllOrdersRequest,
+    MarketInfoRequest,
+    FetchOrderRequest,
 )
-
-# 从主应用中导入你的交易所实例和验证函数
-from src.tools.shared import (
-    OHLCV_DIR,
-)
+from src.responses import MarketInfoResponse
+import polars as pl
+from src.tools.shared import OHLCV_DIR
 from src.tools.exchange_manager import exchange_manager
-from src.tools.adjust_trade_utils_decimal import get_symbol
-
-# 新缓存系统引入
 from src.cache_tool import get_ohlcv_with_cache, DataLocation
-
-
-from src.tools.adjust_trade_utils_decimal import (
-    adjust_coin_amount_wrapper,
-    adjust_usd_to_coin_amount_wrapper,
-    adjusted_market_price_wrapper,
-)
-
-
-def get_currency_type(is_usd_amount: bool):
-    return "usd" if is_usd_amount else "coin"
+from src.tools import binance_adapter
 
 
 def fetch_tickers_ccxt(request: TickersRequest):
@@ -45,11 +32,9 @@ def fetch_tickers_ccxt(request: TickersRequest):
     获取指定交易所的交易对报价（tickers）数据。
     """
     exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
-    symbols_list = None
-    if request.symbols:
-        symbols_list = [s.strip() for s in request.symbols.split(",")]
-        symbols_list = [get_symbol(request.exchange_name, s) for s in symbols_list]
-    tickers = exchange.fetch_tickers(symbols_list)
+    symbols_list = request.symbols_list  # 使用 property 获取列表
+
+    tickers = exchange.fetch_tickers(symbols_list, params={})
     return {"tickers": tickers}
 
 
@@ -58,20 +43,18 @@ def fetch_ohlcv_ccxt(request: OHLCVParams):
     获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
     """
     exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
-    symbol_to_use = get_symbol(request.exchange_name, request.symbol)
+    symbol_to_use = request.symbol
 
     # 根据 sandbox 推导 mode（用于缓存目录路径）
     mode: Literal["live", "demo"] = "demo" if request.mode == "sandbox" else "live"
 
     # 构造数据位置对象
-    # 显式 cast period 以满足类型检查
-    # 注意：这里假设调用者传入的 period 是合法的，实际应该在 Pydantic 层做校验
     loc = DataLocation(
         exchange=request.exchange_name,
         mode=mode,
         market=request.market,
         symbol=request.symbol,  # 使用标准 symbol 命名目录
-        period=request.period,
+        period=request.timeframe,
     )
 
     def fetch_callback(
@@ -84,10 +67,9 @@ def fetch_ohlcv_ccxt(request: OHLCVParams):
             return pl.DataFrame()
 
         # 使用 ccxt 获取数据
-        # 注意：start_time 为 None 时，ccxt 会获取最新数据
         data = exchange_instance.fetch_ohlcv(
             symbol_to_use, period, since=start_time, limit=limit
-        )  # type: ignore
+        )
 
         if not data:
             return pl.DataFrame()
@@ -111,14 +93,13 @@ def fetch_ohlcv_ccxt(request: OHLCVParams):
     def mock_fetch_callback(
         symbol: str, period: str, start_time: int | None, count: int, **kwargs
     ) -> pl.DataFrame:
-        # 简单模拟返回空数据，实际测试应在 test 环境中控制
         return pl.DataFrame()
 
     ohlcv_df = get_ohlcv_with_cache(
         base_dir=OHLCV_DIR,
         loc=loc,
-        start_time=request.start_time,
-        count=request.count or 100,  # 默认获取100条？
+        start_time=request.since,
+        count=request.limit or 100,
         fetch_callback=mock_fetch_callback if request.enable_test else fetch_callback,
         fetch_callback_params={"exchange": exchange},
         enable_cache=request.enable_cache,
@@ -132,7 +113,7 @@ def fetch_balance_ccxt(request: BalanceRequest):
     获取指定交易所的余额信息。
     """
     exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
-    balance = exchange.fetch_balance()
+    balance = exchange.fetch_balance(params={})
     return {"balance": balance}
 
 
@@ -145,38 +126,22 @@ def create_order_ccxt(
     side: SideType,
     amount: float,
     price: float | None = None,
-    is_usd_amount: bool = False,
     params: dict = {},
 ):
     """
     在指定交易所创建订单。
     """
-
     exchange = exchange_manager.get(exchange_name, market, mode)
-    symbol_to_use = get_symbol(exchange_name, symbol)
-
-    if is_usd_amount:
-        adjusted_amount = adjust_usd_to_coin_amount_wrapper(
-            exchange, symbol_to_use, amount
-        )
-        print(f"convert amount {amount} usd -> {adjusted_amount} coin")
-    else:
-        adjusted_amount = adjust_coin_amount_wrapper(exchange, symbol_to_use, amount)
-        print(f"convert amount {amount} coin -> {adjusted_amount} coin")
-
-    adjusted_price = None
-    if price is not None:
-        adjusted_price = adjusted_market_price_wrapper(exchange, symbol_to_use, price)
-    print(f"convert price {price} -> {adjusted_price}")
-
-    result = exchange.create_order(
-        symbol_to_use, type, side, adjusted_amount, adjusted_price, params=params
-    )
+    result = exchange.create_order(symbol, type, side, amount, price, params=params)
     return {"order": result}
 
 
 def create_market_order_ccxt(request: MarketOrderRequest):
     """创建市价订单。"""
+    params = request.model_extra or {}
+    if request.clientOrderId:
+        params["clientOrderId"] = request.clientOrderId
+
     return create_order_ccxt(
         exchange_name=request.exchange_name,
         mode=request.mode,
@@ -186,12 +151,20 @@ def create_market_order_ccxt(request: MarketOrderRequest):
         side=request.side,
         amount=request.amount,
         price=None,
-        is_usd_amount=request.is_usd_amount,
+        params=params,
     )
 
 
 def create_limit_order_ccxt(request: LimitOrderRequest):
     """创建限价订单。"""
+    params = request.model_extra or {}
+    if request.clientOrderId:
+        params["clientOrderId"] = request.clientOrderId
+    if request.timeInForce:
+        params["timeInForce"] = request.timeInForce
+    if request.postOnly:
+        params["postOnly"] = request.postOnly
+
     return create_order_ccxt(
         exchange_name=request.exchange_name,
         mode=request.mode,
@@ -201,61 +174,78 @@ def create_limit_order_ccxt(request: LimitOrderRequest):
         side=request.side,
         amount=request.amount,
         price=request.price,
-        is_usd_amount=request.is_usd_amount,
+        params=params,
     )
 
 
 def create_stop_market_order_ccxt(request: StopMarketOrderRequest):
     """创建止损市价订单。"""
-    order_type = "STOP_MARKET" if request.exchange_name == "binance" else "market"
+    params = {
+        "reduceOnly": request.reduceOnly,
+        "stopLossPrice": request.triggerPrice,
+        **(request.model_extra or {}),
+    }
+
+    if request.clientOrderId:
+        params["clientOrderId"] = request.clientOrderId
+    if request.timeInForce:
+        params["timeInForce"] = request.timeInForce
+
     return create_order_ccxt(
         exchange_name=request.exchange_name,
         mode=request.mode,
         market=request.market,
         symbol=request.symbol,
-        type=order_type,
+        type="market",
         side=request.side,
         amount=request.amount,
         price=None,
-        is_usd_amount=request.is_usd_amount,
-        params={
-            "reduceOnly": request.reduceOnly,
-            "stopLossPrice": request.stopLossPrice,
-        },
+        params=params,
     )
 
 
 def create_take_profit_market_order_ccxt(request: TakeProfitMarketOrderRequest):
     """创建止盈市价订单。"""
-    order_type = (
-        "TAKE_PROFIT_MARKET" if request.exchange_name == "binance" else "market"
-    )
+    params = {
+        "reduceOnly": request.reduceOnly,
+        "takeProfitPrice": request.triggerPrice,
+        **(request.model_extra or {}),
+    }
+
+    if request.clientOrderId:
+        params["clientOrderId"] = request.clientOrderId
+    if request.timeInForce:
+        params["timeInForce"] = request.timeInForce
+
     return create_order_ccxt(
         exchange_name=request.exchange_name,
         mode=request.mode,
         market=request.market,
         symbol=request.symbol,
-        type=order_type,
+        type="market",
         side=request.side,
         amount=request.amount,
         price=None,
-        is_usd_amount=request.is_usd_amount,
-        params={
-            "reduceOnly": request.reduceOnly,
-            "takeProfitPrice": request.takeProfitPrice,
-        },
+        params=params,
     )
 
 
-def close_all_order_ccxt(request: CloseAllOrderRequest):
+def close_position_ccxt(request: ClosePositionRequest):
     """
-    关闭指定品种所有仓位和挂单
+    关闭指定品种的当前仓位 (不包含挂单)。
+
+    Equivalent to Close Position.
     """
     exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
-    symbol_to_use = get_symbol(request.exchange_name, request.symbol)
+    symbol_to_use = request.symbol
 
     params = {"reduceOnly": True}
     positions = exchange.fetch_positions([symbol_to_use])
+
+    # Filter positions if side is specified
+    if request.side:
+        positions = [p for p in positions if p["side"] == request.side]
+
     for i in positions:
         side = "sell" if i["side"] == "long" else "buy"
         amount = i["contracts"]
@@ -269,99 +259,58 @@ def cancel_all_orders_ccxt(request: CancelAllOrdersRequest):
     取消指定交易对的所有挂单。
     """
     exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
-    symbol_to_use = get_symbol(request.exchange_name, request.symbol)
-    result = exchange.cancelAllOrders(symbol_to_use)
+
+    # Binance Patch
+    if request.exchange_name == "binance":
+        return binance_adapter.cancel_all_orders(exchange, request)
+
+    result = exchange.cancelAllOrders(request.symbol, params=request.model_extra or {})
     return {"result": result}
 
 
-def create_exit_percentage_order(
-    exchange_name: ExchangeName,
-    symbol: str,
-    side: SideType,
-    type: OrderType,
-    amount_percentage: float,
-    params: dict = {},
-    is_usd_amount: bool = False,
-    mode: ModeType = "sandbox",
-    market: MarketType = "future",
-):
-    results = []  # 初始化 results 列表
-    exchange = exchange_manager.get(exchange_name, market, mode)
-    symbol_to_use = get_symbol(exchange_name, symbol)
+def fetch_market_info_ccxt(request: MarketInfoRequest) -> MarketInfoResponse:
+    """获取市场信息"""
+    exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
+    symbol_to_use = request.symbol
 
-    positions = exchange.fetch_positions([symbol_to_use])
+    # 1. 获取 market 基础信息
+    market = exchange.market(symbol_to_use)
 
-    for i in positions:
-        if i["symbol"] == symbol_to_use:
-            # 检查仓位方向与订单方向是否匹配，以进行平仓
-            # 如果订单是 'sell' 且仓位是 'long'，或者订单是 'buy' 且仓位是 'short'
-            if (side == "sell" and i["side"] == "long") or (
-                side == "buy" and i["side"] == "short"
-            ):
-                # 不完全确定contracts的参数类型,所以这里的is_usd_amount最好保持false,避免未知情况
-                target_amount = i["contracts"] * amount_percentage
+    # 2. 处理 min_amount (若为 None 则回退到 precision)
+    min_amount = market["limits"]["amount"]["min"]
+    if min_amount is None:
+        min_amount = market["precision"]["amount"]
 
-                if target_amount > 0:  # 只有当计算出的订单数量大于0时才创建订单
-                    order_result = create_order_ccxt(
-                        exchange_name=exchange_name,
-                        mode=mode,
-                        market=market,
-                        symbol=symbol,
-                        type=type,
-                        side=side,
-                        amount=target_amount,
-                        price=None,
-                        is_usd_amount=is_usd_amount,
-                        params=params,
-                    )
-                    results.append(order_result)
-                break
+    # 3. 获取当前杠杆 (从 fetch_positions)
+    current_leverage = 1  # 默认值
+    try:
+        positions = exchange.fetch_positions([symbol_to_use])
+        if positions:
+            pos = positions[0]
+            current_leverage = int(pos.get("leverage", 1))
+    except Exception as e:
+        print(f"Fetch positions failed for {symbol_to_use}: {e}")
 
-    if not results:
-        return {
-            "status": "error",
-            "detail": "没有找到匹配的仓位或计算出的订单数量为零。",
-        }
-    return results
-
-
-def create_stop_market_percentage_order_ccxt(request: StopMarketOrderPercentageRequest):
-    """创建基于百分比的止损市价订单。"""
-    order_type = "STOP_MARKET" if request.exchange_name == "binance" else "market"
-    return create_exit_percentage_order(
-        exchange_name=request.exchange_name,
+    return MarketInfoResponse(
         symbol=request.symbol,
-        side=request.side,
-        type=order_type,
-        amount_percentage=request.amount_percentage,
-        params={
-            "reduceOnly": request.reduceOnly,
-            "stopLossPrice": request.stopLossPrice,
-        },
-        is_usd_amount=request.is_usd_amount,
-        mode=request.mode,
-        market=request.market,
+        linear=market.get("linear", False),
+        settle=market["settle"],
+        precision_amount=float(market["precision"]["amount"]),
+        min_amount=float(min_amount),
+        contract_size=float(market["contractSize"]),
+        leverage=current_leverage,
     )
 
 
-def create_take_profit_percentage_order_ccxt(
-    request: TakeProfitMarketOrderPercentageRequest,
-):
-    """创建基于百分比的止盈市价订单。"""
-    order_type = (
-        "TAKE_PROFIT_MARKET" if request.exchange_name == "binance" else "market"
-    )
-    return create_exit_percentage_order(
-        exchange_name=request.exchange_name,
-        symbol=request.symbol,
-        side=request.side,
-        type=order_type,
-        amount_percentage=request.amount_percentage,
-        params={
-            "reduceOnly": request.reduceOnly,
-            "takeProfitPrice": request.takeProfitPrice,
-        },
-        is_usd_amount=request.is_usd_amount,
-        mode=request.mode,
-        market=request.market,
-    )
+def fetch_order_ccxt(request: FetchOrderRequest):
+    """
+    获取特定订单详情
+    """
+    exchange = exchange_manager.get(request.exchange_name, request.market, request.mode)
+
+    # Binance Patch
+    if request.exchange_name == "binance":
+        return binance_adapter.fetch_order(exchange, request)
+
+    result = exchange.fetch_order(id=request.id, symbol=request.symbol, params={})
+    return {"order": result}

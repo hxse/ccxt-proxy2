@@ -1,0 +1,18 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/ccxt/fetch_tickers?mode=live&market=future&exchange_name=kraken&symbols=BTC/USD:USD,ETH/USD:USD
+  body: json
+  auth: inherit
+}
+
+params:query {
+  mode: live
+  market: future
+  exchange_name: kraken
+  symbols: BTC/USD:USD,ETH/USD:USD
+}

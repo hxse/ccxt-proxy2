@@ -1,0 +1,24 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/create_take_profit_market_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "market": "future",
+    "exchange_name": "kraken",
+    "symbol": "BTC/USD:USD",
+    "side": "sell",
+    "amount": 0.02,
+    "reduceOnly": true,
+    "triggerPrice": 90680
+  }
+}

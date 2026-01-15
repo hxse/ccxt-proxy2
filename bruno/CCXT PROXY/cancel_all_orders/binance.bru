@@ -1,0 +1,20 @@
+meta {
+  name: binance
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/ccxt/cancel_all_orders
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "exchange_name": "binance",
+    "market": "future",
+    "mode": "sandbox",
+    "symbol": "BTC/USDT:USDT"
+  }
+}
