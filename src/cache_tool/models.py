@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 # 支持的周期类型
-VALID_PERIODS = Literal["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+from src.base_types import VALID_PERIODS
 
 
 class OHLCVRow(BaseModel):
