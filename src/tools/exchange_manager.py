@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import HTTPException
 from src.types import ExchangeName, MarketType, ModeType, ExchangeWhitelistItem
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
+from src.tools.config_types import AppConfig
 
 
 class ExchangeManager:
@@ -30,12 +31,12 @@ class ExchangeManager:
 
         # 交易所实例注册表
         # key: (exchange, market, mode) -> value: ccxt exchange instance
-        self._registry: dict[tuple[str, str, str], Any] = {}
+        self._registry: dict[tuple[ExchangeName, MarketType, ModeType], Any] = {}
 
         # 白名单配置
         self._whitelist: list[ExchangeWhitelistItem] = []
 
-    def init_from_config(self, config: dict) -> None:
+    def init_from_config(self, config: AppConfig) -> None:
         """
         根据配置文件白名单初始化交易所实例
         此方法应在应用启动时调用一次

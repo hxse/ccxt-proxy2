@@ -3,7 +3,36 @@ import warnings
 import polars as pl
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import cast
 from .models import LogEntry
+
+EntrySortKey = tuple[int, int, str, str, int]
+NormalizedEntry = tuple[int, int, str, str, int | None]
+
+
+def _entry_sort_key(entry: LogEntry) -> EntrySortKey:
+    """全序排序键，确保日志顺序稳定可复现。"""
+    return (
+        entry.data_start,
+        entry.data_end,
+        entry.fetch_time.isoformat(),
+        entry.source,
+        -1 if entry.count is None else entry.count,
+    )
+
+
+def _normalized_entries(entries: list[LogEntry]) -> list[NormalizedEntry]:
+    """将日志条目转换为可比较的规范化序列。"""
+    return [
+        (
+            e.data_start,
+            e.data_end,
+            e.fetch_time.isoformat(),
+            e.source,
+            e.count,
+        )
+        for e in entries
+    ]
 
 
 def get_log_path(data_dir: Path) -> Path:
@@ -62,8 +91,8 @@ def read_log(data_dir: Path) -> list[LogEntry]:
         # 递归重新读取重建后的日志
         return read_log(data_dir)
 
-    # 按 data_start 排序
-    entries.sort(key=lambda e: e.data_start)
+    # 规范化排序（全序）
+    entries.sort(key=_entry_sort_key)
     return entries
 
 
@@ -91,16 +120,21 @@ def can_merge(entry_a: LogEntry, entry_b: LogEntry) -> bool:
     return False
 
 
-def compact_log(data_dir: Path) -> None:
+def compact_log(data_dir: Path) -> bool:
     """
     合并可合并的日志条目，减少日志行数
 
     合并条件：首尾衔接 或 重叠/包含
+
+    Returns:
+        是否发生了实际变化（并重写文件）
     """
     entries = read_log(data_dir)
 
     if len(entries) < 2:
-        return
+        return False
+
+    original = _normalized_entries(entries)
 
     compacted: list[LogEntry] = [entries[0]]
 
@@ -120,11 +154,17 @@ def compact_log(data_dir: Path) -> None:
         else:
             compacted.append(entry)
 
+    # 规范化排序 + 比较是否有变化
+    compacted.sort(key=_entry_sort_key)
+    if _normalized_entries(compacted) == original:
+        return False
+
     # 重写日志文件
     log_path = get_log_path(data_dir)
     with open(log_path, "w", encoding="utf-8") as f:
         for entry in compacted:
             f.write(entry.model_dump_json() + "\n")
+    return True
 
 
 def rebuild_log_from_data(data_dir: Path) -> None:
@@ -139,21 +179,44 @@ def rebuild_log_from_data(data_dir: Path) -> None:
     if not parquet_files:
         return
 
-    dfs = [pl.read_parquet(f) for f in parquet_files]
-    df = pl.concat(dfs).sort("time")
+    rebuilt_entries: list[LogEntry] = []
 
-    if df.is_empty():
+    # 先收集每个分区文件的真实时间范围，再按首尾衔接规则合并
+    for parquet_file in parquet_files:
+        df = pl.read_parquet(parquet_file)
+        if df.is_empty():
+            continue
+
+        rebuilt_entries.append(
+            LogEntry(
+                fetch_time=datetime.now(timezone.utc),
+                data_start=cast(int, df["time"].min()),
+                data_end=cast(int, df["time"].max()),
+                count=len(df),
+                source="rebuilt",
+            )
+        )
+
+    if not rebuilt_entries:
         return
 
-    # 将整个数据视为一个连续段（保守策略）
-    entry = LogEntry(
-        fetch_time=datetime.now(timezone.utc),
-        data_start=int(df["time"].min()),  # type: ignore
-        data_end=int(df["time"].max()),  # type: ignore
-        count=len(df),
-        source="rebuilt",
-    )
+    rebuilt_entries.sort(key=_entry_sort_key)
+
+    merged: list[LogEntry] = [rebuilt_entries[0]]
+    for entry in rebuilt_entries[1:]:
+        last = merged[-1]
+        if can_merge(last, entry):
+            merged[-1] = LogEntry(
+                fetch_time=last.fetch_time,
+                data_start=min(last.data_start, entry.data_start),
+                data_end=max(last.data_end, entry.data_end),
+                count=None,
+                source="rebuilt",
+            )
+        else:
+            merged.append(entry)
 
     log_path = get_log_path(data_dir)
     with open(log_path, "w", encoding="utf-8") as f:
-        f.write(entry.model_dump_json() + "\n")
+        for entry in merged:
+            f.write(entry.model_dump_json() + "\n")

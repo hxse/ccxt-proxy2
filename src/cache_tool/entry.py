@@ -1,12 +1,12 @@
 import polars as pl
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from filelock import FileLock
 
 from .config import get_data_dir, MAX_PER_REQUEST
 from .storage import read_ohlcv, save_ohlcv
-from .log_manager import compact_log
-from .models import DataLocation
+from .log_manager import append_log, compact_log, read_log
+from .models import DataLocation, LogEntry
 
 
 class FetchCallback(Protocol):
@@ -22,13 +22,60 @@ class FetchCallback(Protocol):
     ) -> pl.DataFrame: ...
 
 
+def _merge_ohlcv(existing: pl.DataFrame, new: pl.DataFrame) -> pl.DataFrame:
+    """按 time 合并并去重，保留新数据。"""
+    if existing.is_empty():
+        return new.sort("time")
+    if new.is_empty():
+        return existing.sort("time")
+    return (
+        pl.concat([existing, new])
+        .unique(subset=["time"], keep="last")
+        .sort("time")
+    )
+
+
+def _trim_cache_tail(df: pl.DataFrame) -> pl.DataFrame:
+    """缓存默认去掉最后一根 K 线。"""
+    if df.is_empty() or len(df) <= 1:
+        return pl.DataFrame()
+    return df.head(len(df) - 1)
+
+
+def _find_cache_span_end(log_entries: list[LogEntry], start_time: int) -> int | None:
+    """从 start_time 命中的日志段开始，找到可连续到达的末尾时间。"""
+    start_idx = next(
+        (
+            i
+            for i, entry in enumerate(log_entries)
+            if entry.data_start <= start_time <= entry.data_end
+        ),
+        None,
+    )
+    if start_idx is None:
+        return None
+
+    current_end = log_entries[start_idx].data_end
+    # read_log 已排序；这里按首尾衔接/重叠向后扩展
+    for entry in log_entries[start_idx + 1 :]:
+        if entry.data_start <= current_end:
+            current_end = max(current_end, entry.data_end)
+            continue
+        if entry.data_start == current_end:
+            current_end = max(current_end, entry.data_end)
+            continue
+        break
+
+    return current_end
+
+
 def get_ohlcv_with_cache(
     base_dir: Path,
     loc: DataLocation,
     start_time: int | None,
     count: int,
     fetch_callback: FetchCallback,
-    fetch_callback_params: dict | None = None,
+    fetch_callback_params: dict[str, object] | None = None,
     enable_cache: bool = True,
 ) -> pl.DataFrame:
     """
@@ -50,6 +97,8 @@ def get_ohlcv_with_cache(
     """
     if fetch_callback_params is None:
         fetch_callback_params = {}
+    if count <= 0:
+        return pl.DataFrame()
 
     data_dir = get_data_dir(
         base_dir, loc.exchange, loc.mode, loc.market, loc.symbol, loc.period
@@ -64,45 +113,52 @@ def get_ohlcv_with_cache(
                 loc.symbol, loc.period, None, count, **fetch_callback_params
             )
             if enable_cache and not new_data.is_empty():
-                save_ohlcv(base_dir, loc, new_data)
+                cache_data = _trim_cache_tail(new_data)
+                if not cache_data.is_empty():
+                    save_ohlcv(base_dir, loc, cache_data, append_log_entry=False)
+                    append_log(
+                        data_dir,
+                        data_start=cast(int, cache_data["time"].min()),
+                        data_end=cast(int, cache_data["time"].max()),
+                        count=len(cache_data),
+                        source="api",
+                    )
             return new_data
 
         # 先合并日志
         compact_log(data_dir)
 
-        # 读取合并后的日志
-        from .log_manager import read_log
-
+        # 读取合并后的日志（全序）
         log_entries = read_log(data_dir)
 
         result = pl.DataFrame()
+        network_data = pl.DataFrame()
         current_time = start_time
         remaining_count = count
 
-        # 步骤1：检查起始时间是否在缓存中
-        cache_entry = None
-        for entry in log_entries:
-            if entry.data_start <= start_time <= entry.data_end:
-                cache_entry = entry
-                break
-
-        if cache_entry is not None and enable_cache:
-            # 从缓存读取起始段
-            cached_data = read_ohlcv(base_dir, loc, start_time, cache_entry.data_end)
-            result = cached_data
-            current_time = cache_entry.data_end
-            remaining_count = count - len(result)
+        # 步骤1：缓存阶段（从 start_time 命中缓存段，顺序读取到连续末尾）
+        if enable_cache:
+            cache_end = _find_cache_span_end(log_entries, start_time)
+            if cache_end is not None:
+                cached_data = read_ohlcv(
+                    base_dir=base_dir,
+                    loc=loc,
+                    start_time=start_time,
+                    end_time=cache_end,
+                    count=count,
+                )
+                result = cached_data.sort("time")
+                if not result.is_empty():
+                    current_time = cast(int, result["time"].max())
+                    remaining_count = count - len(result)
 
         # 步骤2：连续网络请求（不再检查中间缓存）
-        is_first_request = True
         while remaining_count > 0:
-            # 只有第二轮开始才 +1 补偿首条重复
-            # 第一轮不需要：少的 1 条会被后续补回，如果没后续则直接返回
-            if is_first_request:
-                batch_size = min(MAX_PER_REQUEST, remaining_count)
-                is_first_request = False
-            else:
-                batch_size = min(MAX_PER_REQUEST, remaining_count + 1)
+            has_existing_data = not result.is_empty()
+            batch_size = min(
+                MAX_PER_REQUEST,
+                remaining_count + (1 if has_existing_data else 0),
+            )
 
             new_data = fetch_callback(
                 loc.symbol,
@@ -118,18 +174,15 @@ def get_ohlcv_with_cache(
 
             # 合并数据（keep="last" 保留新数据）
             prev_len = len(result)
-            if result.is_empty():
-                result = new_data
-            else:
-                result = pl.concat([result, new_data])
-                result = result.unique(subset=["time"], keep="last").sort("time")
+            result = _merge_ohlcv(result, new_data)
+            network_data = _merge_ohlcv(network_data, new_data)
 
             # 边界检查：去重后没有新数据（防止死循环）
             if len(result) == prev_len:
                 break
 
             # 更新状态
-            current_time = int(result["time"].max())  # type: ignore
+            current_time = cast(int, result["time"].max())
             remaining_count = count - len(result)
 
             # 边界检查：网络返回不足
@@ -140,8 +193,17 @@ def get_ohlcv_with_cache(
         if len(result) > count:
             result = result.head(count)
 
-        # 保存到缓存
-        if enable_cache and not result.is_empty():
-            save_ohlcv(base_dir, loc, result)
+        # 保存到缓存：只落盘网络增量，且默认去掉最后一根
+        if enable_cache and not network_data.is_empty():
+            cache_data = _trim_cache_tail(network_data)
+            if not cache_data.is_empty():
+                save_ohlcv(base_dir, loc, cache_data, append_log_entry=False)
+                append_log(
+                    data_dir,
+                    data_start=cast(int, cache_data["time"].min()),
+                    data_end=cast(int, cache_data["time"].max()),
+                    count=len(cache_data),
+                    source="api",
+                )
 
         return result

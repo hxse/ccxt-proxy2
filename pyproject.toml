@@ -20,4 +20,4 @@ dependencies = [
 
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]

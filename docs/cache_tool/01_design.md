@@ -26,16 +26,17 @@
 由于禁止计算下一根K线的时间，网络请求必须从已有数据的末尾时间（`current_time`）开始。这会导致首条数据与已有数据重复，需要通过以下流程处理：
 
 ```
-首尾重叠 → +1 补偿 → 合并 → 去重 → 截断
+首尾重叠 → 条件 +1 补偿 → 合并 → 去重 → 截断 → 缓存去尾
 ```
 
 ### 算法流程
 
 1. **首尾重叠**：从已有数据的末尾时间（`current_time`）开始请求，首条数据会与已有数据重复。如果没有已有数据，则直接从起始时间请求
-2. **+1 补偿**：**只有第二轮开始**需要多请求 1 条（`remaining_count + 1`），补偿首条重复。第一轮不需要，因为少的 1 条会被后续补回，如果没后续则直接返回
+2. **+1 补偿**：只要 `result` 中已经有数据（无论来自缓存或前一轮网络），下一次网络请求就使用 `remaining_count + 1`，用于补偿首条重叠；仅当 `result` 为空时使用 `remaining_count`
 3. **合并**：将新数据与已有数据合并
 4. **去重**：按时间戳去重，保留新数据（`keep="last"`，因为最新K线可能未走完，需要更新）
 5. **截断**：最后截取到目标数量（`result.head(count)`）
+6. **缓存去尾**：写入缓存时永远去掉最后一根 K 线（返回给用户仍保留最后一根）
 
 ### 示例
 
@@ -73,7 +74,7 @@ if len(new_data) < batch_size:
 
 **说明**：
 - **机制 1、3**：正常退出，数据源已无更多数据
-- **机制 2**：兜底保护，理论上第二轮开始 +1 后不应触发
+- **机制 2**：兜底保护；若触发，表示本轮未产生新增数据，避免无限重试
 
 ---
 
@@ -172,6 +173,37 @@ PARTITION_CONFIG = {
 }
 ```
 
+### 1.1 缓存读取策略（日志确定范围 + 时间分区读取）
+
+**这里的“分区”专指时间分区文件**，即：
+- 分钟级：`YYYY-MM.parquet`
+- 小时级：`YYYY.parquet`
+- 日线及以上：`YYY0s.parquet`
+
+说明：
+- `exchange/mode/market/symbol/period` 是目录定位维度，不是分区键。
+- 每个目录（一个 `exchange/mode/market/symbol/period` 组合）内部，只有“时间分区”这一种分区机制。
+
+缓存阶段读取规则：
+1. 先在日志中找到 `start_time` 命中的日志段。
+2. 沿日志首尾衔接关系计算可连续到达的 `cache_end`（连续缓存 span）。
+3. 以 `start_time -> cache_end` 为读取范围，按时间分区顺序读取数据文件。
+4. 读够 `count` 就立即停止，不继续扫描后续分区。
+5. 若该连续缓存 span 读完仍不足，再进入网络阶段补齐。
+
+该策略不依赖“下一根时间戳预测”，只依赖实际数据行数与时间排序结果。
+
+读取示例（15m，按月分区）：
+1. 请求：`start_time=2023-01-20`, `count=300`
+2. 日志计算得到连续 span：`[2023-01-20, 2023-03-15]`
+3. 分区读取：`2023-01.parquet` → `2023-02.parquet` → `2023-03.parquet`
+4. 当累计行数达到 300，立即停止，不再读取后续分区文件
+
+终止条件：
+1. 达到 `count`
+2. 已无后续分区文件
+3. 进入网络阶段（缓存不足时）
+
 ### 2. 日志合并
 
 避免日志过大导致性能问题。
@@ -217,21 +249,34 @@ def merge_entries(entry_a: LogEntry, entry_b: LogEntry) -> LogEntry:
   entry_merged: {data_start: t50, data_end: t350}
 ```
 
+**无变化跳过写回（关键优化）**：
+- `compact_log` 需要比较“合并前后是否完全一致”。
+- 若一致（`changed=False`），直接返回，不重写 `fetch_log.jsonl`。
+- 目标：避免读路径反复触发无意义写盘。
+
 ### 3. 读写时的连续性处理
 
 > [!IMPORTANT]
-> **每次读取缓存前，必须先运行日志合并算法**（`compact_log`）。
+> 读取流程允许调用 `compact_log`，但必须遵守：
+> 1. 若合并结果无变化，不重写日志文件。
+> 2. 不得在读路径产生无意义的反复写盘。
+> 3. 算法必须保证日志条目的**唯一顺序（全序）**，避免“内容相同但顺序不同”导致误判变化。
 >
-> 合并后的日志只存在两种关系：
+> 合并后的日志只保留两类关系：
 > - **首尾衔接**：`entry_a.data_end == entry_b.data_start`
 > - **断裂**：两条日志不相邻且不重叠
->
-> 这确保了后续的缓存查找逻辑简单可靠，不需要处理复杂的重叠判断。
+
+唯一顺序约束（用于 `compact_log` 与 `changed` 判定）：
+1. 比较前先做规范化排序，不依赖原始文件行顺序。
+2. 排序键必须是全序键，例如：
+   - `(data_start, data_end, fetch_time, source)`
+3. `changed` 的比较对象是“规范化后条目序列”，不是原始读取顺序。
+4. 相同输入必须得到相同输出顺序（确定性）。
 
 ```python
 def get_ohlcv_with_cache(...):
     with FileLock(...):
-        # 1. 先合并日志（关键步骤）
+        # 1. 日志按需合并（无变化则跳过写回）
         compact_log(data_dir)
         
         # 2. 读取合并后的日志
@@ -242,6 +287,13 @@ def get_ohlcv_with_cache(...):
 ```
 
 **注意**：纯写入操作（如 `start_time=None`）不需要先合并日志，因为它不依赖日志状态进行决策。
+
+### 3.1 日志语义（索引日志，不是调试日志）
+
+`fetch_log.jsonl` 的语义是“**实际落盘增量索引**”：
+- 只记录本轮真正写入缓存的数据范围（通常来自网络批次）。
+- 不记录纯缓存复用段。
+- 如果缓存去尾后本轮无可写数据（例如仅 1 根返回），则不追加日志。
 
 ### 4. FileLock 并发安全
 
@@ -263,29 +315,18 @@ def save_ohlcv_with_lock(symbol, period, data, data_dir):
 即使 `fetch_log.jsonl` 丢失，可以从数据文件重建：
 
 ```python
-def rebuild_log_from_data(data_path: Path, period_ms: int) -> list[LogEntry]:
-    df = pl.read_parquet(data_path).sort("time")
-    
-    # 找出时间断裂点
-    df = df.with_columns(
-        (pl.col("time").diff() != period_ms).fill_null(True).alias("is_break")
-    )
-    
-    # 每个断裂点开始新 batch
-    df = df.with_columns(
-        pl.col("is_break").cum_sum().alias("batch_id")
-    )
-    
-    # 按 batch 聚合得到日志
-    log = df.group_by("batch_id").agg([
-        pl.col("time").min().alias("data_start"),
-        pl.col("time").max().alias("data_end"),
-        pl.len().alias("count"),
-    ])
-    return log
+def rebuild_log_from_data(data_dir: Path) -> list[LogEntry]:
+    # 1) 逐个分区文件读取，得到每个文件的 [start, end]
+    # 2) 按时间排序这些区间
+    # 3) 仅当区间首尾衔接/重叠时合并
+    # 4) 遇到断裂则开启新日志段
+    ...
 ```
 
-**连续部分可重建，断裂部分无法重建**——但断裂部分会在日后查询时自然发现并补充。
+重建原则：
+- 不使用 `period_ms` 推断连续性。
+- 不把所有数据粗暴合成一个大段。
+- 只在“首尾衔接或重叠”时认为可连续合并。
 
 ### 数据是主体，日志是衍生品
 

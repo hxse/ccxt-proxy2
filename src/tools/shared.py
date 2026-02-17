@@ -2,14 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from pathlib import Path
+from typing import Any, cast
 from src.tools.exchange_manager import exchange_manager
+from src.tools.config_types import AppConfig
 
 
 app = FastAPI()
+cors_middleware = cast(Any, CORSMiddleware)
 
 # 添加 CORS 中间件
 app.add_middleware(
-    CORSMiddleware,  # type: ignore
+    cors_middleware,
     allow_origins=["http://localhost:5173"],  # 允许的源
     allow_credentials=True,
     allow_methods=["*"],  # 允许所有 HTTP 方法
@@ -26,17 +29,20 @@ STRATEGY_DIR.mkdir(exist_ok=True)
 
 
 json_path = "./data/config.json"
+config: AppConfig
 try:
     with open(json_path, "r", encoding="utf-8") as file:
-        config = json.load(file)
+        config = cast(AppConfig, json.load(file))
 except FileNotFoundError:
-    config = {}
+    config = cast(AppConfig, {})
     with open(json_path, "w", encoding="utf-8") as file:
         json.dump(config, file, ensure_ascii=False, indent=4)
     print("错误: 配置文件不存在。")
 except json.JSONDecodeError:
+    config = cast(AppConfig, {})
     print("错误: 配置文件格式不正确。")
 except Exception as e:
+    config = cast(AppConfig, {})
     print(f"发生了一个意外错误: {e}")
 
 

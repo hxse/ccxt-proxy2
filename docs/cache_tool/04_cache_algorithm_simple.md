@@ -3,11 +3,64 @@
 ## 概述
 
 这是一个简化版的缓存算法，核心特点是：
-- **只在起始时检查一次缓存**
-- 之后连续网络请求直到完成
-- 不在中间检查和复用缓存
+- **从起点开始，连续读取本地缓存（可跨多个连续缓存文件）**
+- 若缓存不足，再进入连续网络请求直到完成
+- **一旦进入网络阶段，不再回头检查和复用中间缓存**
+- 默认返回最后一根 K 线给用户，但缓存写入时去掉最后一根
 
 相比完整算法，逻辑更简单，边界问题更少。
+
+---
+
+## 两阶段模型（强定义）
+
+本算法被严格拆成两个阶段，且**单向流转，不回退**：
+
+```
+阶段A（缓存阶段）  ->  阶段B（网络阶段）  ->  结束
+```
+
+### 阶段A：缓存阶段（Cache Phase）
+
+目标：
+- 从 `start_time` 开始，尽可能连续复用本地缓存数据。
+
+规则：
+- 先在日志中计算从 `start_time` 可连续到达的缓存 span（`cache_end`）。
+- 再按时间分区顺序读取 `start_time -> cache_end` 范围，读够 `count` 即停。
+- 一旦遇到断裂，或已满足 `count`，阶段A结束。
+
+退出条件：
+1. `len(result) >= count`：直接结束，不进入网络阶段。
+2. 缓存链断裂或缓存不足：进入阶段B。
+
+### 阶段B：网络阶段（Network Phase）
+
+目标：
+- 用网络请求补齐剩余 `count`。
+
+规则：
+- 从当前 `current_time` 连续请求网络直到满足数量或数据源耗尽。
+- **禁止**在阶段B重新检查本地中间缓存并做“部分复用+部分请求”的混合决策。
+- 请求数量规则：
+  - 当 `result` 为空：请求 `remaining_count`
+  - 当 `result` 非空：请求 `remaining_count + 1`（补偿首尾重叠）
+
+退出条件：
+1. `remaining_count <= 0`
+2. 网络返回空数据
+3. 网络返回不足批次（源端暂时/永久无更多数据）
+4. 去重后无新增（防死循环）
+
+### 为什么必须这样拆分
+
+如果在网络阶段继续动态检查本地缓存并做部分复用，会引入大量分支：
+- 缓存/网络重叠区间裁剪
+- 多来源拼接顺序和去重优先级
+- 回退与前进的状态维护
+
+这些分支会显著提高复杂度和出错概率，但实际收益有限。  
+因此本设计选择：**阶段A尽量吃缓存，阶段B纯网络补齐**。
 
 ---
 
@@ -39,16 +92,19 @@
 
 1. **跳过缓存读取**：最新数据无法从缓存获取
 2. **直接网络请求**：从交易所获取最新数据
-3. **写入缓存和日志**：获取后保存供后续使用
+3. **缓存去尾后写入**：返回完整结果给用户，但落盘前去掉最后一根；无可写数据则跳过日志
 
 ```python
 if start_time is None:
     # 跳过缓存读取，直接请求
     new_data = fetch_callback(symbol, period, None, count)
-    
-    # 只写入缓存和日志，不读取
-    save_ohlcv(base_dir, loc, new_data)
-    
+
+    # 返回完整数据；缓存默认去尾
+    cache_data = new_data.head(max(0, len(new_data) - 1))
+    if not cache_data.is_empty():
+        save_ohlcv(base_dir, loc, cache_data)
+        append_log_for_written_range(cache_data)
+
     return new_data
 ```
 
@@ -58,14 +114,14 @@ if start_time is None:
 
 ### 前置条件
 
-**每次请求前，必须先运行同步的日志合并算法**，确保日志文件中：
+读取前可运行日志合并，确保日志关系简洁：
 - 无包含关系
 - 只有首尾相连关系和断裂关系
 
 ```python
 def get_ohlcv_with_cache(...):
     with FileLock(...):
-        # 1. 先合并日志
+        # 1. 合并日志（若无变化则不重写文件）
         compact_log(data_dir)
         
         # 2. 再执行缓存算法
@@ -88,9 +144,9 @@ def fetch_with_cache_simple(
     简化缓存算法
     
     核心思想：
-    1. 只在起始时检查缓存
-    2. 之后连续网络请求
-    3. 不在中间检查缓存
+    1. 缓存阶段：从 start_time 开始，顺序读取后续连续缓存段
+    2. 网络阶段：若仍不足，连续请求网络补齐
+    3. 网络阶段不再回头复用中间缓存（避免复杂度）
     """
     
     # 读取合并后的日志
@@ -99,32 +155,37 @@ def fetch_with_cache_simple(
     result = pl.DataFrame()
     current_time = start_time
     remaining_count = count
+    network_batches = []
     
-    # 步骤1：检查起始时间是否在缓存中
-    cache_entry = find_covering_log(log_entries, start_time)
-    
-    if cache_entry is not None:
-        # 从缓存读取起始段
-        cached_data = read_ohlcv_range(
-            data_dir,
-            start_time,        # 从请求起始时间开始
-            cache_entry.data_end  # 到缓存段结束
+    # 阶段A：缓存阶段（日志计算连续 span，再按分区读取）
+    cache_end = find_cache_span_end(log_entries, start_time)
+    if cache_end is not None:
+        cached_part = read_ohlcv(
+            base_dir,
+            loc,
+            start_time=start_time,
+            end_time=cache_end,
+            count=count,
         )
-        result = cached_data
-        current_time = cache_entry.data_end  # 从缓存末尾继续
+        result = merge_data(result, cached_part, keep="last")
+        current_time = result["time"].max()
         remaining_count = count - len(result)
-    
-    # 步骤2：连续网络请求（不再检查中间缓存）
-    is_first_request = True
+
+    if remaining_count <= 0:
+        result = result.head(count)
+        cache_data = result.head(max(0, len(result) - 1))  # 缓存默认去尾
+        if not cache_data.is_empty():
+            save_ohlcv(base_dir, loc, cache_data)
+            append_log_for_written_range(cache_data)
+        return result
+
+    # 阶段B：网络阶段（不再检查中间缓存）
     while remaining_count > 0:
-        # 只有第二轮开始才 +1 补偿首条重复
-        if is_first_request:
-            batch_size = min(max_per_request, remaining_count)
-            is_first_request = False
-        else:
-            batch_size = min(max_per_request, remaining_count + 1)
+        has_existing = not result.is_empty()
+        batch_size = min(max_per_request, remaining_count + (1 if has_existing else 0))
         
         new_data = fetch_callback(symbol, period, current_time, batch_size)
+        network_batches.append(new_data)
         
         # 边界检查：网络返回空数据
         if new_data.is_empty():
@@ -146,8 +207,12 @@ def fetch_with_cache_simple(
     if len(result) > count:
         result = result.head(count)
     
-    # 保存到缓存（按时间块分割）
-    save_ohlcv(base_dir, loc, result)
+    # 返回完整数据给用户；缓存默认去掉最后一根
+    cache_data = result.head(max(0, len(result) - 1))
+    if not cache_data.is_empty():
+        save_ohlcv(base_dir, loc, cache_data)
+        # 日志记录实际落盘增量，不记录纯缓存复用，不记录被去尾丢弃的数据
+        append_log_for_written_range(cache_data)
     
     return result
 ```
@@ -168,7 +233,7 @@ def fetch_with_cache_simple(
    - 请求 1-10（10根）
    - 请求 10-19（10根）
    - 请求 19-28（10根）
-   - 请求 28-30（2根）
+   - 请求 28 开始 3 根（去重后新增 2 根）
 3. 合并得 1-30
 
 结果：
@@ -180,21 +245,22 @@ def fetch_with_cache_simple(
 
 ```
 输入：start_time=10, count=30, max_per_request=10
-日志：t=8-15, t=20-27
+日志：t=8-15, t=15-22, t=22-27, t=35-40
 
 执行过程：
-1. 检查 t=10 是否在缓存中 → 是（在 8-15 中）
-2. 从缓存读取 10-15（6根）
-3. 连续网络请求（从 15 开始）：
-   - 请求 15-24（10根）
-   - 请求 24-33（10根）
-   - 请求 33-40（4根）
-4. 合并得 10-40
+1. 缓存阶段先由日志计算连续 span：
+   - `t=8-15, 15-22, 22-27` 可连成 `8-27`
+   - 后续 `35-40` 与 `8-27` 断裂，不纳入 span
+   - 从 span 内读取 `10-27` 共 18 根，仍不足 30
+2. 进入网络阶段（从 27 开始）：
+   - 请求 27-36（10根）
+   - 请求 36-39（4根）
+3. 合并得 10-39
 
 结果：
-- 网络请求 3 次
-- 复用了 10-15 的缓存
-- 注意：20-27 虽然在缓存中，但未复用（简化算法不检查中间）
+- 先连续复用起点后的缓存段（10-27）
+- 网络阶段 2 次请求补齐
+- 注意：网络阶段即使本地存在 35-40，也不回头复用
 ```
 
 ---
@@ -233,6 +299,14 @@ def fetch_with_cache_simple(
 ```python
 merged.unique(subset=["time"], keep="last")
 ```
+
+---
+
+## 缓存与日志语义（默认策略）
+
+1. 返回值：返回完整 `result`（包含最后一根，便于用户观察最新行情）。
+2. 缓存落盘：默认去掉最后一根后再写缓存。
+3. 日志记录：仅记录“实际写入缓存”的区间；无写入则不记日志。
 
 ---
 

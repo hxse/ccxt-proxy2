@@ -2,9 +2,12 @@ import ccxt
 
 
 from src.types import MarketType, ModeType
+from src.tools.config_types import AppConfig
 
 
-def get_binance_exchange(config, market: MarketType, mode: ModeType = "sandbox"):
+def get_binance_exchange(
+    config: AppConfig, market: MarketType, mode: ModeType = "sandbox"
+):
     http_proxy = config["proxy"]["http"]
 
     binance_enable_proxy = config["binance"]["enable_proxy"]
@@ -34,7 +37,9 @@ def get_binance_exchange(config, market: MarketType, mode: ModeType = "sandbox")
     return binance_exchange
 
 
-def get_kraken_exchange(config, market: MarketType, mode: ModeType = "sandbox"):
+def get_kraken_exchange(
+    config: AppConfig, market: MarketType, mode: ModeType = "sandbox"
+):
     # market_type = config["market_type"] <-- Removed
     http_proxy = config["proxy"]["http"]
 

@@ -155,13 +155,16 @@ class TestEdgeCases:
         assert log[0].data_start == 1000000, "重建后日志 data_start 应为 1000000"
         assert log[0].count == 50, f"重建后日志 count 应为 50，实际 {log[0].count}"
 
-    def test_dedup_no_new_data_still_saves(self, temp_dir, sample_loc, period_ms):
-        """去重后无新增数据时，仍应保存（测试网络仅返回重叠数据的情况）"""
+    def test_dedup_no_new_data_skip_cache_due_trim_tail(
+        self, temp_dir, sample_loc, period_ms
+    ):
+        """仅返回1根重叠数据时，因缓存去尾策略应跳过缓存写入"""
         # 预先写入 9 根
         pre_data = mock_ohlcv(1000000, 9, period_ms)
         save_ohlcv(temp_dir, sample_loc, pre_data)
 
         last_time_in_cache = cast(int, pre_data["time"].max())
+        original_close = pre_data.filter(pl.col("time") == last_time_in_cache)["close"][0]
 
         # 请求 9 根 (但在网络请求里只返回第9根的更新，没有第10根)
         # 这模拟了：网络也没有更多新数据了，但是第9根更新了
@@ -182,7 +185,8 @@ class TestEdgeCases:
         # 请求 10 根 -> 读缓存 9 根 -> 缺 1 根 -> 请求网络
         # 网络只返回了已有的第9根(updated)
         # 合并后长度仍为 9 (没有增加)
-        # 此时应触发 break (prev_len == len)，但仍需保存
+        # 此时应触发 break (prev_len == len)
+        # 且 network_data 仅 1 根，缓存去尾后为空 -> 不写入缓存
         result = get_ohlcv_with_cache(
             temp_dir,
             sample_loc,
@@ -193,8 +197,8 @@ class TestEdgeCases:
 
         assert len(result) == 9, "结果长度应仍为 9"
 
-        # 验证价格更新被保存
+        # 验证缓存未更新（符合去尾策略）
         cached = read_ohlcv(temp_dir, sample_loc)
         updated_close = cached.filter(pl.col("time") == last_time_in_cache)["close"][0]
 
-        assert updated_close == 888.8, "即使没有新K线增加，已有K线的更新也应被保存"
+        assert updated_close == original_close, "仅1根重叠返回时应跳过缓存写入"
