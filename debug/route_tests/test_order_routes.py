@@ -112,7 +112,7 @@ def test_order_lifecycle(client: TestClient):
     # Use explicit since
     since_ts = order_ts - 60000 if order_ts else int((time.time() - 3600) * 1000)
     fetch_params_since = fetch_params.copy()
-    fetch_params_since["since"] = since_ts
+    fetch_params_since["since"] = str(since_ts)
 
     found_closed = False
     closed_orders = []

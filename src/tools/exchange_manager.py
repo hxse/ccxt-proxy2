@@ -2,6 +2,7 @@
 
 from typing import Any
 from fastapi import HTTPException
+from loguru import logger
 from src.types import ExchangeName, MarketType, ModeType, ExchangeWhitelistItem
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 from src.tools.config_types import AppConfig
@@ -41,24 +42,41 @@ class ExchangeManager:
         根据配置文件白名单初始化交易所实例
         此方法应在应用启动时调用一次
         """
-        whitelist_raw = config.get("exchange_whitelist", [])
-        self._whitelist = [ExchangeWhitelistItem(**item) for item in whitelist_raw]
+        self._registry.clear()
+        self._whitelist = [
+            ExchangeWhitelistItem(**item.model_dump())
+            for item in config.exchange_whitelist
+        ]
+
+        if not self._whitelist:
+            logger.warning("exchange whitelist is empty")
+            return
 
         for item in self._whitelist:
             key = (item.exchange, item.market, item.mode)
-
-            if item.exchange == "binance":
-                self._registry[key] = get_binance_exchange(
-                    config, market=item.market, mode=item.mode
-                )
-            elif item.exchange == "kraken":
-                self._registry[key] = get_kraken_exchange(
-                    config, market=item.market, mode=item.mode
-                )
-
-            print(
-                f"[ExchangeManager] 已初始化: {item.exchange}/{item.market}/{item.mode}"
+            bound_logger = logger.bind(
+                exchange=item.exchange,
+                market=item.market,
+                mode=item.mode,
             )
+            bound_logger.info("initializing exchange")
+
+            try:
+                if item.exchange == "binance":
+                    self._registry[key] = get_binance_exchange(
+                        config, market=item.market, mode=item.mode
+                    )
+                elif item.exchange == "kraken":
+                    self._registry[key] = get_kraken_exchange(
+                        config, market=item.market, mode=item.mode
+                    )
+                else:
+                    raise ValueError(f"unsupported exchange: {item.exchange}")
+            except Exception:
+                bound_logger.exception("exchange initialization failed")
+                raise
+
+            bound_logger.info("exchange initialized")
 
     def get(
         self,

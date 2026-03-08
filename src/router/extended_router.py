@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from src.router.auth_handler import manager
+from src.router.logging_utils import internal_server_error
 from src.types_extended import (
     FetchOpenOrdersRequest,
     FetchClosedOrdersRequest,
@@ -38,8 +39,10 @@ def get_open_orders(params: FetchOpenOrdersRequest = Depends()):
     """
     try:
         return fetch_open_orders_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("fetch_open_orders", params)
 
 
 @extended_router.get("/fetch_closed_orders", response_model=OrdersResponse)
@@ -47,8 +50,10 @@ def get_closed_orders(params: FetchClosedOrdersRequest = Depends()):
     """获取历史订单"""
     try:
         return fetch_closed_orders_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("fetch_closed_orders", params)
 
 
 @extended_router.get("/fetch_my_trades", response_model=TradesResponse)
@@ -56,8 +61,10 @@ def get_my_trades(params: FetchMyTradesRequest = Depends()):
     """获取成交记录"""
     try:
         return fetch_my_trades_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("fetch_my_trades", params)
 
 
 @extended_router.get("/fetch_positions", response_model=PositionsResponse)
@@ -68,8 +75,10 @@ def get_positions(params: FetchPositionsRequest = Depends()):
     """
     try:
         return fetch_positions_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("fetch_positions", params)
 
 
 @extended_router.post("/set_leverage", response_model=GenericResponse)
@@ -77,8 +86,10 @@ def set_leverage(params: SetLeverageRequest):
     """设置杠杆"""
     try:
         return set_leverage_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("set_leverage", params)
 
 
 @extended_router.post("/set_margin_mode", response_model=GenericResponse)
@@ -88,8 +99,10 @@ def set_margin_mode(params: SetMarginModeRequest):
     """
     try:
         return set_margin_mode_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("set_margin_mode", params)
 
 
 @extended_router.post("/cancel_order", response_model=OrderResponse)
@@ -99,5 +112,7 @@ def cancel_order(params: CancelOrderRequest):
     """
     try:
         return cancel_order_ccxt(params)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise internal_server_error("cancel_order", params)

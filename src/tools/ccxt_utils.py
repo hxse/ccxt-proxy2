@@ -21,6 +21,7 @@ from src.types import (
 )
 from src.responses import MarketInfoResponse
 import polars as pl
+from loguru import logger
 from src.tools.shared import OHLCV_DIR
 from src.tools.exchange_manager import exchange_manager
 from src.cache_tool import get_ohlcv_with_cache, DataLocation
@@ -288,8 +289,13 @@ def fetch_market_info_ccxt(request: MarketInfoRequest) -> MarketInfoResponse:
         if positions:
             pos = positions[0]
             current_leverage = int(pos.get("leverage", 1))
-    except Exception as e:
-        print(f"Fetch positions failed for {symbol_to_use}: {e}")
+    except Exception:
+        logger.bind(
+            exchange_name=request.exchange_name,
+            market=request.market,
+            mode=request.mode,
+            symbol=symbol_to_use,
+        ).warning("fetch_positions failed while deriving leverage, fallback to 1")
 
     return MarketInfoResponse(
         symbol=request.symbol,

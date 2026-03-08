@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from src.router.logging_utils import internal_server_error, request_logger
 from src.tools.ccxt_utils import (
     fetch_tickers_ccxt,
     fetch_ohlcv_ccxt,
@@ -48,8 +49,8 @@ def get_balance(params: BalanceRequest = Depends()):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("fetch_balance", params)
 
 
 @ccxt_router.get("/fetch_tickers", response_model=TickersResponse)
@@ -62,9 +63,8 @@ def get_tickers(params: TickersRequest = Depends()):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("fetch_tickers", params)
 
 
 @ccxt_router.get("/fetch_ohlcv", response_model=list[list[float]])
@@ -76,11 +76,12 @@ def get_ohlcv(params: OHLCVParams = Depends()):
         ohlcv_data = fetch_ohlcv_ccxt(params)
         return ohlcv_data
     except HTTPException as e:
-        print(e)
+        request_logger("fetch_ohlcv", params).warning(
+            "fetch_ohlcv failed with http error: {}", e.detail
+        )
         raise e
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("fetch_ohlcv", params)
 
 
 @ccxt_router.get("/fetch_market_info", response_model=MarketInfoResponse)
@@ -95,8 +96,8 @@ def get_market_info(params: MarketInfoRequest = Depends()):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("fetch_market_info", params)
 
 
 @ccxt_router.get("/fetch_order", response_model=OrderResponse)
@@ -110,8 +111,8 @@ def get_order(params: FetchOrderRequest = Depends()):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("fetch_order", params)
 
 
 @ccxt_router.post("/create_market_order", response_model=OrderResponse)
@@ -124,9 +125,8 @@ def create_market_order(params: MarketOrderRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error creating order: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("create_market_order", params)
 
 
 @ccxt_router.post("/create_limit_order", response_model=OrderResponse)
@@ -139,9 +139,8 @@ def create_limit_order(params: LimitOrderRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error creating order: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("create_limit_order", params)
 
 
 @ccxt_router.post("/create_stop_market_order", response_model=OrderResponse)
@@ -154,9 +153,8 @@ def create_stop_market_order(params: StopMarketOrderRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error creating order: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("create_stop_market_order", params)
 
 
 @ccxt_router.post("/create_take_profit_market_order", response_model=OrderResponse)
@@ -169,9 +167,8 @@ def create_take_profit_market_order(params: TakeProfitMarketOrderRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error creating order: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("create_take_profit_market_order", params)
 
 
 @ccxt_router.post("/close_position", response_model=ClosePositionResponse)
@@ -188,9 +185,8 @@ def close_position(params: ClosePositionRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error creating order: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise internal_server_error("close_position", params)
 
 
 @ccxt_router.post("/cancel_all_orders", response_model=CancelAllOrdersResponse)
@@ -203,9 +199,5 @@ def cancel_all_orders(params: CancelAllOrdersRequest):
         return result
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"Error cancelling all orders: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-print("hello world2")
+    except Exception:
+        raise internal_server_error("cancel_all_orders", params)

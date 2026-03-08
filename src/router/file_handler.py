@@ -1,11 +1,11 @@
 import shutil
-from pathlib import Path
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from loguru import logger
 
-from src.tools.shared import config, STRATEGY_DIR
+from src.router.logging_utils import INTERNAL_SERVER_ERROR_DETAIL
+from src.tools.shared import STRATEGY_DIR
 from src.router.auth_handler import manager
 
 
@@ -74,8 +74,11 @@ async def upload_file(path: str = Form(default=""), file: UploadFile = File(...)
             "filename": str(safe_path.relative_to(BASE_DIR)),
             "message": "file uploaded successfully.",
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload file: {e}")
+    except Exception:
+        logger.bind(route="file_upload", path=path, filename=file.filename).exception(
+            "file upload failed"
+        )
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
 
 
 @file_router.get("/download")

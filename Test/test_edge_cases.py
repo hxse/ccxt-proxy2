@@ -164,7 +164,9 @@ class TestEdgeCases:
         save_ohlcv(temp_dir, sample_loc, pre_data)
 
         last_time_in_cache = cast(int, pre_data["time"].max())
-        original_close = pre_data.filter(pl.col("time") == last_time_in_cache)["close"][0]
+        original_close = pre_data.filter(pl.col("time") == last_time_in_cache)["close"][
+            0
+        ]
 
         # 请求 9 根 (但在网络请求里只返回第9根的更新，没有第10根)
         # 这模拟了：网络也没有更多新数据了，但是第9根更新了

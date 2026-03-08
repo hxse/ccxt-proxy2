@@ -12,9 +12,7 @@ auth_router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 # FastAPI-Login 相关
-SECRET = config.get("SECRET")
-if not SECRET:
-    raise ValueError("SECRET must be set in config.json")
+SECRET = config.SECRET
 
 
 # 初始化 LoginManager
@@ -24,8 +22,7 @@ manager = LoginManager(SECRET, token_url="/auth/token")
 # 定义一个本地函数来获取用户，用于登录路由
 @manager.user_loader()
 def get_user(username: str) -> UserConfig | None:
-    users = config.get("users", {})
-    return users.get(username)
+    return config.users.get(username)
 
 
 @auth_router.post("/token")
@@ -34,13 +31,12 @@ def login(response: Response, data: OAuth2PasswordRequestForm = Depends()):
     用户登录，成功后将 Token 写入 Cookie。
     """
     # 使用本地配置读取用户，避免 user_loader 装饰后类型变为未知可等待对象
-    users = config.get("users", {})
-    user = users.get(data.username)
+    user = config.users.get(data.username)
 
     if not user:
         raise InvalidCredentialsException
 
-    if user["password"] != data.password:
+    if user.password != data.password:
         raise InvalidCredentialsException
 
     access_token = manager.create_access_token(

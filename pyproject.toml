@@ -16,6 +16,7 @@ dependencies = [
     "numpy",
     "tzdata",
     "fastapi-login",
+    "loguru",
 ]
 
 

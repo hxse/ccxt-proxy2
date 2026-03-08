@@ -1,9 +1,11 @@
 # CCXT-Proxy2 Justfile
 # 使用 `just` 命令运行常用开发任务
 
-# 设置 Powershell 为默认 shell
-set shell := ["powershell.exe", "-c"]
+bru_user := `uv run --no-sync python scripts/bru_credentials.py user`
+bru_password := `uv run --no-sync python scripts/bru_credentials.py password`
 
+export BRU_USER := bru_user
+export BRU_PASSWORD := bru_password
 
 # 列出所有可用命令
 default:
@@ -47,7 +49,42 @@ debug-all:
     just debug-min
     just debug-prec
 
+# ==================== Docker ====================
+
+docker-up-local:
+    docker compose up -d --build
+
+docker-down-local:
+    docker compose down
+
+docker-wait-ready:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for i in {1..60}; do
+      if curl --silent --fail http://127.0.0.1:5123/readyz >/dev/null; then
+        exit 0
+      fi
+      sleep 1
+    done
+    echo "Service did not become ready on http://127.0.0.1:5123/readyz within 60s" >&2
+    exit 1
+
+# ==================== Bruno CLI ====================
+
+# 运行单个 Bruno 请求或单个文件夹
+# 例: just bru-run Root.bru
+# 例: just bru-run 'CCXT PROXY/fetch_balance/binance.bru'
+bru-run path:
+    cd bruno && bru run "{{path}}" --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+
+# 只跑 sandbox 的基础只读测试
+bru-sandbox-basic:
+    cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY EXTENDED/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+
 # ==================== 代码质量 ====================
+
+test *args:
+    uv run --no-sync pytest Test {{args}}
 
 fmt:
     uvx ruff format .

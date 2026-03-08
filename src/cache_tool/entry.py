@@ -28,11 +28,7 @@ def _merge_ohlcv(existing: pl.DataFrame, new: pl.DataFrame) -> pl.DataFrame:
         return new.sort("time")
     if new.is_empty():
         return existing.sort("time")
-    return (
-        pl.concat([existing, new])
-        .unique(subset=["time"], keep="last")
-        .sort("time")
-    )
+    return pl.concat([existing, new]).unique(subset=["time"], keep="last").sort("time")
 
 
 def _trim_cache_tail(df: pl.DataFrame) -> pl.DataFrame:
