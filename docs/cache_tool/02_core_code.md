@@ -59,15 +59,17 @@ src/cache_tool/
 
 #### `read_ohlcv(base_dir, loc, start_time, end_time, count=None) -> pl.DataFrame`
 读取指定范围的 OHLCV 数据。
-*   **目标行为**：先用 `start_time` 命中起始时间分区，再按时间顺序向后读取分区文件，读够 `count` 即停止。
-*   不要求一次性扫描目录下全部分区文件。
+*   **实现语义**：先用 `start_time` 命中起始时间分区，裁掉其前面的文件，只把候选分区交给 Polars Lazy 执行 `filter + sort + limit(count)`。
+*   **性能语义**：这是“缩小候选文件范围，并依赖 Polars 做谓词/limit 下推”，不是“算法层面严格保证文件级早停”。
+*   因此不要求也不承诺“绝不触碰后续候选分区”；实际读取行为取决于 Polars 执行计划和 Parquet 统计信息。
+*   **证明语义**：`read_ohlcv` 只是读数据，不证明连续性；能不能把读出的数据当作“连续缓存”，取决于 `fetch_log.jsonl`。
 
 #### `save_ohlcv(base_dir, loc, new_data)`
 保存数据。自动执行以下关键步骤：
 1.  **按时间分块**：将数据分散到对应的 `.parquet` 文件中。
 2.  **合并去重**：读取已有文件，追加新数据。
 3.  **去重策略**：使用 `.unique(keep="last")`，保留最新的数据（应对 K 线未走完的情况）。
-4.  **日志语义**：只记录“实际落盘增量范围”，不记录纯缓存复用数据。
+4.  **日志语义**：`fetch_log.jsonl` 是 proof log，记录网络写入范围并承担连续性证明；纯缓存复用不会产生新日志。
 
 #### 缓存去尾策略（默认）
 *   对外返回：保留最后一根 K 线（用户可见）。
@@ -100,12 +102,9 @@ src/cache_tool/
 
 #### `read_log(data_dir) -> list[LogEntry]`
 读取日志文件为 `LogEntry` 列表。
-*   **自动重建**：如果日志文件损坏（包含无法解析的行），会打印警告并自动调用 `rebuild_log_from_data` 重建。
-
-#### `rebuild_log_from_data(data_dir)`
-（灾难恢复）从数据文件重建日志。
-*   **设计原则**：禁止预测时间间隔。
-*   **重建规则**：按文件实际时间范围重建多段日志，仅在“首尾衔接/重叠”时合并；遇断裂则保留为独立段。
+*   **缺失/损坏语义**：如果日志文件不存在、损坏或不可解析，应视为“连续性证明不可用”。
+*   **缓存策略**：调用方不得自动恢复 proof log，而应跳过缓存命中，直接走网络路径。
+*   **实现状态**：proof log 自动恢复与手动重建能力已废除，不再提供 `rebuild_log_from_data(...)`。
 
 ---
 
@@ -113,8 +112,8 @@ src/cache_tool/
 
 提供缓存状态的诊断工具。
 
-- `check_continuity(data_dir) -> list[Gap]`: 返回所有数据断裂点。
-- `find_missing_ranges(...)`: 计算目标范围内缺失的数据段（用于增量下载）。
+- `check_continuity(data_dir) -> list[Gap]`: 基于 proof log 返回所有已证明链条中的断裂点。
+- `find_refetch_ranges(...)`: 计算目标范围内的安全重抓区间（safe refetch ranges），用于增量下载。
 
 ---
 
@@ -129,9 +128,10 @@ src/cache_tool/
 **简化缓存算法**实现：
 
 1.  **日志整理（按需）**：可执行 `compact_log`；无变化时不得重写日志文件。
-2.  **阶段A（缓存阶段）**：先由日志计算从 `start_time` 可连续到达的缓存 span（`cache_end`），再按时间分区顺序读取该范围，直到满足 `count` 或 span 结束。
+2.  **阶段A（缓存阶段）**：只有 proof log 能证明从 `start_time` 可连续到达缓存 span（`cache_end`）时，才按时间分区顺序读取该范围。
 3.  **阶段B（网络阶段）**：若仍不足，从 `current_time` 连续请求网络补齐，且不再复用中间缓存。
 4.  **+1 补偿规则**：
     *   若 `result` 已有数据（来自缓存或前一轮网络），下一次请求用 `remaining_count + 1`。
     *   若 `result` 为空，使用 `remaining_count`。
-5.  **写入策略**：返回完整结果给用户；缓存默认去尾后落盘；日志仅记录实际落盘增量。
+5.  **写入策略**：返回完整结果给用户；缓存默认去尾后落盘；日志记录网络写入范围，不记录纯缓存复用段。
+6.  **缺日志语义**：若没有 proof log，或 proof log 不能覆盖请求起点，则缓存命中失效，直接重新请求网络。

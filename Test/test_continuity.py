@@ -1,7 +1,6 @@
 import pytest
-from src.cache_tool.continuity import check_continuity, find_missing_ranges
-from src.cache_tool.log_manager import append_log
-from .utils import make_loc
+from src.cache_tool.continuity import check_continuity, find_refetch_ranges
+from src.cache_tool.log_manager import CorruptedProofLogError, append_log
 
 
 class TestContinuity:
@@ -29,18 +28,18 @@ class TestContinuity:
         assert gaps[0].gap_after == 2000
         assert gaps[0].gap_before == 3000
 
-    def test_find_missing_ranges_complete_miss(self, temp_dir):
+    def test_find_refetch_ranges_complete_miss(self, temp_dir):
         """完全缺失"""
         data_dir = temp_dir / "test"
         data_dir.mkdir()
 
         # Logs empty
-        missing = find_missing_ranges(data_dir, 1000, 5000)
-        assert len(missing) == 1
-        assert missing[0].start == 1000
-        assert missing[0].end == 5000
+        refetch_ranges = find_refetch_ranges(data_dir, 1000, 5000)
+        assert len(refetch_ranges) == 1
+        assert refetch_ranges[0].start == 1000
+        assert refetch_ranges[0].end == 5000
 
-    def test_find_missing_ranges_partial(self, temp_dir):
+    def test_find_refetch_ranges_partial(self, temp_dir):
         """部分缺失 + 中间断裂"""
         data_dir = temp_dir / "test"
         data_dir.mkdir()
@@ -54,11 +53,23 @@ class TestContinuity:
         # 2. 3000 -> 4000 (gap)
         # 3. 5000 -> 6000 (post)
 
-        missing = find_missing_ranges(data_dir, 1000, 6000)
-        assert len(missing) == 3
-        assert missing[0].start == 1000
-        assert missing[0].end == 2000
-        assert missing[1].start == 3000
-        assert missing[1].end == 4000
-        assert missing[2].start == 5000
-        assert missing[2].end == 6000
+        refetch_ranges = find_refetch_ranges(data_dir, 1000, 6000)
+        assert len(refetch_ranges) == 3
+        assert refetch_ranges[0].start == 1000
+        assert refetch_ranges[0].end == 2000
+        assert refetch_ranges[1].start == 3000
+        assert refetch_ranges[1].end == 4000
+        assert refetch_ranges[2].start == 5000
+        assert refetch_ranges[2].end == 6000
+
+    def test_continuity_tools_raise_on_corrupted_proof_log(self, temp_dir):
+        """连续性工具只认 proof log，日志损坏时显式失败。"""
+        data_dir = temp_dir / "test"
+        data_dir.mkdir()
+        (data_dir / "fetch_log.jsonl").write_text('{"broken json\n', encoding="utf-8")
+
+        with pytest.raises(CorruptedProofLogError):
+            check_continuity(data_dir)
+
+        with pytest.raises(CorruptedProofLogError):
+            find_refetch_ranges(data_dir, 1000, 5000)

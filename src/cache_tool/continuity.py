@@ -44,36 +44,37 @@ def get_data_range(data_dir: Path) -> DataRange | None:
     )
 
 
-def find_missing_ranges(
+def find_refetch_ranges(
     data_dir: Path,
     target_start: int,
     target_end: int,
 ) -> list[DataRange]:
     """
-    找出目标时间范围内缺失的数据段。
-    用于增量下载。
+    找出目标时间范围内需要安全重抓的区间。
+
+    这里的返回值是 refetch ranges，不是严格意义上的“缺失区间”。
     """
     data_range = get_data_range(data_dir)
     gaps = check_continuity(data_dir)
 
-    missing: list[DataRange] = []
+    refetch_ranges: list[DataRange] = []
 
     # 1. 完全没有数据
     if data_range is None:
-        missing.append(DataRange(start=target_start, end=target_end))
-        return missing
+        refetch_ranges.append(DataRange(start=target_start, end=target_end))
+        return refetch_ranges
 
     # 2. 目标范围之前的缺失
     if target_start < data_range.start:
-        missing.append(DataRange(start=target_start, end=data_range.start))
+        refetch_ranges.append(DataRange(start=target_start, end=data_range.start))
 
     # 3. 中间的断裂
     for gap in gaps:
         if gap.gap_after >= target_start and gap.gap_before <= target_end:
-            missing.append(DataRange(start=gap.gap_after, end=gap.gap_before))
+            refetch_ranges.append(DataRange(start=gap.gap_after, end=gap.gap_before))
 
     # 4. 目标范围之后的缺失
     if target_end > data_range.end:
-        missing.append(DataRange(start=data_range.end, end=target_end))
+        refetch_ranges.append(DataRange(start=data_range.end, end=target_end))
 
-    return missing
+    return refetch_ranges

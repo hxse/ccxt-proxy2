@@ -77,8 +77,8 @@ docker-wait-ready:
 bru-run path:
     cd bruno && bru run "{{path}}" --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
-# 只跑 sandbox 的基础只读测试
-bru-sandbox-basic:
+# 只跑基础只读请求
+bru-readonly-basic:
     cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY EXTENDED/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
 # ==================== 代码质量 ====================

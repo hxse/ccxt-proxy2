@@ -1,16 +1,14 @@
 import pytest
-from pathlib import Path
 
 from src.cache_tool.log_manager import (
+    CorruptedProofLogError,
     append_log,
     read_log,
     compact_log,
-    rebuild_log_from_data,
 )
 from src.cache_tool.config import get_data_dir
 from src.cache_tool.storage import save_ohlcv
-from src.cache_tool.models import DataLocation
-from .utils import mock_ohlcv, make_loc
+from .utils import mock_ohlcv
 
 
 class TestLogManager:
@@ -80,8 +78,8 @@ class TestLogManager:
         assert log[0].data_end == 2000
         assert log[1].data_start == 3000
 
-    def test_rebuild_log_from_data(self, temp_dir, sample_loc, period_ms):
-        """从数据文件重建日志"""
+    def test_missing_log_returns_empty(self, temp_dir, sample_loc, period_ms):
+        """日志缺失时返回空列表，不做自动恢复。"""
         data = mock_ohlcv(start=1000000, count=100, period_ms=period_ms)
         save_ohlcv(temp_dir, sample_loc, data)
 
@@ -98,9 +96,16 @@ class TestLogManager:
         log_path = data_dir / "fetch_log.jsonl"
         log_path.unlink()
 
-        rebuild_log_from_data(data_dir)
-
         log = read_log(data_dir)
-        assert len(log) == 1
-        assert log[0].data_start == 1000000
-        assert log[0].count == 100
+        assert log == []
+
+    def test_corrupted_log_raises(self, temp_dir):
+        """日志损坏时显式报错，不做自动恢复。"""
+        data_dir = temp_dir / "binance" / "live" / "future" / "BTC_USDT" / "15m"
+        data_dir.mkdir(parents=True)
+
+        log_path = data_dir / "fetch_log.jsonl"
+        log_path.write_text('{"broken json\n', encoding="utf-8")
+
+        with pytest.raises(CorruptedProofLogError):
+            read_log(data_dir)

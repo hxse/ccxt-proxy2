@@ -1,11 +1,18 @@
 import polars as pl
+import warnings
 from pathlib import Path
 from typing import Protocol, cast
 from filelock import FileLock
 
 from .config import get_data_dir, MAX_PER_REQUEST
 from .storage import read_ohlcv, save_ohlcv
-from .log_manager import append_log, compact_log, read_log
+from .log_manager import (
+    CorruptedProofLogError,
+    append_log,
+    compact_log,
+    get_log_path,
+    read_log,
+)
 from .models import DataLocation, LogEntry
 
 
@@ -65,6 +72,30 @@ def _find_cache_span_end(log_entries: list[LogEntry], start_time: int) -> int | 
     return current_end
 
 
+def _discard_proof_log(data_dir: Path) -> None:
+    """作废当前 proof log；旧 parquet 仍保留。"""
+    log_path = get_log_path(data_dir)
+    if log_path.exists():
+        log_path.unlink()
+
+
+def _handle_corrupted_proof_log(exc: CorruptedProofLogError, data_dir: Path) -> None:
+    """损坏的 proof log 不能继续使用，也不能继续追加。"""
+    warnings.warn(
+        f"proof log unavailable, skip cache and use network only: {exc}",
+        stacklevel=2,
+    )
+    _discard_proof_log(data_dir)
+
+
+def _discard_corrupted_proof_log(data_dir: Path) -> None:
+    """校验并作废损坏的 proof log。"""
+    try:
+        read_log(data_dir)
+    except CorruptedProofLogError as exc:
+        _handle_corrupted_proof_log(exc, data_dir)
+
+
 def get_ohlcv_with_cache(
     base_dir: Path,
     loc: DataLocation,
@@ -105,6 +136,7 @@ def get_ohlcv_with_cache(
     with FileLock(lock_path):
         # 无起始时间：跳过缓存读取，只写入
         if start_time is None:
+            _discard_corrupted_proof_log(data_dir)
             new_data = fetch_callback(
                 loc.symbol, loc.period, None, count, **fetch_callback_params
             )
@@ -121,11 +153,14 @@ def get_ohlcv_with_cache(
                     )
             return new_data
 
-        # 先合并日志
-        compact_log(data_dir)
-
-        # 读取合并后的日志（全序）
-        log_entries = read_log(data_dir)
+        try:
+            # 先合并日志
+            compact_log(data_dir)
+            # 读取合并后的日志（全序）
+            log_entries = read_log(data_dir)
+        except CorruptedProofLogError as exc:
+            _handle_corrupted_proof_log(exc, data_dir)
+            log_entries = []
 
         result = pl.DataFrame()
         network_data = pl.DataFrame()

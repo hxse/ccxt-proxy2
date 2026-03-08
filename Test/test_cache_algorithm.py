@@ -1,12 +1,6 @@
-import pytest
-import polars as pl
-from pathlib import Path
-
 from src.cache_tool.entry import get_ohlcv_with_cache
 from src.cache_tool.storage import save_ohlcv
-from src.cache_tool.log_manager import append_log, compact_log
 from src.cache_tool.config import get_data_dir
-from src.cache_tool.models import DataLocation
 from .utils import mock_ohlcv, assert_time_continuous
 
 
@@ -73,6 +67,40 @@ class TestCacheAlgorithmSimple:
         assert len(result) == 10
         # 应该发起网络请求
         assert call_count["value"] >= 1
+
+    def test_missing_proof_log_disables_cache_reuse(
+        self, temp_dir, sample_loc, period_ms
+    ):
+        """即使磁盘已有 parquet，缺少 proof log 时也不能复用缓存。"""
+        pre_data = mock_ohlcv(1000000, 20, period_ms)
+        save_ohlcv(temp_dir, sample_loc, pre_data)
+
+        data_dir = get_data_dir(
+            temp_dir,
+            sample_loc.exchange,
+            sample_loc.mode,
+            sample_loc.market,
+            sample_loc.symbol,
+            sample_loc.period,
+        )
+        (data_dir / "fetch_log.jsonl").unlink()
+
+        call_count = {"value": 0}
+
+        def counting_fetch(symbol, period, start_time, count, **kwargs):
+            call_count["value"] += 1
+            return mock_ohlcv(start_time, count, period_ms)
+
+        result = get_ohlcv_with_cache(
+            temp_dir,
+            sample_loc,
+            start_time=1000000,
+            count=10,
+            fetch_callback=counting_fetch,
+        )
+
+        assert len(result) == 10
+        assert call_count["value"] == 1
 
     def test_partial_cache_hit(self, temp_dir, sample_loc, period_ms):
         """部分缓存命中：起始在缓存中，但需要更多数据"""
@@ -167,7 +195,7 @@ class TestCacheAlgorithmSimple:
 
         # 请求 t=500000 开始，覆盖到 2000000 之后
         # 中间的 2000000-xxx 缓存不会被复用（简化算法特性）
-        result = get_ohlcv_with_cache(
+        get_ohlcv_with_cache(
             temp_dir,
             sample_loc,
             start_time=500000,

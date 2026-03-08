@@ -1,15 +1,13 @@
 """边界场景测试"""
 
-import pytest
 import polars as pl
-from pathlib import Path
 import warnings
 from typing import cast
 
 from src.cache_tool.entry import get_ohlcv_with_cache
 from src.cache_tool.storage import save_ohlcv, read_ohlcv
 from src.cache_tool.log_manager import read_log, get_log_path
-from src.cache_tool.config import get_data_dir, MAX_PER_REQUEST
+from src.cache_tool.config import get_data_dir
 from .utils import mock_ohlcv, assert_time_continuous
 
 
@@ -24,11 +22,6 @@ class TestEdgeCases:
 
         # 缓存的最后一根 (第9根)
         last_time_in_cache = cast(int, pre_data["time"].max())
-
-        # 验证初始价格
-        original_close = pre_data.filter(pl.col("time") == last_time_in_cache)["close"][
-            0
-        ]
 
         def fetch_overlapping_update(symbol, period, start_time, count, **kwargs):
             # start_time 应该是 last_time_in_cache (首尾衔接)
@@ -119,8 +112,10 @@ class TestEdgeCases:
         )
         assert_time_continuous(result, period_ms)
 
-    def test_corrupted_log_auto_rebuild(self, temp_dir, sample_loc, period_ms):
-        """日志损坏时自动警告并重建"""
+    def test_corrupted_log_skips_cache_and_restarts_proof_log(
+        self, temp_dir, sample_loc, period_ms
+    ):
+        """日志损坏时跳过缓存并用新的网络结果重建 proof log。"""
         # 先写入正常数据
         data = mock_ohlcv(1000000, 50, period_ms)
         save_ohlcv(temp_dir, sample_loc, data)
@@ -139,21 +134,36 @@ class TestEdgeCases:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write('{"broken json\n')
 
-        # 读取日志应触发警告并重建
+        call_count = {"value": 0}
+
+        def counting_fetch(symbol, period, start_time, count, **kwargs):
+            call_count["value"] += 1
+            return mock_ohlcv(start_time, count, period_ms)
+
+        # 读取缓存时应警告并跳过缓存，随后走网络并重写 proof log
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            log = read_log(data_dir)
+            result = get_ohlcv_with_cache(
+                temp_dir,
+                sample_loc,
+                start_time=1000000,
+                count=10,
+                fetch_callback=counting_fetch,
+            )
 
             # 应有警告
             assert len(w) >= 1, "应有日志损坏警告"
-            assert "日志损坏" in str(w[0].message), (
-                f"警告内容应包含'日志损坏'，实际: {w[0].message}"
+            assert "proof log unavailable" in str(w[0].message), (
+                f"警告内容应包含'proof log unavailable'，实际: {w[0].message}"
             )
 
-        # 重建后日志应正常
-        assert len(log) == 1, f"重建后应有 1 条日志，实际 {len(log)}"
-        assert log[0].data_start == 1000000, "重建后日志 data_start 应为 1000000"
-        assert log[0].count == 50, f"重建后日志 count 应为 50，实际 {log[0].count}"
+        assert call_count["value"] == 1
+        assert len(result) == 10
+
+        log = read_log(data_dir)
+        assert len(log) == 1, f"应使用新的网络结果重新建立 proof log，实际 {len(log)}"
+        assert log[0].data_start == 1000000
+        assert log[0].count == 9
 
     def test_dedup_no_new_data_skip_cache_due_trim_tail(
         self, temp_dir, sample_loc, period_ms

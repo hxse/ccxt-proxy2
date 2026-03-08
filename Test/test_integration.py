@@ -1,7 +1,7 @@
-import pytest
+from datetime import datetime, timezone
 from src.cache_tool.entry import get_ohlcv_with_cache
 from src.cache_tool.config import get_data_dir
-from .utils import mock_ohlcv, assert_time_continuous
+from .utils import mock_ohlcv, mock_ohlcv_from_times, assert_time_continuous
 
 
 class TestIntegration:
@@ -57,3 +57,49 @@ class TestIntegration:
         )
         assert data_dir.exists()
         assert len(list(data_dir.glob("*.parquet"))) >= 1
+
+    def test_market_closure_chain_uses_overlap_instead_of_period_prediction(
+        self, temp_dir, sample_loc
+    ):
+        """存在自然休盘时，算法通过首尾重叠续接数据，而不是预测下一根时间。"""
+        jan_2330 = int(
+            datetime(2024, 1, 31, 23, 30, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        jan_2345 = int(
+            datetime(2024, 1, 31, 23, 45, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        feb_open = int(
+            datetime(2024, 2, 5, 9, 30, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        feb_next = int(
+            datetime(2024, 2, 5, 9, 45, tzinfo=timezone.utc).timestamp() * 1000
+        )
+
+        def fetch_initial(symbol, period, start_time, count, **kwargs):
+            return mock_ohlcv_from_times([jan_2330, jan_2345, feb_open])
+
+        result_1 = get_ohlcv_with_cache(
+            temp_dir,
+            sample_loc,
+            start_time=jan_2330,
+            count=3,
+            fetch_callback=fetch_initial,
+        )
+        assert result_1["time"].to_list() == [jan_2330, jan_2345, feb_open]
+
+        call_args: list[tuple[int | None, int]] = []
+
+        def fetch_follow_up(symbol, period, start_time, count, **kwargs):
+            call_args.append((start_time, count))
+            return mock_ohlcv_from_times([jan_2345, feb_open, feb_next])
+
+        result_2 = get_ohlcv_with_cache(
+            temp_dir,
+            sample_loc,
+            start_time=jan_2330,
+            count=4,
+            fetch_callback=fetch_follow_up,
+        )
+
+        assert result_2["time"].to_list() == [jan_2330, jan_2345, feb_open, feb_next]
+        assert call_args == [(jan_2345, 3)]

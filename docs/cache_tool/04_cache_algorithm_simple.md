@@ -8,6 +8,12 @@
 - **一旦进入网络阶段，不再回头检查和复用中间缓存**
 - 默认返回最后一根 K 线给用户，但缓存写入时去掉最后一根
 
+这个设计不是只为加密货币准备的。
+
+- 对加密货币，直接用固定间隔推断连续性通常更简单。
+- 本项目仍坚持“首尾重叠 + 去重”方案，是为了兼容股票、期货等存在周末休市、节假日休市、临时停牌的市场。
+- 因此算法不依赖“下一根时间戳预测”，而依赖“已有尾部时间再次请求、首条允许重叠”的策略来续接数据。
+
 相比完整算法，逻辑更简单，边界问题更少。
 
 ---
@@ -28,6 +34,7 @@
 规则：
 - 先在日志中计算从 `start_time` 可连续到达的缓存 span（`cache_end`）。
 - 再按时间分区顺序读取 `start_time -> cache_end` 范围，读够 `count` 即停。
+- 如果没有 proof log，或者 proof log 无法证明 `start_time` 命中缓存链，则阶段A直接跳过。
 - 一旦遇到断裂，或已满足 `count`，阶段A结束。
 
 退出条件：
@@ -149,7 +156,7 @@ def fetch_with_cache_simple(
     3. 网络阶段不再回头复用中间缓存（避免复杂度）
     """
     
-    # 读取合并后的日志
+    # 读取 proof log；如果日志不存在、损坏或不能证明起点命中，则跳过缓存阶段
     log_entries = read_log(data_dir)
     
     result = pl.DataFrame()
@@ -157,7 +164,7 @@ def fetch_with_cache_simple(
     remaining_count = count
     network_batches = []
     
-    # 阶段A：缓存阶段（日志计算连续 span，再按分区读取）
+    # 阶段A：缓存阶段（只有 proof log 能证明 span 时才读取缓存）
     cache_end = find_cache_span_end(log_entries, start_time)
     if cache_end is not None:
         cached_part = read_ohlcv(
@@ -170,6 +177,9 @@ def fetch_with_cache_simple(
         result = merge_data(result, cached_part, keep="last")
         current_time = result["time"].max()
         remaining_count = count - len(result)
+
+    # 注意：如果 cache_end is None，不代表磁盘上没有 parquet，
+    # 只代表没有连续性证明，因此必须直接转入网络阶段。
 
     if remaining_count <= 0:
         result = result.head(count)
@@ -211,7 +221,7 @@ def fetch_with_cache_simple(
     cache_data = result.head(max(0, len(result) - 1))
     if not cache_data.is_empty():
         save_ohlcv(base_dir, loc, cache_data)
-        # 日志记录实际落盘增量，不记录纯缓存复用，不记录被去尾丢弃的数据
+        # proof log 记录网络写入范围，不记录纯缓存复用，不记录被去尾丢弃的数据
         append_log_for_written_range(cache_data)
     
     return result
@@ -238,7 +248,7 @@ def fetch_with_cache_simple(
 
 结果：
 - 网络请求 4 次
-- 未复用缓存（起始不在缓存中）
+- 未复用缓存（起始不在 proof log 覆盖范围中，即使磁盘上可能已有 parquet）
 ```
 
 ### 示例2：起始在缓存中

@@ -19,6 +19,7 @@ from src.tools.logging_config import setup_logging
 
 setup_logging()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     start = perf_counter()
@@ -152,7 +153,9 @@ try:
 except FileNotFoundError:
     with open(json_path, "w", encoding="utf-8") as file:
         json.dump({}, file, ensure_ascii=False, indent=4)
-    logger.error("config.json not found, created empty placeholder file at {}", json_path)
+    logger.error(
+        "config.json not found, created empty placeholder file at {}", json_path
+    )
     raise RuntimeError("config.json not found")
 except json.JSONDecodeError:
     logger.error("config.json is invalid JSON")

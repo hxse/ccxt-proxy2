@@ -18,6 +18,20 @@ def mock_ohlcv(start: int, count: int, period_ms: int = 900000) -> pl.DataFrame:
     )
 
 
+def mock_ohlcv_from_times(times: list[int]) -> pl.DataFrame:
+    """根据给定时间戳生成模拟 OHLCV 数据，用于非等间隔市场场景。"""
+    return pl.DataFrame(
+        {
+            "time": times,
+            "open": [100.0 + i for i in range(len(times))],
+            "high": [105.0 + i for i in range(len(times))],
+            "low": [95.0 + i for i in range(len(times))],
+            "close": [102.0 + i for i in range(len(times))],
+            "volume": [1000.0 + i for i in range(len(times))],
+        }
+    )
+
+
 def assert_time_continuous(df: pl.DataFrame, period_ms: int):
     """断言时间序列连续"""
     if len(df) < 2:
