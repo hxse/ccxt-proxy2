@@ -14,9 +14,19 @@ default:
 # ==================== 调试工具 (Debug Tools) ====================
 
 # 运行 debug 目录下的脚本
-# 例: just debug debug_order
+# 例: just debug cleanup
 debug name:
     uv run --no-sync python debug/{{name}}.py
+
+# 运行 debug/route_tests 下的单个 pytest 文件
+# 例: just debug-route-test test_order_routes
+debug-route-test name:
+    uv run --no-sync pytest -v -ra debug/route_tests/{{name}}.py
+
+# 运行单个交易调试动作，默认 binance/future/sandbox/BTC/USDT:USDT
+# 例: just debug-trade open-long --amount 0.005
+debug-trade action *args:
+    uv run --no-sync python debug/trade_action.py {{action}} {{args}}
 
 # 运行任意 Python 脚本
 run path:
@@ -26,28 +36,122 @@ run path:
 cleanup:
     just debug cleanup
 
-# 2. 调试下单验证 (含余额检查)
+# 2. 调试下单路由生命周期
 debug-order:
-    just debug debug_order
+    just debug-route-test test_order_routes
 
-# 3. 调试最小数量
-debug-min:
-    just debug debug_min_size
+# 3. 调试已结订单查询
+debug-fetch-closed:
+    just debug debug_fetch_closed
 
 # 4. 调试精度
-debug-prec:
-    just debug debug_precision
+debug-precision:
+    just debug check_precision
 
-# 4. 调试杠杆
-debug-lev:
+debug-prec:
+    just debug-precision
+
+# 5. 调试完整市场信息字段
+debug-market-info:
+    just debug check_market_info_full
+
+# 6. 调试杠杆
+debug-leverage:
     just debug debug_leverage
 
-# 5. 调试所有 (按顺序运行)
+debug-lev:
+    just debug-leverage
+
+# 7. 检查 Kraken sandbox 502 行为
+debug-kraken-502:
+    just debug check_kraken_502
+
+# 8. 研究订单行为
+debug-research-orders:
+    just debug research_orders
+
+# 9. 研究 close-all 行为
+debug-research-close-all:
+    just debug research_close_all
+
+# 10. 验证响应模型
+debug-verify-response-models:
+    just debug verify_response_models
+
+# 11. 验证 Binance adapter
+debug-verify-binance-adapter:
+    just debug verify_binance_adapter
+
+# 12. 验证原始字段
+debug-verify-all-fields:
+    just debug verify_all_fields
+
+# 13. 运行全部 route tests
+debug-route-tests:
+    uv run --no-sync pytest -v -ra debug/route_tests
+
+# 14. 生成 route test 报告
+debug-route-report:
+    uv run --no-sync python debug/route_tests/run_tests.py
+
+# 15. 查余额
+debug-balance:
+    just debug-trade balance
+
+# 16. 查持仓
+debug-positions:
+    just debug-trade positions
+
+# 17. 查挂单
+debug-open-orders:
+    just debug-trade open-orders
+
+# 18. 撤掉当前 symbol 全部挂单
+debug-cancel-all:
+    just debug-trade cancel-all
+
+# 19. 市价开多
+debug-open-long amount="0.005":
+    just debug-trade open-long --amount {{amount}}
+
+# 20. 市价开空
+debug-open-short amount="0.005":
+    just debug-trade open-short --amount {{amount}}
+
+# 21. 平仓，可选 side=long/short，不传则全平
+debug-close side="":
+    just debug-trade close-position --side "{{side}}"
+
+# 22. 给多仓挂止损，触发后 sell reduceOnly
+debug-stop-loss-long trigger amount="0.005":
+    just debug-trade stop-loss-long --amount {{amount}} --trigger-price {{trigger}}
+
+# 23. 给空仓挂止损，触发后 buy reduceOnly
+debug-stop-loss-short trigger amount="0.005":
+    just debug-trade stop-loss-short --amount {{amount}} --trigger-price {{trigger}}
+
+# 24. 给多仓挂止盈，触发后 sell reduceOnly
+debug-take-profit-long trigger amount="0.005":
+    just debug-trade take-profit-long --amount {{amount}} --trigger-price {{trigger}}
+
+# 25. 给空仓挂止盈，触发后 buy reduceOnly
+debug-take-profit-short trigger amount="0.005":
+    just debug-trade take-profit-short --amount {{amount}} --trigger-price {{trigger}}
+
+# 26. 设置杠杆
+debug-set-leverage leverage:
+    just debug-trade set-leverage --leverage {{leverage}}
+
+# 27. 设置保证金模式 cross/isolated
+debug-set-margin-mode mode:
+    just debug-trade set-margin-mode --margin-mode {{mode}}
+
+# 28. 调试所有常用项 (按顺序运行)
 debug-all:
     just cleanup
     just debug-order
-    just debug-min
-    just debug-prec
+    just debug-precision
+    just debug-leverage
 
 # ==================== Docker ====================
 

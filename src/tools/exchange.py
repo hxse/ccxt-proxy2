@@ -17,6 +17,8 @@ def get_binance_exchange(
     if credentials is None:
         raise ValueError(f"binance {mode} credentials are missing")
 
+    fetch_market_types = ["linear"] if market == "future" else ["spot"]
+
     binance_exchange = ccxt.binance(
         {
             "apiKey": credentials.api_key,
@@ -24,6 +26,9 @@ def get_binance_exchange(
             "enableRateLimit": True,
             "options": {
                 "defaultType": market,
+                "fetchCurrencies": False,
+                "fetchMargins": False,
+                "fetchMarkets": {"types": fetch_market_types},
             },
         }
     )
