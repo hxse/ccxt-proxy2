@@ -17,6 +17,7 @@ dependencies = [
     "tzdata",
     "fastapi-login",
     "loguru",
+    "tqsdk",
 ]
 
 

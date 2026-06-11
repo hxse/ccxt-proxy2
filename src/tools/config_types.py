@@ -46,6 +46,13 @@ class ExchangeConfig(BaseModel):
     live: ApiCredential | None = None
 
 
+class TqConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str | None = None
+    password: str = ""
+
+
 class ExchangeWhitelistItemConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,6 +69,7 @@ class AppConfig(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     binance: ExchangeConfig | None = None
     kraken: ExchangeConfig | None = None
+    tq: TqConfig | None = None
     exchange_whitelist: list[ExchangeWhitelistItemConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")

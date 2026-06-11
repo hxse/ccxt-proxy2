@@ -1,6 +1,7 @@
 import pytest
 import os
 import sys
+from datetime import datetime
 
 # Ensure we are in root logic
 if os.getcwd() not in sys.path:
@@ -38,7 +39,7 @@ def run_tests_and_report():
     report_content = f"""# Route Test Report (Sandbox)
 
 **Status**: {status_icon} {"PASS" if exit_code == 0 else "FAIL"}
-**Date**: {os.popen("date /t").read().strip()}
+**Date**: {datetime.now().astimezone().isoformat(timespec="seconds")}
 
 ## Execution Log
 ```

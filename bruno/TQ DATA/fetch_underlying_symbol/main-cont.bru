@@ -1,0 +1,20 @@
+meta {
+  name: main-cont
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tq/fetch_underlying_symbol?symbol={{tqUnderlyingSymbol}}&n={{tqHistoryN}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  symbol: {{tqUnderlyingSymbol}}
+  n: {{tqHistoryN}}
+}
+
+assert {
+  res.status: eq 200
+}

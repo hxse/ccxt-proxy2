@@ -47,7 +47,7 @@ def read_ohlcv(
 
         # 排序后 limit，保证返回顺序和 count 语义
         lf = lf.sort("time").limit(count)
-        return cast(pl.DataFrame, lf.collect())
+        return lf.collect()
 
     # 默认路径：读取并合并后按时间过滤
     lf = pl.scan_parquet([str(p) for p in parquet_files])
@@ -58,7 +58,7 @@ def read_ohlcv(
     lf = lf.sort("time")
     if count is not None and count > 0:
         lf = lf.limit(count)
-    return cast(pl.DataFrame, lf.collect())
+    return lf.collect()
 
 
 def save_ohlcv(

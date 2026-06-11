@@ -1,0 +1,22 @@
+meta {
+  name: main-cont
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tq/fetch_ohlcv?symbol={{tqOhlcvSymbol}}&duration_seconds={{tqDurationSeconds}}&data_length={{tqDataLength}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  symbol: {{tqOhlcvSymbol}}
+  duration_seconds: {{tqDurationSeconds}}
+  data_length: {{tqDataLength}}
+  ~adj_type:
+}
+
+assert {
+  res.status: eq 200
+}

@@ -32,6 +32,10 @@ debug-trade action *args:
 run path:
     uv run --no-sync python {{path}}
 
+# 本地启动 API 服务，供 Bruno/curl 调试
+serve host="127.0.0.1" port="5123":
+    uv run uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
+
 # 1. 完整清理 (取消挂单/平仓)
 cleanup:
     just debug cleanup
@@ -85,6 +89,18 @@ debug-verify-binance-adapter:
 # 12. 验证原始字段
 debug-verify-all-fields:
     just debug verify_all_fields
+
+# 调试 TQ K 线薄转发
+debug-tq-ohlcv symbol duration_seconds="60" data_length="10000":
+    uv run --no-sync python debug/tq_probe.py ohlcv --symbol "{{symbol}}" --duration-seconds "{{duration_seconds}}" --data-length "{{data_length}}"
+
+# 调试 TQ Tick 薄转发
+debug-tq-tick symbol data_length="10000":
+    uv run --no-sync python debug/tq_probe.py tick --symbol "{{symbol}}" --data-length "{{data_length}}"
+
+# 调试 TQ 主连当前标的和历史映射
+debug-tq-underlying symbol n="":
+    uv run --no-sync python debug/tq_probe.py underlying --symbol "{{symbol}}" --n "{{n}}"
 
 # 13. 运行全部 route tests
 debug-route-tests:
@@ -185,10 +201,20 @@ bru-run path:
 bru-readonly-basic:
     cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY EXTENDED/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
+# 只跑 TQ 只读请求，需要服务端已配置 tq
+bru-tq-readonly:
+    cd bruno && bru run 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+
 # ==================== 代码质量 ====================
 
 test *args:
-    uv run --no-sync pytest Test {{args}}
+    uv run --no-sync pytest Test --ignore=Test/online {{args}}
+
+test-tq-offline:
+    uv run --no-sync pytest -v -ra Test/test_tq_*.py
+
+test-tq-online:
+    TQ_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_tq_online.py
 
 fmt:
     uvx ruff format .
