@@ -102,6 +102,10 @@ debug-tq-tick symbol data_length="10000":
 debug-tq-underlying symbol n="":
     uv run --no-sync python debug/tq_probe.py underlying --symbol "{{symbol}}" --n "{{n}}"
 
+# 发送 Telegram 测试消息，需要服务端已配置 telegram
+debug-telegram-send chat text:
+    uv run --no-sync python debug/telegram_probe.py --chat "{{chat}}" --text "{{text}}"
+
 # 13. 运行全部 route tests
 debug-route-tests:
     uv run --no-sync pytest -v -ra debug/route_tests
@@ -205,6 +209,10 @@ bru-readonly-basic:
 bru-tq-readonly:
     cd bruno && bru run 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
+# 手动发送 Telegram 消息，需要服务端已配置 telegram
+bru-telegram-send:
+    cd bruno && bru run 'TELEGRAM/send_message/main.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+
 # ==================== 代码质量 ====================
 
 test *args:
@@ -215,6 +223,12 @@ test-tq-offline:
 
 test-tq-online:
     TQ_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_tq_online.py
+
+test-telegram-offline:
+    uv run --no-sync pytest -v -ra Test/test_telegram_*.py
+
+test-telegram-online:
+    TELEGRAM_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_telegram_online.py
 
 fmt:
     uvx ruff format .

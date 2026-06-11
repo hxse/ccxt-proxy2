@@ -1,0 +1,26 @@
+meta {
+  name: main
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/telegram/send_message
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "chats": [
+      "{{telegramChat}}"
+    ],
+    "text": "{{telegramText}}",
+    "disable_web_page_preview": true,
+    "disable_notification": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}

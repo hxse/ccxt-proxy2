@@ -18,8 +18,9 @@ dependencies = [
     "fastapi-login",
     "loguru",
     "tqsdk",
+    "httpx",
 ]
 
 
 [dependency-groups]
-dev = ["pytest", "httpx"]
+dev = ["pytest"]

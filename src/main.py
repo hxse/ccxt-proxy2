@@ -18,6 +18,7 @@ from src.router.file_handler import file_router  # noqa: E402
 from src.router.auth_handler import auth_router  # noqa: E402
 from src.router.extended_router import extended_router  # noqa: E402
 from src.router.tq_router import tq_router  # noqa: E402
+from src.router.telegram_router import telegram_router  # noqa: E402
 from scalar_fastapi import get_scalar_api_reference  # noqa: E402
 
 
@@ -26,6 +27,7 @@ app.include_router(ccxt_router)
 app.include_router(extended_router)
 app.include_router(file_router)
 app.include_router(tq_router)
+app.include_router(telegram_router)
 
 
 @app.get("/", response_class=HTMLResponse)

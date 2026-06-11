@@ -1,6 +1,11 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.base_types import ExchangeName, MarketType, ModeType
+
+
+CHAT_ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class UserConfig(BaseModel):
@@ -53,6 +58,36 @@ class TqConfig(BaseModel):
     password: str = ""
 
 
+class TelegramConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bot_token: str = Field(..., min_length=1)
+    chats: dict[str, str] = Field(..., min_length=1)
+
+    @field_validator("bot_token")
+    @classmethod
+    def validate_bot_token(cls, bot_token: str) -> str:
+        normalized = bot_token.strip()
+        if not normalized:
+            raise ValueError("telegram.bot_token must not be empty")
+        return normalized
+
+    @field_validator("chats")
+    @classmethod
+    def validate_chats(cls, chats: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for alias, chat_id in chats.items():
+            if not alias or not CHAT_ALIAS_PATTERN.fullmatch(alias):
+                raise ValueError(
+                    "telegram chat aliases must match [A-Za-z0-9_-]+"
+                )
+            normalized_chat_id = chat_id.strip()
+            if not normalized_chat_id:
+                raise ValueError("telegram chat ids must not be empty")
+            normalized[alias] = normalized_chat_id
+        return normalized
+
+
 class ExchangeWhitelistItemConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -70,6 +105,7 @@ class AppConfig(BaseModel):
     binance: ExchangeConfig | None = None
     kraken: ExchangeConfig | None = None
     tq: TqConfig | None = None
+    telegram: TelegramConfig | None = None
     exchange_whitelist: list[ExchangeWhitelistItemConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")

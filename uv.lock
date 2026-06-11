@@ -179,6 +179,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastapi-login" },
     { name = "filelock" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "loguru" },
     { name = "numpy" },
@@ -194,7 +195,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -204,6 +204,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "fastapi-login" },
     { name = "filelock" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "loguru" },
     { name = "numpy" },
@@ -218,10 +219,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "certifi"
