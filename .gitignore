@@ -174,5 +174,8 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Serena project metadata
+.serena/
+
 # PyPI configuration file
 .pypirc
