@@ -23,4 +23,7 @@ dependencies = [
 
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "httpx2>=2.12.0",
+    "pytest",
+]
