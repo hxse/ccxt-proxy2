@@ -239,8 +239,14 @@ class OrderResponse(BaseModel):
 
 
 class OhlcvResponse(BaseModel):
-    rows: List[tuple[int, float, float, float, float, float]]
-    last_bar_completion_confirmed: bool | None
+    rows: List[tuple[int, float, float, float, float, float]] = Field(
+        description="按 open time 升序排列的 [time, open, high, low, close, volume]"
+    )
+    last_bar_completion_confirmed: bool | None = Field(
+        description=(
+            "true 表示存在严格更晚 successor；false 表示无法确认；null 表示 rows 为空"
+        )
+    )
 
 
 class CancelAllOrdersResponse(BaseModel):

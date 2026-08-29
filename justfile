@@ -1,12 +1,6 @@
 # CCXT-Proxy2 Justfile
 # 使用 `just` 命令运行常用开发任务
 
-bru_user := `uv run --no-sync python scripts/bru_credentials.py user`
-bru_password := `uv run --no-sync python scripts/bru_credentials.py password`
-
-export BRU_USER := bru_user
-export BRU_PASSWORD := bru_password
-
 # 列出所有可用命令
 default:
     @just --list
@@ -191,32 +185,32 @@ docker-wait-ready:
 # 例: just bru-run Root.bru
 # 例: just bru-run 'CCXT PROXY/fetch_balance/binance.bru'
 bru-run path:
-    cd bruno && bru run "{{path}}" --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    uv run --no-sync python scripts/run_bruno.py "{{path}}"
 
 # 只跑基础只读请求
 bru-readonly-basic:
-    cd bruno && bru run Root.bru Ready.bru 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/binance.bru' 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/kraken.bru' 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    uv run --no-sync python scripts/run_bruno.py Root.bru Ready.bru 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/binance.bru' 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/kraken.bru' 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY/fetch_positions/binance.bru'
 
 # 验证不会访问交易接口的稳定 CCXT error contract
 bru-error-contract:
-    cd bruno && bru run 'CCXT PROXY/error_contract' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    uv run --no-sync python scripts/run_bruno.py 'CCXT PROXY/error_contract'
 
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:
-    cd bruno && bru run 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    uv run --no-sync python scripts/run_bruno.py 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru'
 
 # 手动发送 Telegram 消息，需要服务端已配置 telegram
 bru-telegram-send:
-    cd bruno && bru run 'TELEGRAM/send_message/main.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    uv run --no-sync python scripts/run_bruno.py 'TELEGRAM/send_message/main.bru'
 
 # ==================== 代码质量 ====================
 
 test *args:
     uv run --no-sync pytest Test --ignore=Test/online {{args}}
 
-# 聚合运行只读 online tests；不会下单、改设置或发送消息
+# 聚合运行 public live market-data tests；不会检查私有账户或初始化 sandbox
 test-online *args:
-    CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
+    CCXT_PROXY_CONFIG_PATH=./data/config.json CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
 
 test-file path *args:
     uv run --no-sync pytest "{{path}}" {{args}}
@@ -225,10 +219,11 @@ test-tq-offline:
     uv run --no-sync pytest -v -ra Test/test_tq_*.py
 
 test-tq-online:
-    TQ_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_tq_online.py
+    CCXT_PROXY_CONFIG_PATH=./data/config.json TQ_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_tq_online.py
 
+# 只测试 whitelist 中已启用的 Futures live public market data
 test-ccxt-online:
-    CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
+    CCXT_PROXY_CONFIG_PATH=./data/config.json CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
 
 test-telegram-offline:
     uv run --no-sync pytest -v -ra Test/test_telegram_*.py

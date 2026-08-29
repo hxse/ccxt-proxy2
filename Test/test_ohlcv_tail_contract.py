@@ -9,9 +9,7 @@ def _cached_times(client, since: int = MINUTE) -> list[int]:
 def test_since_limit_count_includes_unknown_tail_but_cache_omits_it(temp_dir):
     client, _ = _client(temp_dir, times=_minutes(1, 2, 3, 4, 5))
 
-    result = client.fetch_ohlcv_since_limit(
-        "BTC/USDT:USDT", "1m", MINUTE, 5
-    )
+    result = client.fetch_ohlcv_since_limit("BTC/USDT:USDT", "1m", MINUTE, 5)
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3, 4, 5)
     assert result.last_bar_completion_confirmed is False
@@ -21,9 +19,7 @@ def test_since_limit_count_includes_unknown_tail_but_cache_omits_it(temp_dir):
 def test_since_limit_successor_confirms_and_caches_requested_tail(temp_dir):
     client, _ = _client(temp_dir, times=_minutes(1, 2, 3, 4, 5))
 
-    result = client.fetch_ohlcv_since_limit(
-        "BTC/USDT:USDT", "1m", MINUTE, 4
-    )
+    result = client.fetch_ohlcv_since_limit("BTC/USDT:USDT", "1m", MINUTE, 4)
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3, 4)
     assert result.last_bar_completion_confirmed is True
@@ -33,9 +29,7 @@ def test_since_limit_successor_confirms_and_caches_requested_tail(temp_dir):
 def test_since_latest_returns_snapshot_tail_but_does_not_cache_it(temp_dir):
     client, _ = _client(temp_dir, times=_minutes(1, 2, 3, 4, 5))
 
-    result = client.fetch_ohlcv_since_latest(
-        "BTC/USDT:USDT", "1m", MINUTE
-    )
+    result = client.fetch_ohlcv_since_latest("BTC/USDT:USDT", "1m", MINUTE)
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3, 4, 5)
     assert result.last_bar_completion_confirmed is False
@@ -60,9 +54,7 @@ def test_latest_limit_returns_full_limit_while_cache_omits_unknown_tail(temp_dir
 def test_since_later_than_latest_returns_empty_without_creating_cache(temp_dir):
     client, exchange = _client(temp_dir, times=_minutes(1, 2, 3))
 
-    result = client.fetch_ohlcv_since_latest(
-        "BTC/USDT:USDT", "1m", 4 * MINUTE
-    )
+    result = client.fetch_ohlcv_since_latest("BTC/USDT:USDT", "1m", 4 * MINUTE)
 
     assert result.rows == []
     assert result.last_bar_completion_confirmed is None

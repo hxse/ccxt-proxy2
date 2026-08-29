@@ -35,8 +35,12 @@ def test_login_reports_access_token_expiry(monkeypatch):
         username,
         UserConfig(password=password),
     )
-    monkeypatch.setattr(auth_handler.manager, "create_access_token", create_access_token)
-    monkeypatch.setattr(auth_handler.manager, "set_cookie", lambda response, token: None)
+    monkeypatch.setattr(
+        auth_handler.manager, "create_access_token", create_access_token
+    )
+    monkeypatch.setattr(
+        auth_handler.manager, "set_cookie", lambda response, token: None
+    )
     form = OAuth2PasswordRequestForm(
         grant_type="password",
         username=username,
@@ -107,3 +111,22 @@ def test_invalid_password_is_rejected_and_refresh_route_is_not_exposed(monkeypat
 
     assert invalid.status_code == 401
     assert refresh.status_code == 404
+
+
+def test_token_route_rejects_unknown_query_parameters(monkeypatch):
+    monkeypatch.setitem(
+        auth_handler.config.users,
+        "strict-query",
+        UserConfig(password="secret"),
+    )
+    app = FastAPI()
+    app.include_router(auth_handler.auth_router)
+
+    response = _post(
+        app,
+        "/auth/token?typo=1",
+        {"username": "strict-query", "password": "secret"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["query", "typo"]

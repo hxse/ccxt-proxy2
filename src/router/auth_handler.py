@@ -7,11 +7,16 @@ from fastapi_login import LoginManager
 from fastapi_login.exceptions import InvalidCredentialsException
 from pydantic import BaseModel, Field
 
+from src.router.query_validation import reject_query_params_on_non_get
 from src.tools.config_types import UserConfig
 from src.tools.shared import config
 
 # 创建鉴权路由
-auth_router = APIRouter(prefix="/auth", tags=["Auth"])
+auth_router = APIRouter(
+    prefix="/auth",
+    dependencies=[Depends(reject_query_params_on_non_get)],
+    tags=["Auth"],
+)
 
 
 # FastAPI-Login 相关

@@ -5,6 +5,7 @@ from urllib.parse import parse_qsl
 
 from src.cache_tool import DuckDbOhlcvCache
 from src.main import app
+from src.tools.shared import config_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BRUNO_ROOT = PROJECT_ROOT / "bruno"
@@ -94,6 +95,24 @@ def test_every_bruno_request_targets_an_existing_fastapi_route():
         assert (path, method) in routes, f"stale Bruno route in {file}: {method} {path}"
 
 
+def test_bruno_get_query_parameters_are_declared_by_openapi():
+    schema = app.openapi()
+    for file in _request_files():
+        request = _request(file)
+        assert request is not None
+        method, url = request
+        if method != "GET":
+            continue
+        path = url.removeprefix("{{baseUrl}}").split("?", 1)[0]
+        declared = {
+            parameter["name"]
+            for parameter in schema["paths"][path]["get"].get("parameters", [])
+            if parameter.get("in") == "query"
+        }
+        provided = set(_enabled_query_params(file.read_text()))
+        assert provided <= declared, f"unknown Bruno query parameter in {file}"
+
+
 def test_every_openapi_operation_has_human_documentation():
     schema = app.openapi()
     assert schema["info"]["title"] == "ccxt-proxy2"
@@ -103,7 +122,9 @@ def test_every_openapi_operation_has_human_documentation():
         for method, operation in operations.items():
             if method.upper() not in {name.upper() for name in HTTP_METHODS}:
                 continue
-            assert operation.get("summary", "").strip(), f"missing summary: {method} {path}"
+            assert operation.get("summary", "").strip(), (
+                f"missing summary: {method} {path}"
+            )
             assert operation.get("description", "").strip(), (
                 f"missing description: {method} {path}"
             )
@@ -113,6 +134,15 @@ def test_every_openapi_operation_has_human_documentation():
             assert success["description"] != "Successful Response", (
                 f"default response description: {method} {path}"
             )
+            for parameter in operation.get("parameters", []):
+                assert parameter.get("description", "").strip(), (
+                    f"missing parameter description: {method} {path} "
+                    f"{parameter['name']}"
+                )
+            for media_type, media in success.get("content", {}).items():
+                assert media.get("schema"), (
+                    f"empty 200 schema: {method} {path} {media_type}"
+                )
 
 
 def test_bruno_contains_the_full_fetch_ohlcv_provider_matrix():
@@ -144,6 +174,18 @@ def test_every_bru_path_referenced_by_justfile_exists():
         assert (BRUNO_ROOT / reference).is_file(), reference
 
 
+def test_offline_tests_and_bruno_credentials_use_separate_config_paths():
+    expected = PROJECT_ROOT / "Test/fixtures/config.json"
+    justfile = (PROJECT_ROOT / "justfile").read_text()
+
+    assert config_path.resolve() == expected.resolve()
+    assert "bru_user :=" not in justfile
+    assert "bru_password :=" not in justfile
+    assert "export BRU_" not in justfile
+    assert "scripts/run_bruno.py" in justfile
+    assert "CCXT_PROXY_CONFIG_PATH=./data/config.json" in justfile
+
+
 def test_mutating_bruno_requests_are_visibly_marked_stateful():
     for file in _request_files():
         request = _request(file)
@@ -164,7 +206,9 @@ def test_bruno_readonly_recipe_references_get_requests_only():
         justfile,
     )
     assert recipe
-    references = re.findall(r"'([^']+\.bru)'|(?<![\w{}])([\w./-]+\.bru)", recipe.group(1))
+    references = re.findall(
+        r"'([^']+\.bru)'|(?<![\w{}])([\w./-]+\.bru)", recipe.group(1)
+    )
     files = [BRUNO_ROOT / (quoted or plain) for quoted, plain in references]
 
     assert files
@@ -176,11 +220,21 @@ def test_bruno_readonly_recipe_references_get_requests_only():
         assert request[0] == "GET", file
 
 
-def test_production_modules_stay_within_the_400_line_limit():
+def test_python_files_stay_within_the_400_line_limit():
     oversized = {
         str(file.relative_to(PROJECT_ROOT)): len(file.read_text().splitlines())
-        for file in (PROJECT_ROOT / "src").rglob("*.py")
+        for root in ("src", "Test", "scripts")
+        for file in (PROJECT_ROOT / root).rglob("*.py")
         if len(file.read_text().splitlines()) > 400
+    }
+    assert oversized == {}
+
+
+def test_documentation_files_stay_within_the_500_line_limit():
+    oversized = {
+        str(file.relative_to(PROJECT_ROOT)): len(file.read_text().splitlines())
+        for file in (PROJECT_ROOT / "docs").rglob("*.md")
+        if len(file.read_text().splitlines()) > 500
     }
     assert oversized == {}
 
@@ -218,16 +272,37 @@ def test_cache_public_api_stays_io_only_and_callback_free():
 
 
 def test_online_test_suite_contains_read_only_operations_only():
-    banned_calls = re.compile(
-        r"\.(?:create_order|create_stop_market_order|"
-        r"create_take_profit_market_order|cancel_order|cancel_all_orders|"
-        r"close_position|set_leverage|set_margin_mode|send_message)\("
-    )
+    banned_calls = {
+        "add_margin",
+        "cancel_all_orders",
+        "cancel_order",
+        "cancel_orders",
+        "close_position",
+        "create_limit_order",
+        "create_market_order",
+        "create_order",
+        "create_stop_market_order",
+        "create_take_profit_market_order",
+        "edit_order",
+        "reduce_margin",
+        "send_message",
+        "set_leverage",
+        "set_margin_mode",
+        "set_position_mode",
+        "transfer",
+        "withdraw",
+    }
     online_files = list((PROJECT_ROOT / "Test/online").glob("test_*.py"))
 
     assert online_files
     for file in online_files:
-        assert not banned_calls.search(file.read_text()), file
+        tree = ast.parse(file.read_text())
+        used = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert used.isdisjoint(banned_calls), file
 
     justfile = (PROJECT_ROOT / "justfile").read_text()
     recipe = re.search(
@@ -237,3 +312,27 @@ def test_online_test_suite_contains_read_only_operations_only():
     assert recipe
     assert "TELEGRAM" not in recipe.group(1)
     assert "telegram" not in recipe.group(1)
+
+
+def test_ccxt_online_suite_targets_live_identities_only():
+    source = (PROJECT_ROOT / "Test/online/test_ccxt_online.py").read_text()
+    tree = ast.parse(source)
+    used = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    private_reads = {
+        "fetch_balance",
+        "fetch_closed_orders",
+        "fetch_market_info",
+        "fetch_my_trades",
+        "fetch_open_orders",
+        "fetch_order",
+        "fetch_positions",
+    }
+
+    assert 'item.mode == "live"' in source
+    assert '"exchange_whitelist": live_futures' in source
+    assert "sandbox" not in source
+    assert used.isdisjoint(private_reads)

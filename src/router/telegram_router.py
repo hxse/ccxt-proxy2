@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends
 
 from src.responses_telegram import TelegramSendMessageResponse
 from src.router.auth_handler import manager
+from src.router.query_validation import reject_query_params_on_non_get
 from src.tools.telegram_manager import telegram_manager
 from src.types_telegram import TelegramSendMessageRequest
 
 telegram_router = APIRouter(
     prefix="/telegram",
-    dependencies=[Depends(manager)],
+    dependencies=[Depends(manager), Depends(reject_query_params_on_non_get)],
     tags=["TELEGRAM"],
 )
 

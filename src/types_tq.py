@@ -1,7 +1,9 @@
 from typing import Annotated, Literal
 
-from fastapi import HTTPException, Query
+from fastapi import HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.router.query_validation import reject_unknown_query_params
 
 TqAdjType = Literal["F", "B", "FORWARD", "BACK"]
 
@@ -154,6 +156,7 @@ def _validate_n(n: int | None) -> int | None:
 
 
 def tq_ohlcv_request(
+    request: Request,
     symbol: Annotated[
         list[str],
         Query(
@@ -204,6 +207,9 @@ def tq_ohlcv_request(
         ),
     ] = None,
 ) -> TqOhlcvRequest:
+    reject_unknown_query_params(
+        request, {"symbol", "duration_seconds", "data_length", "adj_type"}
+    )
     symbols = _validate_symbols(symbol)
     request_symbol: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
     return TqOhlcvRequest(
@@ -215,6 +221,7 @@ def tq_ohlcv_request(
 
 
 def tq_tick_request(
+    request: Request,
     symbol: Annotated[
         str,
         Query(
@@ -251,6 +258,7 @@ def tq_tick_request(
         ),
     ] = None,
 ) -> TqTickRequest:
+    reject_unknown_query_params(request, {"symbol", "data_length", "adj_type"})
     return TqTickRequest(
         symbol=_validate_symbol(symbol),
         data_length=_validate_data_length(data_length),
@@ -259,6 +267,7 @@ def tq_tick_request(
 
 
 def tq_underlying_symbol_request(
+    request: Request,
     symbol: Annotated[
         list[str],
         Query(
@@ -283,6 +292,7 @@ def tq_underlying_symbol_request(
         ),
     ] = None,
 ) -> TqUnderlyingSymbolRequest:
+    reject_unknown_query_params(request, {"symbol", "n"})
     symbols = _validate_symbols(symbol)
     request_symbol: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
     return TqUnderlyingSymbolRequest(

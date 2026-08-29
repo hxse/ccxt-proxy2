@@ -56,9 +56,10 @@ class CcxtTransport:
                     raise NetworkIncomplete(
                         f"{self.identity} {operation} failed after retry"
                     ) from exc
-                logger.bind(operation=f"{self.identity} {operation}").warning(
-                    "network operation failed; retrying after 0.5s: {}", exc
-                )
+                logger.bind(
+                    operation=f"{self.identity} {operation}",
+                    exception_type=type(exc).__name__,
+                ).warning("network operation failed; retrying after 0.5s")
                 time.sleep(0.5)
         raise RuntimeError("unreachable retry state")
 
@@ -66,7 +67,7 @@ class CcxtTransport:
         try:
             return self._attempt(function, *args, **kwargs)
         except NETWORK_RETRY_EXCEPTIONS as exc:
-            logger.bind(operation=operation).exception(
+            logger.bind(operation=operation, exception_type=type(exc).__name__).error(
                 "non-read operation failed; operation status may be unknown"
             )
             raise OperationStatusUnknown(

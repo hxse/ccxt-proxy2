@@ -192,9 +192,7 @@ def test_binance_calendar_month_does_not_use_fixed_millisecond_continuity_check(
     source = PageSource([january, february, march])
     fetcher = OhlcvNetworkFetcher("binance", "future", source)
 
-    result = fetcher.fetch_since_limit(
-        "BTC/USD:USD", "1M", january, 2, "default"
-    )
+    result = fetcher.fetch_since_limit("BTC/USD:USD", "1M", january, 2, "default")
 
     assert [row[0] for row in result.rows] == [january, february]
     assert result.last_bar_completion_confirmed is True

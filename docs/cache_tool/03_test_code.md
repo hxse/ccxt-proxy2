@@ -131,7 +131,7 @@
 - OHLCV Request model、Client signature、OpenAPI 和 Bruno 均不得重新暴露服务端删尾参数。
 - 每个 Bruno method/path 必须对应现有 FastAPI route；Just 引用的 `.bru` 路径必须存在。
 - Mutating Bruno request 必须带 `[STATEFUL]`；`bru-readonly-basic` 只能引用 GET request。
-- `Test/online` 禁止 create/cancel/close/set/send 等 mutating call，`test-online` 不得包含 Telegram。
+- `Test/online` 只使用 live identity，并禁止 create/cancel/close/set/send 等 mutating call；`test-online` 不得包含 Telegram 或 sandbox identity。
 - Cache package 不 import CCXT/TQSDK/FastAPI，公开 API 只保留 `read_best_prefix`、`write_segment`、`close`。
 - 生产模块保持每文件不超过 400 行；已删除的平行 CCXT module 不得重新出现。
 
@@ -144,12 +144,13 @@
 
 ## 11. Read-only online smoke
 
-`just test-ccxt-online` 只调用已启用 Binance/Kraken Futures 的只读能力：三种 OHLCV 模式、Binance `mark/index/premiumIndex`、ticker、market info、balance、positions 以及订单/成交历史查询。公开行情覆盖全部 whitelist identities；私有账户查询每个 Provider 选择一个已启用 identity，并优先 sandbox，避免同一 Provider 的备用账户配置重复决定代码集成测试结果。OHLCV 强制 `enable_cache=false`，测试进程使用独立临时 DuckDB，不争用运行中服务的 cache file。该入口不调用下单、撤单、平仓、设置杠杆或设置保证金模式；Online test 不进入默认 CI。
+`just test-ccxt-online` 只调用 whitelist 中已启用的 Binance/Kraken Futures live identity，并覆盖三种 OHLCV 模式、Binance `mark/index/premiumIndex` 和 ticker。它只验证无需账户权限的 public live market data，不把 API key 权限、IP whitelist、balance、positions 或账户订单/成交历史作为普通 online suite 的通过条件，也不初始化或访问 sandbox identity。OHLCV 强制 `enable_cache=false`，测试进程使用独立临时 DuckDB，不争用运行中服务的 cache file。该入口不调用下单、撤单、平仓、设置杠杆或设置保证金模式；Online test 不进入默认 CI。
 
 ## 12. Test entry boundaries
 
 - 裸 `pytest` 和 `just test` 都只运行 `Test/` 中的 offline tests，并忽略 `Test/online`。
-- `just test-online` 是只读 online 聚合入口，仅执行 CCXT 与 TQ 查询；按 Provider 可使用 `just test-ccxt-online`、`just test-tq-online`。
+- Offline pytest 在 collection 前将 `CCXT_PROXY_CONFIG_PATH` 指向 `Test/fixtures/config.json`，不得读取真实 `data/config.json` 或 Bruno 用户密码；Bruno credential 只由 `scripts/run_bruno.py` 在 `just bru-*` 内按需读取。
+- `just test-online` 是只读 live online 聚合入口，仅执行 CCXT 与 TQ 查询；按 Provider 可使用 `just test-ccxt-online`、`just test-tq-online`。Sandbox 只属于 `just debug*` 调试入口。
 - Telegram send 不属于 online test；真实发送只能通过 `just debug-telegram-stateful` 显式执行。
 - `debug/route_tests` 会撤单/下单或修改 sandbox settings，标记为 `stateful`，不属于默认或普通 online suite。即使显式传给 pytest，也必须先设置 `CCXT_STATEFUL_DEBUG=1` 才会创建应用 Client；只应通过 `just debug-route-test(s)` 等明确入口运行。
 - Stateful order test 只取消本测试创建的订单，不调用全账户 `cancel_all_orders`；closed-order history 只作 route smoke，不依赖短时间最终一致性。

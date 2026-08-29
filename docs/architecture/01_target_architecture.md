@@ -52,6 +52,7 @@ CcxtClient
 - 每个 CCXT instance 有独立 `threading.Lock`，只锁单次底层 HTTP attempt。
 - 每个 DuckDB file 有独立 process-local write lock；读取依赖 snapshot isolation。
 - CCXT 与 DuckDB 不使用 `FileLock`；TQ 保持现有 `FileLock`。
+- 配置或 Exchange registry 初始化失败时 application fail-fast，由单实例 Podman restart policy 处理；`/readyz` 不承担启动失败后的 degraded 服务。
 - Network 不在 DuckDB write lock 内运行。
 - Application shutdown/reinitialize 会幂等关闭 CCXT sessions、DuckDB connections、TqApi 和 Telegram HTTP client；CCXT close 与 attempt 串行，DuckDB close 等待 active readers，关闭后的旧对象拒绝新操作，不得只依赖进程退出回收。
 

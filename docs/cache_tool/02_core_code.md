@@ -19,6 +19,8 @@ class DuckDbOhlcvCache:
         result: OhlcvResult,
         verified_covered_from: int | None,
     ) -> None: ...
+
+    def close(self) -> None: ...
 ```
 
 不公开 `clear`、`prune`、`compact` 或通用 SQL/DSL。Capacity eviction 是 `write_segment()` 内部 transaction step，不是 Route 可调用能力。

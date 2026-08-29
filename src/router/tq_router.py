@@ -33,7 +33,8 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
     422: {
         "description": (
             "TQ 返回的数据不可安全序列化或业务语义不满足要求。"
-            "例如时间轴非严格递增、前置占位行裁剪后仍有非法时间。"
+            "例如时间轴非严格递增、前置占位行裁剪后仍有非法时间，或请求包含"
+            "未知 query 参数。"
         )
     },
     500: {"description": "服务端未配置 TQ，detail 为 TQ_NOT_CONFIGURED。"},

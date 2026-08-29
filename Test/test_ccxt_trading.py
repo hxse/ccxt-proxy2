@@ -95,12 +95,23 @@ def test_binance_order_split_deduplicates_same_id_with_stop_result(temp_dir):
     assert orders == [{"id": "same", "timestamp": 1, "source": "stop"}]
 
 
-def test_binance_cancel_order_falls_back_to_conditional_endpoint(temp_dir):
+def test_binance_order_split_applies_limit_after_merge(temp_dir):
     client, _ = _client(temp_dir)
 
-    canceled = client.cancel_order("stop", "BTC/USDT:USDT")
+    orders = client.fetch_open_orders("BTC/USDT:USDT", None, 1)
+
+    assert [order["id"] for order in orders] == ["stop"]
+
+
+def test_binance_cancel_order_falls_back_to_conditional_endpoint(temp_dir):
+    client, exchange = _client(temp_dir)
+
+    canceled = client.cancel_order("stop", "BTC/USDT:USDT", params={"stop": False})
+    canceled_all = client.cancel_all_orders("BTC/USDT:USDT", params={"stop": False})
 
     assert canceled == {"id": "stop", "status": "canceled"}
+    assert canceled_all == [[{"stop": False}], [{"stop": True}]]
+    assert exchange.create_calls == 0
 
 
 def test_close_position_filters_side_and_uses_reduce_only_order(temp_dir):
@@ -113,7 +124,7 @@ def test_close_position_filters_side_and_uses_reduce_only_order(temp_dir):
     remaining = client.close_position(
         "BTC/USDT:USDT",
         side="long",
-        params={"workingType": "MARK_PRICE"},
+        params={"workingType": "MARK_PRICE", "reduceOnly": False},
     )
 
     assert remaining == exchange.positions
@@ -124,6 +135,16 @@ def test_close_position_filters_side_and_uses_reduce_only_order(temp_dir):
         "reduceOnly": True,
         "workingType": "MARK_PRICE",
     }
+
+
+def test_close_position_rejects_nonzero_position_without_valid_side(temp_dir):
+    client, exchange = _client(temp_dir)
+    exchange.positions = [{"symbol": "BTC/USDT:USDT", "side": None, "contracts": 2}]
+
+    with pytest.raises(InvalidProviderData, match="without a valid side"):
+        client.close_position("BTC/USDT:USDT")
+
+    assert exchange.create_arguments == []
 
 
 def test_market_info_uses_nullable_leverage_when_no_position_exists(temp_dir):

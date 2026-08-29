@@ -93,7 +93,11 @@ unsupported → NOT_SUPPORTED
 - cancel order/all orders；
 - set leverage/margin mode。
 
-非只读请求失败时记录结构化上下文并向上抛出，当前 HTTP request 失败，服务进程继续。Create-order timeout 必须明确标记 `operation status unknown`，不得盲目重试造成重复下单。
+非只读请求失败时记录脱敏后的结构化上下文并向上抛出，当前 HTTP request 失败，服务进程继续。Create-order timeout 必须明确标记 `operation status unknown`，不得盲目重试造成重复下单。
+
+`close_position` 和 Binance `cancel_all_orders` 只是多个 CCXT 动作的薄编排，不实现分布式事务或补偿回滚。中途失败时，前面已经被 Provider 接受的动作继续有效；调用方必须分别使用 `fetch_positions` 或 `fetch_open_orders` 重新读取真实状态并自行对账。
+
+Route model 与 `CcxtClient` boundary 都拒绝非有限/非正的 amount、price、trigger price 和 leverage，以及空 symbol/order ID、负 since 和非法 limit。`close_position` 强制以内部 `reduceOnly=true` 覆盖 Provider extra；Binance conditional fallback 同样强制内部 `stop=true`。调用方不能用扩展参数覆盖这些安全/路由选择字段，Provider 返回非零仓位但缺少合法 long/short side 时直接失败，不猜测反向下单方向。
 
 ### Provider error taxonomy
 
@@ -112,7 +116,7 @@ Client 保留 CCXT exception 供 Binance normal/conditional order fallback 判�
 | 已关闭的旧 Client 引用 | 503 | `PROVIDER_CLIENT_CLOSED` |
 | 其他 Provider failure | 502 | `PROVIDER_FAILURE` |
 
-只读 network failure 在 retry 后返回 `NETWORK_INCOMPLETE`；非只读 network failure 不 retry，返回 `OPERATION_STATUS_UNKNOWN`。HTTP response 只包含稳定、脱敏的 category message，Provider 原始异常仅写服务日志。
+只读 network failure 在 retry 后返回 `NETWORK_INCOMPLETE`；非只读 network failure 不 retry，返回 `OPERATION_STATUS_UNKNOWN`。HTTP response 和普通服务日志只包含稳定 category、exception type 与脱敏上下文，不记录可能带签名 URL 的 Provider 原始异常。
 
 ## 5. CCXT request lock
 
@@ -172,6 +176,8 @@ provider / mode / market / symbol / timeframe / variant
 ## 9. Bruno collection
 
 `bruno/environments/ccxt-proxy2.bru` 只保存 collection 共享配置：`baseUrl` 以及 secret `user`、`password`。Provider、mode、market、symbol、OHLCV defaults 等请求专用样例值属于各自 request，不得放入 environment。所有写请求名称标记 `[STATEFUL]`；示例 write mode 是 sandbox，Kraken write identity 未启用时应返回 503，禁止为了让示例成功而默认切到 live。
+
+Justfile 不在全局解析阶段读取 Bruno credential。只有 `just bru-*` 会调用 `scripts/run_bruno.py`，从真实 `data/config.json` 读取一个登录用户并传给 Bruno；offline test/lint/type-check 与该流程隔离。
 
 只读基础入口是 `just bru-readonly-basic`；本地校验 inverse/unknown-symbol 的稳定错误使用 `just bru-error-contract`。订单 ID、价格、amount、leverage 和 margin mode 直接保存在对应 request body 中，运行 stateful request 前必须人工核对。
 

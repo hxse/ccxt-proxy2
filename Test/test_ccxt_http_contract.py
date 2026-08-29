@@ -30,6 +30,10 @@ class FakeOhlcvClient:
         self.calls.append(("latest-limit", args, kwargs))
         return self._result()
 
+    def fetch_positions(self, symbols):
+        self.calls.append(("positions", (symbols,), {}))
+        return []
+
 
 @pytest.fixture
 def ohlcv_http_client(monkeypatch):
@@ -47,7 +51,11 @@ def ohlcv_http_client(monkeypatch):
     return app, fake, identities
 
 
-def _get(app: FastAPI, path: str, params: dict[str, str]) -> httpx.Response:
+def _get(
+    app: FastAPI,
+    path: str,
+    params: Any,
+) -> httpx.Response:
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -128,6 +136,38 @@ def test_count_bounds_fail_before_provider_call(ohlcv_http_client, path, params)
     assert response.status_code == 422
     assert fake.calls == []
     assert identities == []
+
+
+@pytest.mark.parametrize("unknown", ["include_last", "enable_cach", "typo"])
+def test_unknown_ohlcv_query_parameter_is_rejected(ohlcv_http_client, unknown):
+    app, fake, identities = ohlcv_http_client
+    params = _base_query() | {"limit": "2", unknown: "false"}
+
+    response = _get(app, "/ccxt/fetch_ohlcv/latest-limit", params)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
+    assert response.json()["detail"][0]["loc"] == ["query", unknown]
+    assert fake.calls == []
+    assert identities == []
+
+
+def test_fetch_positions_symbols_are_repeated_query_parameters(ohlcv_http_client):
+    app, fake, identities = ohlcv_http_client
+    params = [
+        ("exchange_name", "binance"),
+        ("market", "future"),
+        ("mode", "live"),
+        ("symbols", "BTC/USDT:USDT"),
+        ("symbols", "ETH/USDT:USDT"),
+    ]
+
+    response = _get(app, "/ccxt/fetch_positions", params)
+
+    assert response.status_code == 200
+    assert response.json() == {"positions": []}
+    assert identities == [("binance", "future", "live")]
+    assert fake.calls == [("positions", (["BTC/USDT:USDT", "ETH/USDT:USDT"],), {})]
 
 
 @pytest.mark.parametrize(

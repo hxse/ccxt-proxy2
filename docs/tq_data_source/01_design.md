@@ -12,8 +12,9 @@ TQ 是独立 thin-forward data source，不是 CCXT OHLCV Provider adapter。
 - 不做 window estimator、snapshot anchor、successor proof 或外层磁盘 cache。
 - 复用 TqSdk 同一 `TqApi` 实例中的 realtime serial。
 - 只做 HTTP validation、placeholder trim、time-axis validation 和 JSON serialization。
+- 未声明的 query 参数返回 422，不静默忽略拼写错误。
 
-旧草稿曾考虑将 TQ 适配为 `LatestLimit/SinceLimit/SinceLatest` 以及 `AfterCount/BeforeCount`，并通过逐级扩大 `data_length` 读取 cache gaps。该方案已否决，见 [TQ cached Route 历史档案](../design_history/04_tq_cached_routes_rejected.md)。
+已否决方案曾考虑将 TQ 适配为 `LatestLimit/SinceLimit/SinceLatest` 以及 `AfterCount/BeforeCount`，并通过逐级扩大 `data_length` 读取 cache gaps。决策背景见 [TQ cached Route 历史档案](../design_history/04_tq_cached_routes_rejected.md)。
 
 ## 2. Routes
 

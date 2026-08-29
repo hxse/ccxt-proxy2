@@ -22,9 +22,13 @@ SENSITIVE_FIELD_NAMES = {
     "authorization",
     "cookie",
     "set-cookie",
+    "signature",
 }
 MESSAGE_SECRET_PATTERN = re.compile(
-    r"(?i)\b(password|secret|api[_-]?key|token|bot[_-]?token|telegram[_-]?bot[_-]?token|access[_-]?token|authorization|cookie)\b(\s*[:=]\s*)([^,\s;]+)"
+    r"(?i)\b(password|secret|signature|api[_-]?key|token|bot[_-]?token|telegram[_-]?bot[_-]?token|access[_-]?token|authorization|cookie)\b(\s*[:=]\s*)([^,\s;&]+)"
+)
+URL_QUERY_SECRET_PATTERN = re.compile(
+    r"(?i)([?&](?:signature|api[_-]?key|apikey|token|access[_-]?token)=)([^&#\s]+)"
 )
 URL_CREDENTIAL_PATTERN = re.compile(r"://([^:/@\s]+):([^@/\s]+)@")
 TELEGRAM_BOT_URL_PATTERN = re.compile(
@@ -34,6 +38,7 @@ TELEGRAM_BOT_URL_PATTERN = re.compile(
 
 def _sanitize_message(message: str) -> str:
     sanitized = MESSAGE_SECRET_PATTERN.sub(r"\1\2***", message)
+    sanitized = URL_QUERY_SECRET_PATTERN.sub(r"\1***", sanitized)
     sanitized = URL_CREDENTIAL_PATTERN.sub(r"://***:***@", sanitized)
     return TELEGRAM_BOT_URL_PATTERN.sub(r"\1***\3", sanitized)
 

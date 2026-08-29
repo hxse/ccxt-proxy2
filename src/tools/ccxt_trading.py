@@ -1,8 +1,9 @@
+import math
 from typing import Any
 
 import ccxt
 
-from src.domain_errors import InvalidProviderData
+from src.domain_errors import InvalidProviderData, InvalidProviderRequest
 
 
 class _CcxtTradingMixin:
@@ -54,6 +55,11 @@ class _CcxtTradingMixin:
         params: dict[str, Any] | None = None,
     ):
         self._validate_symbol(symbol)
+        self._require_positive_finite(amount, "amount")
+        if side not in {"buy", "sell"}:
+            raise InvalidProviderRequest("side must be buy or sell")
+        if price is not None:
+            self._require_positive_finite(price, "price")
         return self._write_method(
             "createOrder",
             "create_order",
@@ -126,6 +132,7 @@ class _CcxtTradingMixin:
         time_in_force: str | None,
         params: dict[str, Any] | None,
     ):
+        self._require_positive_finite(trigger_price, "triggerPrice")
         extra = dict(params or {})
         extra["reduceOnly"] = reduce_only
         extra[trigger_field] = trigger_price
@@ -146,12 +153,26 @@ class _CcxtTradingMixin:
             positions = [
                 position for position in positions if position.get("side") == side
             ]
-        close_params = {"reduceOnly": True, **(params or {})}
+        close_params = {**(params or {}), "reduceOnly": True}
         for position in positions:
-            amount = float(position.get("contracts") or 0)
+            try:
+                amount = float(position.get("contracts") or 0)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise InvalidProviderData(
+                    "provider returned invalid position contracts"
+                ) from exc
+            if not math.isfinite(amount):
+                raise InvalidProviderData(
+                    "provider returned invalid position contracts"
+                )
             if amount <= 0:
                 continue
-            close_side = "sell" if position.get("side") == "long" else "buy"
+            position_side = position.get("side")
+            if position_side not in {"long", "short"}:
+                raise InvalidProviderData(
+                    "provider returned a nonzero position without a valid side"
+                )
+            close_side = "sell" if position_side == "long" else "buy"
             self.create_order(symbol, "market", close_side, amount, params=close_params)
         return self.fetch_positions([symbol])
 
@@ -170,6 +191,7 @@ class _CcxtTradingMixin:
         )
 
     def fetch_order(self, order_id: str, symbol: str | None):
+        self._require_nonempty(order_id, "order id")
         self._validate_symbol(symbol)
         try:
             return self._read_method(
@@ -189,6 +211,7 @@ class _CcxtTradingMixin:
     def cancel_order(
         self, order_id: str, symbol: str | None, params: dict[str, Any] | None = None
     ):
+        self._require_nonempty(order_id, "order id")
         self._validate_symbol(symbol)
         try:
             return self._write_method(
@@ -202,7 +225,7 @@ class _CcxtTradingMixin:
                 "cancel_order",
                 order_id,
                 symbol,
-                params={"stop": True, **(params or {})},
+                params={**(params or {}), "stop": True},
             )
 
     def cancel_all_orders(
@@ -219,11 +242,12 @@ class _CcxtTradingMixin:
             "cancelAllOrders",
             "cancel_all_orders",
             symbol,
-            params={"stop": True, **base_params},
+            params={**base_params, "stop": True},
         )
         return [first, second]
 
     def fetch_my_trades(self, symbol: str | None, since: int | None, limit: int | None):
+        self._validate_history_window(since, limit)
         self._validate_symbol(symbol)
         return self._read_method(
             "fetchMyTrades", "fetch_my_trades", symbol, since, limit, params={}
@@ -238,6 +262,8 @@ class _CcxtTradingMixin:
     def set_leverage(
         self, leverage: int, symbol: str | None, params: dict[str, Any] | None = None
     ):
+        if isinstance(leverage, bool) or leverage <= 0:
+            raise InvalidProviderRequest("leverage must be a positive integer")
         self._validate_symbol(symbol)
         return self._write_method(
             "setLeverage", "set_leverage", leverage, symbol, params=params or {}
@@ -249,6 +275,8 @@ class _CcxtTradingMixin:
         symbol: str | None,
         params: dict[str, Any] | None = None,
     ):
+        if margin_mode not in {"cross", "isolated"}:
+            raise InvalidProviderRequest("margin mode must be cross or isolated")
         self._validate_symbol(symbol)
         return self._write_method(
             "setMarginMode",
@@ -266,6 +294,7 @@ class _CcxtTradingMixin:
         since: int | None,
         limit: int | None,
     ) -> list[dict[str, Any]]:
+        self._validate_history_window(since, limit)
         self._validate_symbol(symbol)
         ordinary = self._read_method(
             capability, method, symbol, since, limit, params={}
@@ -276,9 +305,10 @@ class _CcxtTradingMixin:
             capability, method, symbol, since, limit, params={"stop": True}
         )
         by_id = {str(order.get("id")): order for order in [*ordinary, *stop]}
-        return sorted(
+        merged = sorted(
             by_id.values(), key=lambda order: order.get("timestamp") or 0, reverse=True
         )
+        return merged if limit is None else merged[:limit]
 
     @property
     def _uses_binance_futures_order_split(self) -> bool:
@@ -298,3 +328,20 @@ class _CcxtTradingMixin:
 
     def _validate_symbols(self, symbols: list[str] | None) -> None:
         raise NotImplementedError
+
+    @staticmethod
+    def _require_positive_finite(value: float, field: str) -> None:
+        if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+            raise InvalidProviderRequest(f"{field} must be finite and positive")
+
+    @staticmethod
+    def _require_nonempty(value: str, field: str) -> None:
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidProviderRequest(f"{field} must not be empty")
+
+    @staticmethod
+    def _validate_history_window(since: int | None, limit: int | None) -> None:
+        if since is not None and (isinstance(since, bool) or since < 0):
+            raise InvalidProviderRequest("since must be a non-negative integer")
+        if limit is not None and (isinstance(limit, bool) or not 1 <= limit <= 100_000):
+            raise InvalidProviderRequest("limit must be between 1 and 100000")

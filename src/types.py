@@ -1,7 +1,6 @@
-from typing import Annotated, Literal, get_args
+from typing import Literal, get_args
 
-from fastapi import Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.base_types import (
     VALID_PERIODS,
@@ -10,6 +9,7 @@ from src.base_types import (
     ExchangeName,
     MarketType,
     ModeType,
+    NonEmptyString,
     PositionSide,
     SideType,
 )
@@ -22,6 +22,7 @@ class ExchangeWhitelistItem(BaseModel):
 
 
 OhlcvVariant = Literal["default", "mark", "index", "premiumIndex"]
+TimeInForce = Literal["GTC", "IOC", "FOK"]
 
 
 class BaseOhlcvRequest(BaseSymbolRequest):
@@ -33,29 +34,43 @@ class BaseOhlcvRequest(BaseSymbolRequest):
         description="K线周期 (Min: 1m, Max: 1M)",
         examples=list(get_args(VALID_PERIODS)),
     )
-    variant: OhlcvVariant = Field("default", title="价格序列")
+    variant: OhlcvVariant = Field(
+        "default",
+        title="价格序列",
+        description="default、mark、index 或 premiumIndex；非 default 仅 Binance Futures 支持",
+    )
     enable_cache: bool = Field(
         True, title="启用缓存", description="False 时同时禁止 cache read/write"
     )
 
 
 class SinceLimitOhlcvRequest(BaseOhlcvRequest):
-    since: int = Field(..., ge=0, title="起始时间戳 (ms)")
-    limit: int = Field(..., ge=1, le=100_000, title="最大返回数量")
+    since: int = Field(
+        ..., ge=0, title="起始时间戳 (ms)", description="UTC epoch milliseconds"
+    )
+    limit: int = Field(
+        ..., ge=1, le=100_000, title="最大返回数量", description="范围 1..100000"
+    )
 
 
 class SinceLatestOhlcvRequest(BaseOhlcvRequest):
-    since: int = Field(..., ge=0, title="起始时间戳 (ms)")
+    since: int = Field(
+        ..., ge=0, title="起始时间戳 (ms)", description="UTC epoch milliseconds"
+    )
 
 
 class LatestLimitOhlcvRequest(BaseOhlcvRequest):
-    limit: int = Field(..., ge=1, le=100_000, title="最新倒数数量")
+    limit: int = Field(
+        ..., ge=1, le=100_000, title="最新倒数数量", description="范围 1..100000"
+    )
 
 
 class MarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["buy", "sell"])
-    amount: float = Field(..., title="数量", examples=[0.001])
-    clientOrderId: str | None = Field(
+    amount: float = Field(
+        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    )
+    clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["my_order_1"]
     )
     model_config = {"extra": "allow"}
@@ -63,12 +78,16 @@ class MarketOrderRequest(BaseSymbolRequest):
 
 class LimitOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["buy", "sell"])
-    amount: float = Field(..., title="数量", examples=[0.001])
-    price: float = Field(..., title="价格", examples=[40000.0])
-    clientOrderId: str | None = Field(
+    amount: float = Field(
+        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    )
+    price: float = Field(
+        ..., gt=0, allow_inf_nan=False, title="价格", examples=[40000.0]
+    )
+    clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["my_order_2"]
     )
-    timeInForce: str | None = Field(
+    timeInForce: TimeInForce | None = Field(
         None,
         title="有效方式",
         description="GTC, IOC, FOK",
@@ -80,15 +99,22 @@ class LimitOrderRequest(BaseSymbolRequest):
 
 class StopMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
-    amount: float = Field(..., title="数量", examples=[0.001])
+    amount: float = Field(
+        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
     triggerPrice: float = Field(
-        ..., gt=0, title="触发价格", description="止损触发价格", examples=[39000.0]
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="触发价格",
+        description="止损触发价格",
+        examples=[39000.0],
     )
-    clientOrderId: str | None = Field(
+    clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["stop_loss_1"]
     )
-    timeInForce: str | None = Field(
+    timeInForce: TimeInForce | None = Field(
         None,
         title="有效方式",
         description="GTC, IOC, FOK",
@@ -99,15 +125,22 @@ class StopMarketOrderRequest(BaseSymbolRequest):
 
 class TakeProfitMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
-    amount: float = Field(..., title="数量", examples=[0.001])
+    amount: float = Field(
+        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
     triggerPrice: float = Field(
-        ..., gt=0, title="触发价格", description="止盈触发价格", examples=[42000.0]
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="触发价格",
+        description="止盈触发价格",
+        examples=[42000.0],
     )
-    clientOrderId: str | None = Field(
+    clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["take_profit_1"]
     )
-    timeInForce: str | None = Field(
+    timeInForce: TimeInForce | None = Field(
         None,
         title="有效方式",
         description="GTC, IOC, FOK",
@@ -125,10 +158,24 @@ class ClosePositionRequest(BaseSymbolRequest):
     )
     model_config = {"extra": "allow"}
 
+    @model_validator(mode="after")
+    def reject_managed_reduce_only(self) -> "ClosePositionRequest":
+        if "reduceOnly" in (self.model_extra or {}):
+            raise ValueError("reduceOnly is managed internally by close_position")
+        return self
+
 
 class CancelAllOrdersRequest(BaseExchangeRequest):
-    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT:USDT"])
+    symbol: NonEmptyString | None = Field(
+        None, title="交易对", examples=["BTC/USDT:USDT"]
+    )
     model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def reject_managed_stop_selector(self) -> "CancelAllOrdersRequest":
+        if "stop" in (self.model_extra or {}):
+            raise ValueError("stop is managed internally by cancel_all_orders")
+        return self
 
 
 class BalanceRequest(BaseExchangeRequest):
@@ -140,17 +187,12 @@ class BalanceRequest(BaseExchangeRequest):
 class TickersRequest(BaseExchangeRequest):
     """获取报价请求参数"""
 
-    symbols: Annotated[
-        str | None,
-        Query(
-            default=None,
-            title="交易对列表",
-            description=(
-                "交易对列表，多个用逗号分隔，例如：BTC/USDT:USDT,ETH/USDT:USDT"
-            ),
-            examples=["BTC/USDT:USDT", "BTC/USDT:USDT,ETH/USDT:USDT"],
-        ),
-    ]
+    symbols: str | None = Field(
+        default=None,
+        title="交易对列表",
+        description="交易对列表，多个用逗号分隔，例如：BTC/USDT:USDT,ETH/USDT:USDT",
+        examples=["BTC/USDT:USDT", "BTC/USDT:USDT,ETH/USDT:USDT"],
+    )
 
     @property
     def symbols_list(self) -> list[str] | None:
@@ -169,45 +211,69 @@ class MarketInfoRequest(BaseSymbolRequest):
 class FetchOrderRequest(BaseExchangeRequest):
     """获取特定订单请求参数"""
 
-    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT:USDT"])
-    id: str = Field(..., title="订单ID", examples=["1234567890"])
+    symbol: NonEmptyString | None = Field(
+        None,
+        title="交易对",
+        description="Provider 要求时传入 CCXT canonical symbol",
+        examples=["BTC/USDT:USDT"],
+    )
+    id: NonEmptyString = Field(
+        ..., title="订单ID", description="Provider order ID", examples=["1234567890"]
+    )
 
 
 class FetchOpenOrdersRequest(BaseExchangeRequest):
-    symbol: str | None = None
-    since: int | None = None
-    limit: int | None = None
+    symbol: NonEmptyString | None = Field(
+        None, description="可选 CCXT canonical symbol"
+    )
+    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
 class FetchClosedOrdersRequest(BaseExchangeRequest):
-    symbol: str | None = None
-    since: int | None = None
-    limit: int | None = None
+    symbol: NonEmptyString | None = Field(
+        None, description="可选 CCXT canonical symbol"
+    )
+    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
 class FetchMyTradesRequest(BaseExchangeRequest):
-    symbol: str | None = None
-    since: int | None = None
-    limit: int | None = None
+    symbol: NonEmptyString | None = Field(
+        None, description="可选 CCXT canonical symbol"
+    )
+    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
 class FetchPositionsRequest(BaseExchangeRequest):
-    symbols: list[str] | None = None
+    symbols: list[NonEmptyString] | None = Field(
+        None,
+        min_length=1,
+        description="可选 symbol 列表；query 中通过重复 symbols 参数传递",
+        examples=[["BTC/USDT:USDT", "ETH/USDT:USDT"]],
+    )
 
 
 class SetLeverageRequest(BaseExchangeRequest):
-    leverage: int
-    symbol: str | None = None
+    leverage: int = Field(..., gt=0, description="正整数杠杆倍数")
+    symbol: NonEmptyString | None = None
     model_config = {"extra": "allow"}
 
 
 class SetMarginModeRequest(BaseExchangeRequest):
     marginMode: Literal["cross", "isolated"]
-    symbol: str | None = None
+    symbol: NonEmptyString | None = None
     model_config = {"extra": "allow"}
 
 
 class CancelOrderRequest(BaseExchangeRequest):
-    id: str
-    symbol: str | None = None
+    id: NonEmptyString
+    symbol: NonEmptyString | None = None
     model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def reject_managed_stop_selector(self) -> "CancelOrderRequest":
+        if "stop" in (self.model_extra or {}):
+            raise ValueError("stop is managed internally by cancel_order")
+        return self

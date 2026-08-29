@@ -60,7 +60,7 @@
 - `src/tools/ccxt_utils.py`、`ccxt_utils_extended.py`、`binance_adapter.py` 等已迁移 facade；
 - cache 内的 Provider page limit、network callback 和 pagination；
 - Polars/Parquet/Arrow 仅为旧 cache 保留的 import/dependency；
-- 过时 cache tests 和已被正式文档取代的草稿。
+- 过时 cache tests 和已被正式文档取代的临时设计材料。
 
 删除 dependency 前必须 `rg` 全项目实际 import。`filelock` 因 TQ 仍然保留。
 
@@ -127,9 +127,9 @@
 9. TQ 对外行为不变，内部不再依赖 Polars。
 10. 旧 facade、Parquet/proof、callback 和过时测试被删除。
 11. `uv lock --check`、默认离线测试和目标新增测试全部通过。
-12. 上线前至少运行一次 Binance/Kraken Futures 三模式只读 online smoke test；非只读 online test 不属于本次验收。
+12. 上线前至少对已启用的 Binance/Kraken Futures live identity 运行一次三模式 public market-data online smoke test；private account credential 不作为该 suite 的通过条件，sandbox 只用于 `just debug*`，非只读 online test 不属于本次验收。
 13. Lifespan shutdown/reinitialize 会关闭 CCXT、DuckDB、TQ 和 Telegram resources；重复 whitelist identity 在配置阶段拒绝。
-14. 裸 `pytest`/`just test` 只运行 offline suite；online 与会修改 sandbox 的 stateful debug suite 必须使用各自显式 opt-in 入口。
+14. 裸 `pytest`/`just test` 只运行 offline suite；只读 live online 与会修改 sandbox 的 stateful debug suite 必须使用各自显式 opt-in 入口。
 
 ## 6. 已固定的实施细节
 

@@ -14,6 +14,11 @@ if root_path:
 
 from scalar_fastapi import get_scalar_api_reference  # noqa: E402
 
+from src.responses_system import (  # noqa: E402
+    HealthResponse,
+    NotReadyResponse,
+    ReadyResponse,
+)
 from src.router.auth_handler import auth_router  # noqa: E402
 from src.router.file_handler import file_router  # noqa: E402
 from src.router.telegram_router import telegram_router  # noqa: E402
@@ -49,6 +54,7 @@ def root():
 
 @app.get(
     "/healthz",
+    response_model=HealthResponse,
     tags=["Health"],
     summary="进程存活检查",
     description="只检查 FastAPI 进程能否处理请求，不检查 Provider registry。",
@@ -65,14 +71,21 @@ def healthz():
 
 @app.get(
     "/readyz",
+    response_model=ReadyResponse,
     tags=["Health"],
     summary="服务就绪检查",
     description=(
-        "检查配置加载与 ExchangeManager registry 初始化是否完成。未就绪时返回 "
-        "503，并附带初始化状态和已脱敏错误。"
+        "检查 ExchangeManager registry 是否已经完成初始化。关键配置或 Provider "
+        "初始化失败时应用采用 fail-fast，进程启动失败并交由容器重启，不以 degraded "
+        "状态继续服务。"
     ),
     response_description="当前就绪状态和已初始化的 exchange identities。",
-    responses={503: {"description": "Provider registry 尚未成功初始化。"}},
+    responses={
+        503: {
+            "model": NotReadyResponse,
+            "description": "应用正在进入或退出服务生命周期。",
+        }
+    },
 )
 def readyz():
     """
@@ -91,7 +104,6 @@ def readyz():
         content={
             "status": "not_ready",
             "initialized": app.state.exchange_registry_initialized,
-            "error": app.state.exchange_registry_error,
         },
     )
 

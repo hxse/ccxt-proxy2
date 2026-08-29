@@ -34,8 +34,7 @@ def test_series_key_contains_every_data_identity_dimension():
         "variant": "mark",
     }
     series.extend(
-        OhlcvSeries(**(base | {field: value}))
-        for field, value in replacements.items()
+        OhlcvSeries(**(base | {field: value})) for field, value in replacements.items()
     )
 
     keys = {item.key for item in series}
@@ -55,17 +54,15 @@ def test_deleted_segment_ids_are_not_reused(temp_dir):
     cache = _cache(temp_dir)
     cache.write_segment("series", OhlcvResult([_row(10)], True), 10)
     connection = cache._connection()
-    first_id = connection.execute(
-        "SELECT segment_id FROM cache_segments"
-    ).fetchone()[0]
+    first_id = connection.execute("SELECT segment_id FROM cache_segments").fetchone()[0]
     connection.execute("DELETE FROM ohlcv_rows")
     connection.execute("DELETE FROM cache_segments")
 
     cache.write_segment("series", OhlcvResult([_row(20)], True), 20)
 
-    second_id = connection.execute(
-        "SELECT segment_id FROM cache_segments"
-    ).fetchone()[0]
+    second_id = connection.execute("SELECT segment_id FROM cache_segments").fetchone()[
+        0
+    ]
     assert second_id > first_id
 
 

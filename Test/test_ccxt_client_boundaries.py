@@ -197,6 +197,27 @@ def test_client_rejects_unknown_ohlcv_variant(temp_dir):
         client.fetch_ohlcv_latest_limit("BTC/USDT:USDT", "1m", 2, variant="raw")
 
 
+def test_client_rejects_invalid_trading_inputs_before_provider_call(temp_dir):
+    client, exchange = _client(temp_dir)
+
+    with pytest.raises(InvalidProviderRequest, match="amount"):
+        client.create_order("BTC/USDT:USDT", "market", "buy", float("nan"))
+    with pytest.raises(InvalidProviderRequest, match="price"):
+        client.create_order("BTC/USDT:USDT", "limit", "buy", 1, 0)
+    with pytest.raises(InvalidProviderRequest, match="side"):
+        client.create_order("BTC/USDT:USDT", "market", "hold", 1)
+    with pytest.raises(InvalidProviderRequest, match="leverage"):
+        client.set_leverage(0, "BTC/USDT:USDT")
+    with pytest.raises(InvalidProviderRequest, match="margin mode"):
+        client.set_margin_mode("unknown", "BTC/USDT:USDT")
+    with pytest.raises(InvalidProviderRequest, match="order id"):
+        client.fetch_order(" ", "BTC/USDT:USDT")
+    with pytest.raises(InvalidProviderRequest, match="limit"):
+        client.fetch_open_orders("BTC/USDT:USDT", None, 0)
+
+    assert exchange.create_calls == 0
+
+
 @pytest.mark.parametrize("variant", ["mark", "index", "premiumIndex"])
 def test_binance_variants_reach_provider_and_use_separate_cache_series(
     temp_dir, variant

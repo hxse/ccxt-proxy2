@@ -205,11 +205,13 @@ class CcxtClient(_CcxtTradingMixin):
 
     def _validate_symbol(self, symbol: str | None) -> None:
         if symbol is not None:
+            if not isinstance(symbol, str) or not symbol.strip():
+                raise InvalidProviderRequest("symbol must not be empty")
             self._resolve_market(symbol)
 
     def _validate_symbols(self, symbols: list[str] | None) -> None:
         for symbol in symbols or []:
-            self._resolve_market(symbol)
+            self._validate_symbol(symbol)
 
     def _series(self, symbol: str, timeframe: str, variant: str) -> OhlcvSeries:
         return OhlcvSeries(

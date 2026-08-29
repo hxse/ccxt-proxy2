@@ -30,6 +30,8 @@ OpenAPI     http://127.0.0.1:5123/openapi.json
 
 每个公开 operation 都必须提供 summary、行为/副作用说明、tag 和成功响应说明；该约束由离线 OpenAPI contract test 固化。
 
+业务路由采用 strict query contract：未声明或拼错的 query 参数返回 422，不会被静默忽略。OpenAPI 页面展示每个 query 参数的说明以及 JSON/binary 成功响应 schema。
+
 可选的 DuckDB cache 配置（省略时使用以下默认值）：
 
 ```json
@@ -48,21 +50,23 @@ OpenAPI     http://127.0.0.1:5123/openapi.json
 just test
 ```
 
-`Test/online` 和 `debug/route_tests` 会访问外部服务或沙盒账户，不属于默认离线测试。
+`Test/online` 只访问 live 服务并且只执行读取；sandbox 和其他有状态操作只属于 `just debug*`，都不进入默认离线测试。
 
-聚合运行 CCXT 与 TQ 只读 online tests：
+Offline suite 通过 `CCXT_PROXY_CONFIG_PATH=Test/fixtures/config.json` 使用仓库内的无凭证配置，不读取 `data/config.json`。Live online recipe 显式切回 `./data/config.json`；Bruno 仅在执行 `just bru-*` 时由 `scripts/run_bruno.py` 按需读取登录用户，普通 `just test/lint/check` 不加载 Bruno 凭证。
+
+聚合运行 CCXT 与 TQ 只读 live online tests：
 
 ```bash
 just test-online
 ```
 
-仅运行 CCXT Futures 只读 online tests：
+仅运行 CCXT Futures 只读 live online tests：
 
 ```bash
 just test-ccxt-online
 ```
 
-这些 online 入口不调用下单、撤单、平仓、设置类 API，也不发送 Telegram 消息。
+这些 online 入口只验证 public live market data，不初始化 sandbox identity，不检查 private account credential，不调用下单、撤单、平仓、设置类 API，也不发送 Telegram 消息。
 
 ## Docker
 

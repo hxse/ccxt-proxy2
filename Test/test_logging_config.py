@@ -51,3 +51,15 @@ def test_sanitize_value_redacts_telegram_bot_token_fields():
         "bot_token": "***",
         "telegram_bot_token": "***",
     }
+
+
+def test_sanitize_message_redacts_signed_provider_url():
+    message = (
+        "GET https://fapi.binance.com/fapi/v3/account?"
+        "timestamp=1&signature=deadbeef&recvWindow=10000"
+    )
+
+    sanitized = _sanitize_message(message)
+
+    assert "deadbeef" not in sanitized
+    assert "signature=***" in sanitized

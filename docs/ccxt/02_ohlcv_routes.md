@@ -24,6 +24,8 @@
 
 `enable_cache=false` 同时禁止 cache read 和 cache write，但不取消 network completeness 和 completion metadata 的计算。
 
+所有 CCXT GET Route 使用 strict Query Model。未声明参数（包括已删除的 `include_last` 或拼错的 `enable_cach`）统一返回 422 `extra_forbidden`，不得静默忽略。交易类 POST 的参数只允许出现在 JSON body，未知 query 参数同样返回 422；明确允许的 Provider 扩展字段仍按各 request body model 的 `extra` policy 处理。
+
 ## 3. Response envelope
 
 ```python

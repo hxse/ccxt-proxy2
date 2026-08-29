@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,16 +29,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     start = perf_counter()
     app.state.exchange_registry_ready = False
     app.state.exchange_registry_initialized = []
-    app.state.exchange_registry_error = None
     logger.info(
         "initializing exchange registry for {} whitelist entries",
         len(config.exchange_whitelist),
     )
     try:
         exchange_manager.init_from_config(config)
-    except Exception as exc:
+    except Exception:
         duration_ms = (perf_counter() - start) * 1000
-        app.state.exchange_registry_error = str(exc)
         logger.bind(duration_ms=round(duration_ms, 2)).exception(
             "exchange registry initialization failed"
         )
@@ -186,7 +185,7 @@ async def handle_ccxt_exception(request: Request, exc: ccxt.BaseError):
     mapped = map_ccxt_exception(exc)
     request_id = getattr(request.state, "request_id", "-")
     with logger.contextualize(request_id=request_id):
-        logger.opt(exception=exc).bind(
+        logger.bind(
             method=request.method,
             path=request.url.path,
             status_code=mapped.status_code,
@@ -222,25 +221,26 @@ STRATEGY_DIR = Path("./data/strategy")
 STRATEGY_DIR.mkdir(exist_ok=True)
 
 
-json_path = "./data/config.json"
+config_path = Path(os.getenv("CCXT_PROXY_CONFIG_PATH", "./data/config.json"))
 config: AppConfig
 try:
-    with open(json_path, "r", encoding="utf-8") as file:
+    with config_path.open("r", encoding="utf-8") as file:
         config = AppConfig.model_validate(json.load(file))
 except FileNotFoundError:
-    with open(json_path, "w", encoding="utf-8") as file:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with config_path.open("w", encoding="utf-8") as file:
         json.dump({}, file, ensure_ascii=False, indent=4)
     logger.error(
-        "config.json not found, created empty placeholder file at {}", json_path
+        "config.json not found, created empty placeholder file at {}", config_path
     )
     raise RuntimeError("config.json not found")
 except json.JSONDecodeError:
     logger.error("config.json is invalid JSON")
     raise RuntimeError("config.json is invalid JSON")
 except ValidationError as exc:
-    logger.bind(validation_errors=exc.errors(include_url=False)).error(
-        "config validation failed"
-    )
+    logger.bind(
+        validation_errors=exc.errors(include_url=False, include_input=False)
+    ).error("config validation failed")
     raise RuntimeError("config validation failed") from exc
 except Exception:
     logger.exception("unexpected error while loading config")
@@ -253,4 +253,3 @@ STATIC_DIR = "./data/static"
 
 app.state.exchange_registry_ready = False
 app.state.exchange_registry_initialized = []
-app.state.exchange_registry_error = None

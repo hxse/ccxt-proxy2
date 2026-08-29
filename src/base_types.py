@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 # === Enums / Literals ===
 ExchangeName = Literal["binance", "kraken"]
@@ -8,6 +8,7 @@ MarketType = Literal["future", "spot"]
 ModeType = Literal["sandbox", "live"]
 SideType = Literal["buy", "sell"]
 PositionSide = Literal["long", "short"]
+NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 VALID_PERIODS = Literal[
     "1m",
     "3m",
@@ -30,6 +31,8 @@ VALID_PERIODS = Literal[
 # === Base Request Models ===
 class BaseExchangeRequest(BaseModel):
     """基础请求包含交易所、市场类型和模式"""
+
+    model_config = ConfigDict(extra="forbid")
 
     exchange_name: ExchangeName = Field(
         ...,
@@ -57,4 +60,9 @@ class BaseExchangeRequest(BaseModel):
 class BaseSymbolRequest(BaseExchangeRequest):
     """在基础请求之上增加 symbol"""
 
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
+    symbol: NonEmptyString = Field(
+        ...,
+        title="交易对",
+        description="CCXT canonical symbol",
+        examples=["BTC/USDT:USDT"],
+    )

@@ -1,10 +1,13 @@
 import asyncio
 from io import BytesIO
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
+from starlette.requests import Request
 
 from src.router import file_handler
 
@@ -13,18 +16,32 @@ def _upload(filename: str, content: bytes) -> UploadFile:
     return UploadFile(file=BytesIO(content), filename=filename)
 
 
-def test_upload_list_and_download_stay_inside_strategy_directory(
-    temp_dir, monkeypatch
-):
+def _request(query_string: bytes = b"") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/file",
+            "headers": [],
+            "query_string": query_string,
+        }
+    )
+
+
+def test_upload_list_and_download_stay_inside_strategy_directory(temp_dir, monkeypatch):
     base = temp_dir.resolve()
     monkeypatch.setattr(file_handler, "BASE_DIR", base)
 
     uploaded = asyncio.run(
-        file_handler.upload_file("nested", _upload("strategy.py", b"print('ok')"))
+        file_handler.upload_file(
+            _request(), "nested", _upload("strategy.py", b"print('ok')")
+        )
     )
-    listed = asyncio.run(file_handler.list_files())
+    listed = asyncio.run(file_handler.list_files(_request()))
     downloaded = asyncio.run(
-        file_handler.download_file(path="nested", filename="strategy.py")
+        file_handler.download_file(
+            file_handler.FileDownloadRequest(path="nested", filename="strategy.py")
+        )
     )
 
     assert uploaded == {
@@ -42,7 +59,9 @@ def test_upload_rejects_path_traversal_without_writing(temp_dir, monkeypatch, pa
     monkeypatch.setattr(file_handler, "BASE_DIR", base)
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(file_handler.upload_file(path, _upload("escape.txt", b"secret")))
+        asyncio.run(
+            file_handler.upload_file(_request(), path, _upload("escape.txt", b"secret"))
+        )
 
     assert exc_info.value.status_code == 400
     assert list(base.rglob("escape.txt")) == []
@@ -56,7 +75,11 @@ def test_download_rejects_path_traversal(temp_dir, monkeypatch, path, filename):
     monkeypatch.setattr(file_handler, "BASE_DIR", temp_dir.resolve())
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(file_handler.download_file(path=path, filename=filename))
+        asyncio.run(
+            file_handler.download_file(
+                file_handler.FileDownloadRequest(path=path, filename=filename)
+            )
+        )
 
     assert exc_info.value.status_code == 400
 
@@ -64,12 +87,15 @@ def test_download_rejects_path_traversal(temp_dir, monkeypatch, path, filename):
 def test_download_distinguishes_missing_name_and_missing_file(temp_dir, monkeypatch):
     monkeypatch.setattr(file_handler, "BASE_DIR", temp_dir.resolve())
 
-    with pytest.raises(HTTPException) as missing_name:
-        asyncio.run(file_handler.download_file())
+    with pytest.raises(ValidationError):
+        file_handler.FileDownloadRequest(filename="")
     with pytest.raises(HTTPException) as missing_file:
-        asyncio.run(file_handler.download_file(filename="missing.txt"))
+        asyncio.run(
+            file_handler.download_file(
+                file_handler.FileDownloadRequest(filename="missing.txt")
+            )
+        )
 
-    assert missing_name.value.status_code == 400
     assert missing_file.value.status_code == 404
 
 
@@ -84,13 +110,26 @@ def test_symlink_cannot_escape_strategy_directory(temp_dir, monkeypatch):
 
     with pytest.raises(HTTPException) as upload_error:
         asyncio.run(
-            file_handler.upload_file("linked", _upload("new.txt", b"outside"))
+            file_handler.upload_file(
+                _request(), "linked", _upload("new.txt", b"outside")
+            )
         )
     with pytest.raises(HTTPException) as download_error:
         asyncio.run(
-            file_handler.download_file(path="linked", filename="existing.txt")
+            file_handler.download_file(
+                file_handler.FileDownloadRequest(path="linked", filename="existing.txt")
+            )
         )
 
     assert upload_error.value.status_code == 400
     assert download_error.value.status_code == 400
     assert not (outside / "new.txt").exists()
+
+
+def test_file_routes_reject_unknown_query_parameters():
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(file_handler.list_files(_request(b"typo=value")))
+
+    detail = cast(list[dict[str, Any]], exc_info.value.detail)
+    assert exc_info.value.status_code == 422
+    assert detail[0]["loc"] == ["query", "typo"]

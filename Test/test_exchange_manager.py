@@ -163,3 +163,26 @@ def test_application_lifespan_closes_all_long_lived_resources(monkeypatch):
 
     assert events == ["init", "telegram", "tq", "ccxt"]
     assert test_app.state.exchange_registry_ready is False
+
+
+def test_application_lifespan_fails_fast_when_registry_initialization_fails(
+    monkeypatch,
+):
+    manager = ExchangeManager()
+
+    def fail(_):
+        raise RuntimeError("registry initialization failed")
+
+    monkeypatch.setattr(manager, "init_from_config", fail)
+    test_app = FastAPI()
+
+    async def run_lifespan() -> None:
+        async with lifespan(test_app):
+            pytest.fail("failed initialization must not enter the service lifespan")
+
+    with pytest.raises(RuntimeError, match="registry initialization failed"):
+        asyncio.run(run_lifespan())
+
+    assert test_app.state.exchange_registry_ready is False
+    assert test_app.state.exchange_registry_initialized == []
+    assert not hasattr(test_app.state, "exchange_registry_error")
