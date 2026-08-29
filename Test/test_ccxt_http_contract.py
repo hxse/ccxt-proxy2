@@ -84,12 +84,12 @@ def _base_query() -> dict[str, str]:
     [
         (
             "/ccxt/fetch_ohlcv/since-limit",
-            {"since": "60000", "limit": "2"},
+            {"since": "1785542400000", "limit": "2"},
             "since-limit",
         ),
         (
             "/ccxt/fetch_ohlcv/since-latest",
-            {"since": "60000"},
+            {"since": "1785542400000"},
             "since-latest",
         ),
         (
@@ -122,8 +122,14 @@ def test_three_http_routes_parse_query_and_dispatch(
 @pytest.mark.parametrize(
     ("path", "params"),
     [
-        ("/ccxt/fetch_ohlcv/since-limit", {"since": "0", "limit": "0"}),
-        ("/ccxt/fetch_ohlcv/since-limit", {"since": "0", "limit": "100001"}),
+        (
+            "/ccxt/fetch_ohlcv/since-limit",
+            {"since": "1785542400000", "limit": "0"},
+        ),
+        (
+            "/ccxt/fetch_ohlcv/since-limit",
+            {"since": "1785542400000", "limit": "100001"},
+        ),
         ("/ccxt/fetch_ohlcv/latest-limit", {"limit": "0"}),
         ("/ccxt/fetch_ohlcv/latest-limit", {"limit": "100001"}),
     ],
@@ -134,6 +140,22 @@ def test_count_bounds_fail_before_provider_call(ohlcv_http_client, path, params)
     response = _get(app, path, _base_query() | params)
 
     assert response.status_code == 422
+    assert fake.calls == []
+    assert identities == []
+
+
+@pytest.mark.parametrize("since", ["178554240000", "17855424000000"])
+def test_since_rejects_non_millisecond_digit_width(ohlcv_http_client, since):
+    app, fake, identities = ohlcv_http_client
+
+    response = _get(
+        app,
+        "/ccxt/fetch_ohlcv/since-limit",
+        _base_query() | {"since": since, "limit": "2"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["query", "since"]
     assert fake.calls == []
     assert identities == []
 

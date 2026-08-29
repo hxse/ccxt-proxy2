@@ -68,6 +68,8 @@ def test_symbols_ids_limits_and_time_in_force_are_strict():
     with pytest.raises(ValidationError):
         FetchOpenOrdersRequest.model_validate(EXCHANGE | {"since": -1})
     with pytest.raises(ValidationError):
+        FetchOpenOrdersRequest.model_validate(EXCHANGE | {"since": 178_554_240_000})
+    with pytest.raises(ValidationError):
         LimitOrderRequest.model_validate(
             SYMBOL
             | {

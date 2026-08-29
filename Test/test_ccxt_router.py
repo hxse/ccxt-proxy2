@@ -16,6 +16,8 @@ from src.types import (
     StopMarketOrderRequest,
 )
 
+VALID_SINCE = 1_785_542_400_000
+
 
 class FakeClient:
     def __init__(self) -> None:
@@ -56,10 +58,10 @@ def test_three_ohlcv_routes_call_the_three_client_methods(monkeypatch):
     monkeypatch.setattr(exchange_manager, "get_client", lambda *args: fake)
 
     first = trader_router.fetch_ohlcv_since_limit(
-        SinceLimitOhlcvRequest(**_base(), since=10, limit=2)
+        SinceLimitOhlcvRequest(**_base(), since=VALID_SINCE, limit=2)
     )
     second = trader_router.fetch_ohlcv_since_latest(
-        SinceLatestOhlcvRequest(**_base(), since=10)
+        SinceLatestOhlcvRequest(**_base(), since=VALID_SINCE)
     )
     third = trader_router.fetch_ohlcv_latest_limit(
         LatestLimitOhlcvRequest(**_base(), limit=2)
@@ -128,7 +130,7 @@ def test_route_forwards_cache_and_variant_flags(monkeypatch):
     monkeypatch.setattr(exchange_manager, "get_client", lambda *args: fake)
     request = SinceLimitOhlcvRequest(
         **_base(),
-        since=10,
+        since=VALID_SINCE,
         limit=2,
         variant="mark",
         enable_cache=False,
@@ -148,7 +150,7 @@ def test_route_forwards_cache_and_variant_flags(monkeypatch):
 def test_count_routes_reject_100001_rows(request_type):
     parameters = _base() | {"limit": 100_001}
     if request_type is SinceLimitOhlcvRequest:
-        parameters["since"] = 10
+        parameters["since"] = VALID_SINCE
 
     with pytest.raises(ValidationError):
         request_type(**parameters)

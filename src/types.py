@@ -3,6 +3,8 @@ from typing import Literal, get_args
 from pydantic import BaseModel, Field, model_validator
 
 from src.base_types import (
+    CCXT_TIMESTAMP_MS_MAX,
+    CCXT_TIMESTAMP_MS_MIN,
     VALID_PERIODS,
     BaseExchangeRequest,
     BaseSymbolRequest,
@@ -46,7 +48,11 @@ class BaseOhlcvRequest(BaseSymbolRequest):
 
 class SinceLimitOhlcvRequest(BaseOhlcvRequest):
     since: int = Field(
-        ..., ge=0, title="起始时间戳 (ms)", description="UTC epoch milliseconds"
+        ...,
+        ge=CCXT_TIMESTAMP_MS_MIN,
+        le=CCXT_TIMESTAMP_MS_MAX,
+        title="起始时间戳 (ms)",
+        description="13 位 UTC epoch milliseconds",
     )
     limit: int = Field(
         ..., ge=1, le=100_000, title="最大返回数量", description="范围 1..100000"
@@ -55,7 +61,11 @@ class SinceLimitOhlcvRequest(BaseOhlcvRequest):
 
 class SinceLatestOhlcvRequest(BaseOhlcvRequest):
     since: int = Field(
-        ..., ge=0, title="起始时间戳 (ms)", description="UTC epoch milliseconds"
+        ...,
+        ge=CCXT_TIMESTAMP_MS_MIN,
+        le=CCXT_TIMESTAMP_MS_MAX,
+        title="起始时间戳 (ms)",
+        description="13 位 UTC epoch milliseconds",
     )
 
 
@@ -226,7 +236,12 @@ class FetchOpenOrdersRequest(BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
-    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    since: int | None = Field(
+        None,
+        ge=CCXT_TIMESTAMP_MS_MIN,
+        le=CCXT_TIMESTAMP_MS_MAX,
+        description="可选 13 位 UTC epoch milliseconds",
+    )
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
@@ -234,7 +249,12 @@ class FetchClosedOrdersRequest(BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
-    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    since: int | None = Field(
+        None,
+        ge=CCXT_TIMESTAMP_MS_MIN,
+        le=CCXT_TIMESTAMP_MS_MAX,
+        description="可选 13 位 UTC epoch milliseconds",
+    )
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
@@ -242,7 +262,12 @@ class FetchMyTradesRequest(BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
-    since: int | None = Field(None, ge=0, description="可选 UTC epoch milliseconds")
+    since: int | None = Field(
+        None,
+        ge=CCXT_TIMESTAMP_MS_MIN,
+        le=CCXT_TIMESTAMP_MS_MAX,
+        description="可选 13 位 UTC epoch milliseconds",
+    )
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 

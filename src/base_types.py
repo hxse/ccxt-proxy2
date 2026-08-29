@@ -9,6 +9,8 @@ ModeType = Literal["sandbox", "live"]
 SideType = Literal["buy", "sell"]
 PositionSide = Literal["long", "short"]
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+CCXT_TIMESTAMP_MS_MIN = 1_000_000_000_000
+CCXT_TIMESTAMP_MS_MAX = 9_999_999_999_999
 VALID_PERIODS = Literal[
     "1m",
     "3m",
