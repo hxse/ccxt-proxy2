@@ -189,6 +189,7 @@ Eviction 成功不影响 Route response。Eviction SQL/transaction 失败或处�
 - Read 不加 application write lock，依赖 DuckDB snapshot isolation。
 - Write 持锁并使用 transaction。
 - 不使用 `FileLock`规避 DuckDB 的 single-writer-process 约束。
+- Cache 跟踪本实例创建的全部 thread-local connections。Public read 进入 reader lifecycle scope；`close()` 先阻止新 reader，再等待 active readers 退出，最后关闭 connections。Write/close 继续由同一 per-database write lock 串行。`close()` 幂等，并在 application shutdown 或 `ExchangeManager` reinitialize 时执行；关闭后的 Cache object 不得重新使用。
 
 ## 11. Failure policy
 

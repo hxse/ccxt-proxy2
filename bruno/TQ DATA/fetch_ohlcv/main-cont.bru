@@ -5,15 +5,15 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/tq/fetch_ohlcv?symbol={{tqOhlcvSymbol}}&duration_seconds={{tqDurationSeconds}}&data_length={{tqDataLength}}
+  url: {{baseUrl}}/tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=60&data_length=10
   body: none
   auth: inherit
 }
 
 params:query {
-  symbol: {{tqOhlcvSymbol}}
-  duration_seconds: {{tqDurationSeconds}}
-  data_length: {{tqDataLength}}
+  symbol: KQ.m@SHFE.rb
+  duration_seconds: 60
+  data_length: 10
   ~adj_type:
 }
 

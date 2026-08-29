@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import pytest
@@ -199,3 +200,30 @@ def test_eviction_failure_rolls_back_the_whole_write(temp_dir, monkeypatch):
         cache._connection().execute("SELECT COUNT(*) FROM cache_segments").fetchone()[0]
     )
     assert count == 0
+
+
+def test_cache_close_is_idempotent_and_releases_database(temp_dir):
+    database_path = temp_dir / "cache.duckdb"
+    cache = DuckDbOhlcvCache(database_path, 100_001, 200_000)
+    cache._connection()
+    errors: list[Exception] = []
+
+    def open_thread_connection() -> None:
+        try:
+            cache._connection()
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=open_thread_connection)
+    thread.start()
+    thread.join()
+    assert not errors
+    assert len(cache._connections) == 2
+
+    cache.close()
+    cache.close()
+
+    with pytest.raises(RuntimeError, match="is closed"):
+        cache._connection()
+    reopened = DuckDbOhlcvCache(database_path, 100_001, 200_000)
+    reopened.close()

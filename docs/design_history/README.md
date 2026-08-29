@@ -21,3 +21,5 @@
 - [简化 single-prefix 算法](../cache_tool/04_cache_algorithm_simple.md)
 
 如档案与 Implemented design 冲突，Implemented design 无条件优先。档案中的 Parquet、proof log、callback、walker、estimator 与 TQ cache 均不得被误当成待实施组件。
+
+档案中出现的 `include_last` 也是已删除的历史 RouteIntent 字段。当前 Route 始终返回完整 rows，只通过 `last_bar_completion_confirmed` 描述尾根证据。

@@ -328,6 +328,7 @@ src/tools/telegram_manager.py
 - token 只用于构造请求 URL，不进入日志和异常消息。
 - Telegram 原始错误描述可以保留，但需要避免包含 bot token。
 - 发送同一请求中的多个 chat 时复用同一个 HTTP client。
+- Application lifespan shutdown 调用幂等 `TelegramManager.close()`；只有 Manager 自己创建的 `httpx.Client` 才由它关闭。
 - 每个 chat 独立重试，避免一个 chat 的临时连接失败影响其他 chat 的首次发送。
 - `sendMessage` 不是幂等接口。若本地发生读超时，服务端无法判断 Telegram 是否已经收到请求，因此不重试读超时，避免重复投递。
 - Telegram 返回 `ok=true` 但缺少 `result.message_id` 时视为失败。
@@ -362,7 +363,7 @@ bruno/
 
 ## 测试策略
 
-测试分为离线自动化测试和在线手动测试。
+测试分为离线自动化测试和显式 stateful 手动发送探针。
 
 ### 离线测试
 
@@ -387,23 +388,23 @@ bruno/
 
 HTTP 层可使用 FastAPI `TestClient`。Telegram 外部请求使用 mock transport 或 mock manager。
 
-### 在线测试
+### Stateful 手动发送探针
 
-在线测试放在 `Test/online`，默认 `just test` 不收集。
+Telegram send 会产生真实外部副作用，因此不属于只读 `Test/online`，也不会被 `just test-online` 收集。探针保存在 `debug/test_telegram_stateful.py`，只有显式 stateful 入口会执行。
 
 建议入口：
 
 ```text
-just test-telegram-online
+just debug-telegram-stateful
 ```
 
-在线测试前置条件：
+手动探针前置条件：
 
 - `data/config.json` 中配置真实 `telegram.bot_token`。
 - `telegram.chats` 中存在测试 chat alias。
 - 执行命令显式传入或使用环境变量指定测试 alias。
 
-在线测试只验证最小闭环：
+探针只验证最小闭环：
 
 - 通过本项目鉴权。
 - 调用 `/telegram/send_message`。
@@ -415,7 +416,7 @@ just test-telegram-online
 新增 Bruno 请求：
 
 ```text
-bruno/TELEGRAM/Send Message.bru
+bruno/TELEGRAM/send_message/main.bru
 ```
 
 用途：
@@ -423,6 +424,7 @@ bruno/TELEGRAM/Send Message.bru
 - 手动调用 `/telegram/send_message`。
 - 使用现有 auth token 流程。
 - 请求体中的 `chats` 使用环境变量或示例 alias。
+- Bruno request 名称明确标记 `[STATEFUL]`，不会被只读 Bruno recipe 调用。
 
 所有自动化或手动测试命令都应通过 `just` 入口运行。
 

@@ -21,7 +21,7 @@ debug name:
 # 运行 debug/route_tests 下的单个 pytest 文件
 # 例: just debug-route-test test_order_routes
 debug-route-test name:
-    uv run --no-sync pytest -v -ra debug/route_tests/{{name}}.py
+    CCXT_STATEFUL_DEBUG=1 uv run --no-sync pytest -v -ra debug/route_tests/{{name}}.py
 
 # 运行单个交易调试动作，默认 binance/future/sandbox/BTC/USDT:USDT
 # 例: just debug-trade open-long --amount 0.005
@@ -36,7 +36,7 @@ run path:
 serve host="127.0.0.1" port="5123":
     uv run uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
 
-# 1. 完整清理 (取消挂单/平仓)
+# 1. 通过 CcxtClient 清理已启用的 Binance/Kraken Futures sandbox
 cleanup:
     just debug cleanup
 
@@ -55,18 +55,18 @@ debug-prec:
 debug-market-info:
     just debug check_market_info_full
 
-# 6. 调试杠杆
+# 6. 通过 CcxtClient 检查可确认的当前杠杆（unknown 显示 null）
 debug-leverage:
     just debug debug_leverage
 
 debug-lev:
     just debug-leverage
 
-# 7. 检查 Kraken sandbox 502 行为
+# 7. 隔离检查 Kraken sandbox 原生 502 行为（复用生产 registry/factory）
 debug-kraken-502:
     just debug check_kraken_502
 
-# 8. 研究订单行为
+# 8. 隔离的原生 Provider 订单行为研究（复用生产 registry/factory）
 debug-research-orders:
     just debug research_orders
 
@@ -100,11 +100,11 @@ debug-telegram-send chat text:
 
 # 13. 运行全部 route tests
 debug-route-tests:
-    uv run --no-sync pytest -v -ra debug/route_tests
+    CCXT_STATEFUL_DEBUG=1 uv run --no-sync pytest -v -ra debug/route_tests
 
 # 14. 生成 route test 报告
 debug-route-report:
-    uv run --no-sync python debug/route_tests/run_tests.py
+    CCXT_STATEFUL_DEBUG=1 uv run --no-sync python debug/route_tests/run_tests.py
 
 # 15. 查余额
 debug-balance:
@@ -195,7 +195,11 @@ bru-run path:
 
 # 只跑基础只读请求
 bru-readonly-basic:
-    cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    cd bruno && bru run Root.bru Ready.bru 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/binance.bru' 'CCXT PROXY/fetch_ohlcv/fetch_ohlcv_latest_limit/kraken.bru' 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+
+# 验证不会访问交易接口的稳定 CCXT error contract
+bru-error-contract:
+    cd bruno && bru run 'CCXT PROXY/error_contract' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:
@@ -210,6 +214,10 @@ bru-telegram-send:
 test *args:
     uv run --no-sync pytest Test --ignore=Test/online {{args}}
 
+# 聚合运行只读 online tests；不会下单、改设置或发送消息
+test-online *args:
+    CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
+
 test-file path *args:
     uv run --no-sync pytest "{{path}}" {{args}}
 
@@ -217,16 +225,17 @@ test-tq-offline:
     uv run --no-sync pytest -v -ra Test/test_tq_*.py
 
 test-tq-online:
-    TQ_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_tq_online.py
+    TQ_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_tq_online.py
 
 test-ccxt-online:
-    CCXT_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_ccxt_online.py
+    CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
 
 test-telegram-offline:
     uv run --no-sync pytest -v -ra Test/test_telegram_*.py
 
-test-telegram-online:
-    TELEGRAM_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_telegram_online.py
+# Telegram 会真实发送消息，只能通过 stateful debug 入口显式执行
+debug-telegram-stateful:
+    TELEGRAM_STATEFUL_DEBUG=1 uv run --no-sync pytest -o addopts= -v -ra -s debug/test_telegram_stateful.py
 
 fmt:
     uvx ruff format .

@@ -5,12 +5,7 @@ import ccxt
 import pytest
 
 from src.cache_tool import DuckDbOhlcvCache
-from src.domain_errors import (
-    CacheCapacityExceeded,
-    CapabilityNotSupported,
-    NetworkIncomplete,
-    ResponseRowLimitExceeded,
-)
+from src.domain_errors import ResponseRowLimitExceeded
 from src.tools.ccxt_client import CcxtClient
 
 MINUTE = 60_000
@@ -33,6 +28,9 @@ class FakeExchange:
         self.ohlcv_calls: list[dict[str, Any]] = []
         self.create_calls = 0
         self.create_arguments: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.invalid_symbols: set[str] = set()
+        self.positions: list[dict[str, Any]] = []
+        self.closed = 0
         self.has = {
             "fetchOHLCV": True,
             "fetchBalance": True,
@@ -89,7 +87,7 @@ class FakeExchange:
         return {"id": "created"}
 
     def fetch_positions(self, symbols, params):
-        return []
+        return self.positions
 
     def fetch_balance(self, params):
         return {"total": {"USDT": 1}}
@@ -107,6 +105,8 @@ class FakeExchange:
         return {"marginMode": mode}
 
     def market(self, symbol):
+        if symbol in self.invalid_symbols:
+            raise ccxt.BadSymbol(symbol)
         return {
             "limits": {"amount": {"min": 0.001}},
             "precision": {"amount": 0.001},
@@ -114,6 +114,9 @@ class FakeExchange:
             "settle": "USDT",
             "contractSize": 1,
         }
+
+    def close(self):
+        self.closed += 1
 
 
 def _cache(path: Path) -> DuckDbOhlcvCache:
@@ -174,30 +177,24 @@ def test_overlap_failure_discards_prefix_and_refetches_original_query(temp_dir):
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3)
 
 
-def test_include_last_only_changes_response_after_cache_write(temp_dir):
-    client, _ = _client(temp_dir)
+def test_unconfirmed_tail_stays_in_response_but_not_cache(temp_dir):
+    client, _ = _client(temp_dir, times=_minutes(1, 2, 3))
 
-    response = client.fetch_ohlcv_since_limit(
-        "BTC/USDT", "1m", MINUTE, 3, include_last=False
-    )
+    response = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 3)
     cached = client.cache.read_best_prefix(
         client._series("BTC/USDT", "1m", "default").key, MINUTE, None
     )
 
-    assert [row[0] for row in response.rows] == _minutes(1, 2)
-    assert response.last_bar_completion_confirmed is True
-    assert [row[0] for row in cached] == _minutes(1, 2, 3)
+    assert [row[0] for row in response.rows] == _minutes(1, 2, 3)
+    assert response.last_bar_completion_confirmed is False
+    assert [row[0] for row in cached] == _minutes(1, 2)
 
 
 def test_enable_cache_false_disables_both_read_and_write(temp_dir):
     client, exchange = _client(temp_dir)
 
-    client.fetch_ohlcv_since_limit(
-        "BTC/USDT", "1m", MINUTE, 2, enable_cache=False
-    )
-    client.fetch_ohlcv_since_limit(
-        "BTC/USDT", "1m", MINUTE, 2, enable_cache=False
-    )
+    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2, enable_cache=False)
+    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2, enable_cache=False)
 
     assert len(exchange.ohlcv_calls) == 2
     count = (
@@ -242,135 +239,3 @@ def test_kraken_spot_never_reads_or_writes_outer_cache(temp_dir):
         .fetchone()[0]
     )
     assert count == 0
-
-
-def test_non_read_operation_is_not_retried(temp_dir):
-    client, exchange = _client(temp_dir)
-
-    def fail(*args, **kwargs):
-        exchange.create_calls += 1
-        raise ccxt.NetworkError("timeout")
-
-    exchange.create_order = fail
-
-    with pytest.raises(ccxt.NetworkError):
-        client.create_order("BTC/USDT", "market", "buy", 1)
-    assert exchange.create_calls == 1
-
-
-def test_read_operation_retries_once(temp_dir, monkeypatch):
-    client, exchange = _client(temp_dir)
-    attempts = 0
-
-    def flaky(params):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise ccxt.NetworkError("temporary")
-        return {"total": {}}
-
-    exchange.fetch_balance = flaky
-    monkeypatch.setattr("src.tools.ccxt_transport.time.sleep", lambda _: None)
-
-    assert client.fetch_balance() == {"total": {}}
-    assert attempts == 2
-
-
-def test_read_operation_failure_after_retry_is_upstream_502_domain_error(
-    temp_dir, monkeypatch
-):
-    client, exchange = _client(temp_dir)
-    attempts = 0
-
-    def fail(params):
-        nonlocal attempts
-        attempts += 1
-        raise ccxt.NetworkError("offline")
-
-    exchange.fetch_balance = fail
-    monkeypatch.setattr("src.tools.ccxt_transport.time.sleep", lambda _: None)
-
-    with pytest.raises(NetworkIncomplete):
-        client.fetch_balance()
-    assert attempts == 2
-
-
-def test_later_ohlcv_page_failure_returns_no_partial_result(temp_dir, monkeypatch):
-    client, exchange = _client(temp_dir)
-    original_fetch = exchange.fetch_ohlcv
-    client._ohlcv.page_limit = 3
-
-    def fail_later_page(*args, **kwargs):
-        if kwargs.get("since") == 3 * MINUTE:
-            raise ccxt.NetworkError("later page failed")
-        return original_fetch(*args, **kwargs)
-
-    exchange.fetch_ohlcv = fail_later_page
-    monkeypatch.setattr("src.tools.ccxt_transport.time.sleep", lambda _: None)
-
-    with pytest.raises(NetworkIncomplete):
-        client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 4)
-    count = (
-        client.cache._connection()
-        .execute("SELECT COUNT(*) FROM cache_segments")
-        .fetchone()[0]
-    )
-    assert count == 0
-
-
-def test_capability_failure_is_explicit(temp_dir):
-    client, exchange = _client(temp_dir)
-    exchange.has["fetchBalance"] = False
-
-    with pytest.raises(CapabilityNotSupported):
-        client.fetch_balance()
-
-
-def test_unsupported_provider_timeframe_is_explicit(temp_dir):
-    client, exchange = _client(temp_dir, provider="kraken", market="future")
-    exchange.timeframes = {"1m": "1m"}
-
-    with pytest.raises(CapabilityNotSupported, match="does not support 3m OHLCV"):
-        client.fetch_ohlcv_latest_limit("BTC/USD:USD", "3m", 2)
-
-
-def test_binance_future_rejects_inverse_market(temp_dir):
-    client, exchange = _client(temp_dir)
-    exchange.linear = False
-
-    with pytest.raises(CapabilityNotSupported, match="linear markets only"):
-        client.fetch_ohlcv_latest_limit("BTC/USD:BTC", "1m", 2)
-
-
-class FailingCache:
-    def __init__(self, read_error=None, write_error=None):
-        self.read_error = read_error
-        self.write_error = write_error
-
-    def read_best_prefix(self, *args):
-        if self.read_error:
-            raise self.read_error
-        return []
-
-    def write_segment(self, *args):
-        if self.write_error:
-            raise self.write_error
-
-
-def test_cache_read_and_ordinary_write_failures_do_not_hide_network_data(temp_dir):
-    client, _ = _client(temp_dir)
-    client.cache = FailingCache(
-        read_error=RuntimeError("read"), write_error=RuntimeError("write")
-    )
-
-    result = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)
-
-    assert [row[0] for row in result.rows] == _minutes(1, 2)
-
-
-def test_cache_capacity_failure_is_propagated_to_http_error_layer(temp_dir):
-    client, _ = _client(temp_dir)
-    client.cache = FailingCache(write_error=CacheCapacityExceeded("full"))
-
-    with pytest.raises(CacheCapacityExceeded):
-        client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)

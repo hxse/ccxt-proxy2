@@ -1,13 +1,14 @@
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
+from src.cache_tool.duckdb_schema import ensure_schema
 from src.cache_tool.models import OhlcvResult, OhlcvRow, canonical_row
 from src.domain_errors import CacheCapacityExceeded
-
-SCHEMA_VERSION = "1"
 
 
 class DuckDbOhlcvCache:
@@ -27,11 +28,17 @@ class DuckDbOhlcvCache:
         self.max_rows_per_series = max_rows_per_series
         self.max_rows_total = max_rows_total
         self._local = threading.local()
+        self._connections_guard = threading.Lock()
+        self._connections: list[Any] = []
+        self._lifecycle = threading.Condition()
+        self._active_readers = 0
+        self._closing = False
+        self._closed = False
         path_key = str(self.database_path)
         with self._locks_guard:
             self._write_lock = self._path_locks.setdefault(path_key, threading.Lock())
         with self._write_lock:
-            self._ensure_schema(self._connection())
+            ensure_schema(self._connection())
 
     def read_best_prefix(
         self,
@@ -39,33 +46,34 @@ class DuckDbOhlcvCache:
         since: int,
         max_rows: int | None,
     ) -> list[OhlcvRow]:
-        if max_rows is not None and max_rows <= 0:
-            return []
-        limit_sql = "" if max_rows is None else " LIMIT ?"
-        parameters: list[Any] = [series_key, since, since, since, since]
-        if max_rows is not None:
-            parameters.append(max_rows)
-        query = f"""
-            WITH best AS (
-                SELECT s.segment_id
-                FROM cache_segments AS s
-                WHERE s.series_key = ?
-                  AND s.covered_from <= ?
-                  AND s.last_time >= ?
-                ORDER BY (
-                    SELECT COUNT(*) FROM ohlcv_rows AS c
-                    WHERE c.segment_id = s.segment_id AND c.time >= ?
-                ) DESC, s.updated_at DESC, s.segment_id ASC
-                LIMIT 1
-            )
-            SELECT r.time, r.open, r.high, r.low, r.close, r.volume
-            FROM ohlcv_rows AS r
-            JOIN best ON best.segment_id = r.segment_id
-            WHERE r.time >= ?
-            ORDER BY r.time{limit_sql}
-        """
-        raw = self._connection().execute(query, parameters).fetchall()
-        return [canonical_row(row) for row in raw]
+        with self._reader_scope():
+            if max_rows is not None and max_rows <= 0:
+                return []
+            limit_sql = "" if max_rows is None else " LIMIT ?"
+            parameters: list[Any] = [series_key, since, since, since, since]
+            if max_rows is not None:
+                parameters.append(max_rows)
+            query = f"""
+                WITH best AS (
+                    SELECT s.segment_id
+                    FROM cache_segments AS s
+                    WHERE s.series_key = ?
+                      AND s.covered_from <= ?
+                      AND s.last_time >= ?
+                    ORDER BY (
+                        SELECT COUNT(*) FROM ohlcv_rows AS c
+                        WHERE c.segment_id = s.segment_id AND c.time >= ?
+                    ) DESC, s.updated_at DESC, s.segment_id ASC
+                    LIMIT 1
+                )
+                SELECT r.time, r.open, r.high, r.low, r.close, r.volume
+                FROM ohlcv_rows AS r
+                JOIN best ON best.segment_id = r.segment_id
+                WHERE r.time >= ?
+                ORDER BY r.time{limit_sql}
+            """
+            raw = self._connection().execute(query, parameters).fetchall()
+            return [canonical_row(row) for row in raw]
 
     def write_segment(
         self,
@@ -73,6 +81,7 @@ class DuckDbOhlcvCache:
         result: OhlcvResult,
         verified_covered_from: int | None,
     ) -> None:
+        self._require_open()
         source_rows = (
             result.rows if result.last_bar_completion_confirmed else result.rows[:-1]
         )
@@ -109,47 +118,52 @@ class DuckDbOhlcvCache:
                 connection.execute("ROLLBACK")
                 raise
 
+    def close(self) -> None:
+        with self._write_lock:
+            with self._lifecycle:
+                if self._closed:
+                    return
+                self._closing = True
+                self._lifecycle.wait_for(lambda: self._active_readers == 0)
+                self._closed = True
+                self._closing = False
+            with self._connections_guard:
+                connections = self._connections
+                self._connections = []
+            for connection in connections:
+                connection.close()
+            self._local = threading.local()
+
+    @contextmanager
+    def _reader_scope(self) -> Iterator[None]:
+        with self._lifecycle:
+            if self._closing or self._closed:
+                raise RuntimeError("DuckDbOhlcvCache is closed")
+            self._active_readers += 1
+        try:
+            yield
+        finally:
+            with self._lifecycle:
+                self._active_readers -= 1
+                if self._active_readers == 0:
+                    self._lifecycle.notify_all()
+
+    def _require_open(self) -> None:
+        with self._lifecycle:
+            if self._closing or self._closed:
+                raise RuntimeError("DuckDbOhlcvCache is closed")
+
     def _connection(self):
+        with self._lifecycle:
+            if self._closed:
+                raise RuntimeError("DuckDbOhlcvCache is closed")
         connection = getattr(self._local, "connection", None)
         if connection is None:
-            connection = duckdb.connect(str(self.database_path))
+            with self._connections_guard:
+                connection = duckdb.connect(str(self.database_path))
+                self._connections.append(connection)
             self._local.connection = connection
         return connection
-
-    def _ensure_schema(self, connection) -> None:
-        connection.execute("CREATE SEQUENCE IF NOT EXISTS cache_segment_id_seq START 1")
-        connection.execute(
-            "CREATE TABLE IF NOT EXISTS cache_meta (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)"
-        )
-        connection.execute(
-            "INSERT OR IGNORE INTO cache_meta VALUES ('schema_version', ?)",
-            [SCHEMA_VERSION],
-        )
-        version = connection.execute(
-            "SELECT value FROM cache_meta WHERE key='schema_version'"
-        ).fetchone()[0]
-        if version != SCHEMA_VERSION:
-            raise RuntimeError(f"unsupported cache schema version: {version}")
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS cache_segments (
-                segment_id BIGINT PRIMARY KEY, series_key VARCHAR NOT NULL,
-                covered_from BIGINT NOT NULL, first_time BIGINT NOT NULL,
-                last_time BIGINT NOT NULL, row_count BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS ohlcv_rows (
-                segment_id BIGINT NOT NULL, time BIGINT NOT NULL,
-                open DOUBLE NOT NULL, high DOUBLE NOT NULL, low DOUBLE NOT NULL,
-                close DOUBLE NOT NULL, volume DOUBLE NOT NULL,
-                PRIMARY KEY (segment_id, time)
-            )
-        """)
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS cache_segments_series ON cache_segments(series_key)"
-        )
 
     def _valid_rows(self, rows: list[OhlcvRow]) -> list[OhlcvRow]:
         valid: dict[int, OhlcvRow] = {}

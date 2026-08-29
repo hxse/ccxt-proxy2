@@ -5,14 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/tq/fetch_tick?symbol={{tqTickSymbol}}&data_length={{tqDataLength}}
+  url: {{baseUrl}}/tq/fetch_tick?symbol=KQ.m@SHFE.rb&data_length=10
   body: none
   auth: inherit
 }
 
 params:query {
-  symbol: {{tqTickSymbol}}
-  data_length: {{tqDataLength}}
+  symbol: KQ.m@SHFE.rb
+  data_length: 10
   ~adj_type:
 }
 

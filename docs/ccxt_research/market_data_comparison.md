@@ -62,4 +62,4 @@
 ## 5. 建议
 基于该次快照，策略可以优先考虑：
 *   **Kraken**: 仅交易 `BTC/USD:USD` (Linear)。
-*   **Binance**: 可交易 `BTC/USDT:USDT` (Linear) 和 `BTC/USD:BTC` (Inverse)。
+*   **Binance Provider 原生能力**: 可交易 `BTC/USDT:USDT` (Linear) 和 `BTC/USD:BTC` (Inverse)；当前 Proxy 只加载并正式支持前者，后者返回 `NOT_SUPPORTED`。

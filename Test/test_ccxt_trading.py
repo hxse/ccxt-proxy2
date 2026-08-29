@@ -1,3 +1,7 @@
+import pytest
+
+from src.domain_errors import InvalidProviderData, NetworkIncomplete
+from src.responses import MarketInfoResponse
 from Test.test_ccxt_client import _client
 
 
@@ -36,9 +40,125 @@ def test_trigger_order_translation_lives_on_client(temp_dir):
     }
 
 
+def test_take_profit_translation_uses_distinct_trigger_field(temp_dir):
+    client, exchange = _client(temp_dir)
+
+    client.create_take_profit_market_order(
+        "BTC/USDT:USDT",
+        "sell",
+        0.1,
+        60_000,
+        reduce_only=True,
+        client_order_id=None,
+        time_in_force=None,
+        params=None,
+    )
+
+    assert exchange.create_arguments[-1][1]["params"] == {
+        "reduceOnly": True,
+        "takeProfitPrice": 60_000,
+    }
+
+
 def test_binance_spot_does_not_apply_futures_order_split(temp_dir):
     client, _ = _client(temp_dir, provider="binance", market="spot")
 
     orders = client.fetch_open_orders("BTC/USDT", None, None)
 
     assert [order["id"] for order in orders] == ["normal"]
+
+
+def test_kraken_future_does_not_apply_binance_order_split(temp_dir):
+    client, _ = _client(temp_dir, provider="kraken", market="future")
+
+    orders = client.fetch_open_orders("BTC/USD:USD", None, None)
+
+    assert [order["id"] for order in orders] == ["normal"]
+
+
+def test_binance_order_split_deduplicates_same_id_with_stop_result(temp_dir):
+    client, exchange = _client(temp_dir)
+
+    def duplicate_order(symbol, since, limit, params):
+        return [
+            {
+                "id": "same",
+                "timestamp": 1,
+                "source": "stop" if params.get("stop") else "ordinary",
+            }
+        ]
+
+    exchange.fetch_open_orders = duplicate_order
+
+    orders = client.fetch_open_orders("BTC/USDT:USDT", None, None)
+
+    assert orders == [{"id": "same", "timestamp": 1, "source": "stop"}]
+
+
+def test_binance_cancel_order_falls_back_to_conditional_endpoint(temp_dir):
+    client, _ = _client(temp_dir)
+
+    canceled = client.cancel_order("stop", "BTC/USDT:USDT")
+
+    assert canceled == {"id": "stop", "status": "canceled"}
+
+
+def test_close_position_filters_side_and_uses_reduce_only_order(temp_dir):
+    client, exchange = _client(temp_dir)
+    exchange.positions = [
+        {"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 2},
+        {"symbol": "BTC/USDT:USDT", "side": "short", "contracts": 3},
+    ]
+
+    remaining = client.close_position(
+        "BTC/USDT:USDT",
+        side="long",
+        params={"workingType": "MARK_PRICE"},
+    )
+
+    assert remaining == exchange.positions
+    assert len(exchange.create_arguments) == 1
+    args, kwargs = exchange.create_arguments[0]
+    assert args[:4] == ("BTC/USDT:USDT", "market", "sell", 2.0)
+    assert kwargs["params"] == {
+        "reduceOnly": True,
+        "workingType": "MARK_PRICE",
+    }
+
+
+def test_market_info_uses_nullable_leverage_when_no_position_exists(temp_dir):
+    client, _ = _client(temp_dir)
+
+    result = client.fetch_market_info("BTC/USDT:USDT")
+
+    assert result["leverage"] is None
+    assert MarketInfoResponse.model_validate(result).leverage is None
+
+
+def test_market_info_returns_provider_position_leverage(temp_dir):
+    client, exchange = _client(temp_dir)
+    exchange.positions = [{"symbol": "BTC/USDT:USDT", "leverage": "20"}]
+
+    result = client.fetch_market_info("BTC/USDT:USDT")
+
+    assert result["leverage"] == 20
+
+
+def test_market_info_does_not_hide_position_failure(temp_dir):
+    client, exchange = _client(temp_dir)
+
+    def fail(*args, **kwargs):
+        raise NetworkIncomplete("positions unavailable")
+
+    exchange.fetch_positions = fail
+
+    with pytest.raises(NetworkIncomplete, match="positions unavailable"):
+        client.fetch_market_info("BTC/USDT:USDT")
+
+
+def test_market_info_rejects_invalid_provider_leverage(temp_dir):
+    client, exchange = _client(temp_dir)
+    exchange.positions = [{"symbol": "BTC/USDT:USDT", "leverage": "unknown"}]
+
+    with pytest.raises(InvalidProviderData, match="invalid leverage"):
+        client.fetch_market_info("BTC/USDT:USDT")

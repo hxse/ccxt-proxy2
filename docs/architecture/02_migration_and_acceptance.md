@@ -16,7 +16,7 @@
 
 1. 定义 `SinceLimit`、`SinceLatest`、`LatestLimit` request model。
 2. 定义 `OhlcvResult(rows, last_bar_completion_confirmed)` response envelope。
-3. 固定 `include_last` 与 `max_response_rows=100_000`。
+3. 固定“response 始终包含目标尾根”与 `max_response_rows=100_000`。
 4. 定义 `NOT_SUPPORTED`、`ResponseRowLimitExceeded`和 cache capacity 错误。
 
 ### Phase 2：CcxtClient 收口
@@ -42,7 +42,7 @@
 1. 新三路由只调用 `CcxtClient`。
 2. `enable_cache=false` 同时禁止 read/write cache。
 3. 固定 response metadata 与 error mapping。
-4. 更新 Bruno、OpenAPI description 和调试入口。
+4. 更新 Bruno、OpenAPI description 和调试入口；operational debug 只调用 `CcxtClient`，隔离的 Provider research 也必须复用生产 registry/factory，不复制 exchange construction。
 
 ### Phase 5：TQ DataFrame engine
 
@@ -80,10 +80,13 @@
 - 每页 inclusive overlap、duplicate 新值胜出、no-progress、retry。
 - Binance/Kraken Futures 固定周期连续页成功，异常 gap/满页 no-progress 返回 `NETWORK_INCOMPLETE`；只有支持 `1M` 的 Provider 跳过固定毫秒校验。
 - Provider 不支持的 timeframe 返回 `NOT_SUPPORTED`；Binance Futures inverse 和 Kraken Spot sandbox 明确拒绝。
+- Binance Futures 的 OHLCV、market、order、trade、position 和 settings method 共用 linear symbol-scope 校验；不能让 inverse 在非 OHLCV Route 退化成泛化 500。
+- `mark/index/premiumIndex` 既验证 Provider params，也验证 cache series identity；任意未知 variant 在 Client boundary 拒绝。
 - `SinceLimit`/`SinceLatest` proof successor 不返回用户。
 - `SinceLatest` 固定 snapshot，不追赶更新 rows。
 - Kraken capability error 和非只读 no-retry。
 - 并发底层 CCXT call 由 per-client lock 串行，pages 之间可插入其他 call。
+- Client close 与 attempt 共用同一 lock；旧 Client 引用在 close 后稳定返回 503，不会重新发 Provider request。
 
 ### Cache
 
@@ -94,14 +97,16 @@
 - 容量计数、90% watermark、per-series/global eviction。
 - eviction 只删前缀，重置 `covered_from`；失败 rollback/507。
 - 并发 read snapshot 和串行 write transaction。
+- DuckDB close 阻止新 reader，并等待 active reader 完成后再关闭 thread-local connections。
 
 ### Router
 
 - 三路由构造正确 Client call。
 - 100,000 行限制在 cache read/network accumulation 中都生效。
-- `last_bar_completion_confirmed` 不改变 row count。
-- `include_last=false` 只对最终 response 删尾一次。
+- `last_bar_completion_confirmed` 只描述 response 尾根证据，不改变 row count。
+- 三路由始终返回完整目标窗口；是否消费未知尾根由调用方决定。
 - Cache read/write failure、capacity failure、network failure 映射稳定。
+- Provider exception taxonomy 映射稳定且 HTTP message 脱敏；非只读 network failure 返回 `OPERATION_STATUS_UNKNOWN`。
 
 ### TQ
 
@@ -123,10 +128,12 @@
 10. 旧 facade、Parquet/proof、callback 和过时测试被删除。
 11. `uv lock --check`、默认离线测试和目标新增测试全部通过。
 12. 上线前至少运行一次 Binance/Kraken Futures 三模式只读 online smoke test；非只读 online test 不属于本次验收。
+13. Lifespan shutdown/reinitialize 会关闭 CCXT、DuckDB、TQ 和 Telegram resources；重复 whitelist identity 在配置阶段拒绝。
+14. 裸 `pytest`/`just test` 只运行 offline suite；online 与会修改 sandbox 的 stateful debug suite 必须使用各自显式 opt-in 入口。
 
 ## 6. 已固定的实施细节
 
-- HTTP Route：`/ccxt/ohlcv/since-limit`、`/ccxt/ohlcv/since-latest`、`/ccxt/ohlcv/latest-limit`。
+- HTTP Route：`/ccxt/fetch_ohlcv/since-limit`、`/ccxt/fetch_ohlcv/since-latest`、`/ccxt/fetch_ohlcv/latest-limit`。
 - `series_key`：字段排序的 compact JSON；DuckDB schema version 为 `1`。
 - 默认容量：per-series `2_000_000`、global `20_000_000`。
 - canonical segment tie-breaker：`row_count DESC, segment_id ASC`。

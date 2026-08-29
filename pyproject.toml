@@ -26,3 +26,11 @@ dependencies = [
 dev = [
     "pytest",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["Test"]
+addopts = "--ignore=Test/online"
+markers = [
+    "online: opt-in tests that access external services",
+    "stateful: opt-in tests that mutate sandbox or external state",
+]

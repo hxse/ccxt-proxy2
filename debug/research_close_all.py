@@ -18,7 +18,7 @@ import sys
 import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from debug.utils import get_kraken_sandbox
+from debug.utils import get_research_exchange
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
     print("Research: Close All Orders Logic")
     print("=" * 60)
 
-    exchange = get_kraken_sandbox("future")
+    exchange = get_research_exchange("kraken", "future", "sandbox")
     symbol = "BTC/USD:USD"
 
     # Cleanup

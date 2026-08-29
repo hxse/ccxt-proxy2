@@ -115,8 +115,9 @@ TQ_UNDERLYING_DESCRIPTION = """
 @tq_router.get(
     "/fetch_ohlcv",
     response_model=list[TqRecord],
-    summary="Fetch TQ realtime OHLCV serial",
+    summary="获取 TQ 实时 K 线序列",
     description=TQ_OHLCV_DESCRIPTION,
+    response_description="清洗并按时间升序返回的 TQ K 线 records。",
     responses=TQ_COMMON_RESPONSES,
 )
 def fetch_ohlcv(params: TqOhlcvRequest = Depends(tq_ohlcv_request)):
@@ -129,8 +130,9 @@ def fetch_ohlcv(params: TqOhlcvRequest = Depends(tq_ohlcv_request)):
 @tq_router.get(
     "/fetch_tick",
     response_model=list[TqRecord],
-    summary="Fetch TQ realtime tick serial",
+    summary="获取 TQ 实时 Tick 序列",
     description=TQ_TICK_DESCRIPTION,
+    response_description="清洗并按时间升序返回的 TQ Tick records。",
     responses=TQ_COMMON_RESPONSES,
 )
 def fetch_tick(params: TqTickRequest = Depends(tq_tick_request)):
@@ -143,8 +145,9 @@ def fetch_tick(params: TqTickRequest = Depends(tq_tick_request)):
 @tq_router.get(
     "/fetch_underlying_symbol",
     response_model=TqUnderlyingSymbolResponse,
-    summary="Fetch TQ current underlying symbol for main contracts",
+    summary="查询 TQ 主连当前标的",
     description=TQ_UNDERLYING_DESCRIPTION,
+    response_description="主连当前实际合约以及可选的历史映射。",
     responses=TQ_COMMON_RESPONSES,
 )
 def fetch_underlying_symbol(

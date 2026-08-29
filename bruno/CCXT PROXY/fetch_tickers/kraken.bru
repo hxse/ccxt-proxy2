@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_tickers?mode=live&market=future&exchange_name=kraken&symbols=BTC/USD:USD,ETH/USD:USD
+  url: {{baseUrl}}/ccxt/fetch_tickers?exchange_name=kraken&market=future&mode=live&symbols=BTC/USD:USD,ETH/USD:USD
   body: json
   auth: inherit
 }
@@ -15,4 +15,8 @@ params:query {
   market: future
   exchange_name: kraken
   symbols: BTC/USD:USD,ETH/USD:USD
+}
+
+assert {
+  res.status: eq 200
 }

@@ -37,9 +37,6 @@ class BaseOhlcvRequest(BaseSymbolRequest):
     enable_cache: bool = Field(
         True, title="启用缓存", description="False 时同时禁止 cache read/write"
     )
-    include_last: bool = Field(
-        True, title="包含最后一根", description="False 时机械删除 response 尾行"
-    )
 
 
 class SinceLimitOhlcvRequest(BaseOhlcvRequest):
@@ -130,7 +127,7 @@ class ClosePositionRequest(BaseSymbolRequest):
 
 
 class CancelAllOrdersRequest(BaseExchangeRequest):
-    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT"])
+    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT:USDT"])
     model_config = {"extra": "allow"}
 
 
@@ -148,8 +145,10 @@ class TickersRequest(BaseExchangeRequest):
         Query(
             default=None,
             title="交易对列表",
-            description="交易对列表，多个用逗号分隔，例如：BTC/USDT,ETH/USDT",
-            examples=["BTC/USDT", "BTC/USDT,ETH/USDT"],
+            description=(
+                "交易对列表，多个用逗号分隔，例如：BTC/USDT:USDT,ETH/USDT:USDT"
+            ),
+            examples=["BTC/USDT:USDT", "BTC/USDT:USDT,ETH/USDT:USDT"],
         ),
     ]
 
@@ -170,7 +169,7 @@ class MarketInfoRequest(BaseSymbolRequest):
 class FetchOrderRequest(BaseExchangeRequest):
     """获取特定订单请求参数"""
 
-    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT"])
+    symbol: str | None = Field(None, title="交易对", examples=["BTC/USDT:USDT"])
     id: str = Field(..., title="订单ID", examples=["1234567890"])
 
 

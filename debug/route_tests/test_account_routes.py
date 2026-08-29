@@ -75,13 +75,10 @@ def test_set_margin_mode(client: TestClient):
         "marginMode": "isolated",
     }
     response = client.post("/ccxt/set_margin_mode", json=payload)
-    # This might fail if pos exists, but we test the ROUTE connectivity
     if response.status_code != 200:
-        # Check if it's an API error (400/500)
-        assert response.status_code in [400, 500]
+        assert response.status_code == 409
         err = response.json()
-        assert "detail" in err
+        assert err["detail"]["code"] == "PROVIDER_OPERATION_REJECTED"
     else:
-        assert response.status_code == 200
         data = response.json()
         assert "result" in data

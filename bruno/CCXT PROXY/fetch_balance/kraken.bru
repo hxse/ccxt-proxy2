@@ -5,13 +5,17 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_balance?exchange_name=kraken&market=future&mode=sandbox
-  body: json
+  url: {{baseUrl}}/ccxt/fetch_balance?exchange_name=kraken&market=future&mode=live
+  body: none
   auth: inherit
 }
 
 params:query {
   exchange_name: kraken
   market: future
-  mode: sandbox
+  mode: live
+}
+
+assert {
+  res.status: eq 200
 }

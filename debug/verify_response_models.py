@@ -4,17 +4,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from debug.utils import get_binance_sandbox
+from debug.utils import get_debug_client
 from src.responses import TickersResponse, TickerInfo, BalanceResponse
 
 
 def main():
-    ex = get_binance_sandbox("future")
+    client = get_debug_client("binance", "future", "sandbox")
     symbol = "BTC/USDT:USDT"
 
     print("\n=== Verifying Tickers Response ===")
     try:
-        raw_tickers = ex.fetch_tickers([symbol])
+        raw_tickers = client.fetch_tickers([symbol])
         # Validate with Pydantic
         # TickersResponse expects {'tickers': Dict[str, TickerInfo]}
         # But our API returns {'tickers': raw_tickers}
@@ -34,7 +34,7 @@ def main():
 
     print("\n=== Verifying Balance Response ===")
     try:
-        raw_balance = ex.fetch_balance()
+        raw_balance = client.fetch_balance()
         # BalanceResponse now has a nested 'balance' field
 
         # Simulate what the router returns:

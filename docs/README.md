@@ -61,7 +61,7 @@
 | 最新 DuckDB 草稿 3–4 | CcxtClient 与 Provider capability |
 | 最新 DuckDB 草稿 5–6 | canonical OHLCV、DuckDB cache design |
 | 最新 DuckDB 草稿 7–11 | cache public API、schema、segment 与命中语义 |
-| 最新 DuckDB 草稿 12–15 | 三类简化算法、response metadata、`include_last` |
+| 最新 DuckDB 草稿 12–15 | 三类简化算法、完整 response 与 completion metadata |
 | 最新 DuckDB 草稿 16–18 | write transaction、concurrency、capacity/eviction |
 | 最新 DuckDB 草稿 19 | TQ 两份正式文档 |
 | 最新 DuckDB 草稿 20 | Route/cache error contract |

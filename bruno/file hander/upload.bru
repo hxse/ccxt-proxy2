@@ -1,5 +1,5 @@
 meta {
-  name: upload
+  name: upload [STATEFUL]
   type: http
   seq: 2
 }
@@ -11,7 +11,7 @@ post {
 }
 
 body:multipart-form {
-  file: @file(D:\my_repo\ccxt-proxy2\README.md)
+  file: @file(../README.md)
   path: test/path
 }
 

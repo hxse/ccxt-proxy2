@@ -16,7 +16,7 @@ import sys
 import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from debug.utils import get_binance_sandbox, get_kraken_sandbox
+from debug.utils import get_research_exchange
 
 # ANSI Colors
 GREEN = "\033[92m"
@@ -32,11 +32,11 @@ def log(msg, color=None):
         print(msg)
 
 
-def run_test(exchange_name, exchange_factory, symbol):
+def run_test(exchange_name, symbol):
     log(f"\n{'=' * 20} Testing {exchange_name.upper()} {'=' * 20}", YELLOW)
 
     try:
-        exchange = exchange_factory("future")
+        exchange = get_research_exchange(exchange_name, "future", "sandbox")
     except Exception as e:
         log(f"Failed to init exchange: {e}", RED)
         return
@@ -268,11 +268,11 @@ def main():
     print("Starting Research...")
 
     # Binance
-    res_binance = run_test("binance", get_binance_sandbox, "BTC/USDT:USDT")
+    res_binance = run_test("binance", "BTC/USDT:USDT")
 
     # Kraken
     # Note: Check Kraken symbol format
-    # res_kraken = run_test("kraken", get_kraken_sandbox, "BTC/USD:USD")
+    # res_kraken = run_test("kraken", "BTC/USD:USD")
     res_kraken = {}  # Skip Kraken for now to save time/errors
 
     print("\n" + "=" * 60)

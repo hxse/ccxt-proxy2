@@ -1,0 +1,16 @@
+meta {
+  name: Ready
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/readyz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq ready
+}

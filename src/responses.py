@@ -12,7 +12,7 @@ class MarketInfoResponse(BaseModel):
     市场信息响应 - 用于下单计算
     """
 
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT"])
+    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
     linear: bool = Field(
         ...,
         title="是否U本位",
@@ -40,11 +40,11 @@ class MarketInfoResponse(BaseModel):
         description="一张合约代表的币种数量 (通常为 1)",
         examples=[1.0],
     )
-    leverage: int = Field(
+    leverage: int | None = Field(
         ...,
         title="当前杠杆",
-        description="当前账户在该交易对上的杠杆倍数",
-        examples=[10, 20],
+        description="能从 Provider position 明确取得时返回杠杆倍数，否则为 null",
+        examples=[10, 20, None],
     )
 
 
@@ -54,7 +54,7 @@ class MarketInfoResponse(BaseModel):
 class TickerInfo(BaseModel):
     """单个 Ticker 信息 (通用字段)"""
 
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT"])
+    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
     timestamp: Optional[int] = Field(
         None,
         title="时间戳 (ms)",
@@ -101,7 +101,13 @@ class TickersResponse(BaseModel):
         title="Tickers 字典",
         description="Key 为交易对名称，Value 为 Ticker 详情",
         examples=[
-            {"BTC/USDT": {"symbol": "BTC/USDT", "last": 41600.0, "percentage": 0.97}}
+            {
+                "BTC/USDT:USDT": {
+                    "symbol": "BTC/USDT:USDT",
+                    "last": 41600.0,
+                    "percentage": 0.97,
+                }
+            }
         ],
     )
 
@@ -175,7 +181,7 @@ class OrderStructure(BaseModel):
         description="open, closed, canceled, expired, rejected",
         examples=["open", "closed", "canceled", "expired", "rejected"],
     )
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT"])
+    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
     type: str = Field(
         ...,
         title="订单类型",
@@ -246,7 +252,7 @@ class CancelAllOrdersResponse(BaseModel):
 class PositionStructure(BaseModel):
     """CCXT 持仓结构"""
 
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT"])
+    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
     timestamp: Optional[int] = Field(None, title="时间戳", examples=[1672531200000])
     datetime: Optional[str] = Field(
         None, title="时间字符串", examples=["2023-01-01T00:00:00Z"]

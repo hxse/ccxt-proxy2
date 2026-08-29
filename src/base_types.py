@@ -57,4 +57,4 @@ class BaseExchangeRequest(BaseModel):
 class BaseSymbolRequest(BaseExchangeRequest):
     """在基础请求之上增加 symbol"""
 
-    symbol: str = Field(..., title="交易对", examples=["BTC/USDT"])
+    symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])

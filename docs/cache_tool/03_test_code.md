@@ -29,6 +29,8 @@
 - Empty/短页 anchor-only 可作为边界；满页 no-progress 必须返回 `NETWORK_INCOMPLETE`。
 - Network 中途失败不返回 partial result。
 - Read-only retry 按次数生效；create/cancel/close/leverage 不自动 retry。
+- Authentication/BadRequest 等 Provider rejection 不重试；非网络型 write rejection 不得误标为 `OPERATION_STATUS_UNKNOWN`。
+- Binance `1M` LatestLimit 只用 `until` overlap anchor 向后分页，不使用固定 30 天窗口；Kraken 未声明 `1M` capability 时在 Client boundary 明确拒绝。
 
 ### Tail evidence
 
@@ -78,7 +80,9 @@
 - `limit=10` 在数据足够时 true/false 都返回 10 根。
 - 空 result/null metadata 和单 row false 都不写空 segment。
 - 完整 cache hit 的 response tail metadata 为 `true`。
-- `include_last=false` 在 cache decision 后只删尾一次，并重算 response metadata。
+- 三个 Route 始终返回完整目标 rows；completion metadata 不改变用户 row count。
+- Client partial hit 必须用 network overlap revision 覆盖旧 row；若 network tail 未确认，只更新已确认前缀。
+- Client leading-gap proof 可服务同一区间内更晚的 since；`SinceLatest` overlap 失败必须丢弃 prefix 后完整重拉。
 
 ## 7. Capacity/eviction tests
 
@@ -97,16 +101,39 @@
 - 多 reader 看到 commit 前或后的一致 snapshot，不看中间状态。
 - 多 writer 通过同 database-path lock 串行，不是每个 object 各一把锁。
 - 不同 Python threads 不共享同一 DuckDB connection。
+- Cache close 阻止新 reader，并等待 active reader 完成后才关闭 connections。
 - Network latency 不持 DuckDB lock。
 - 并发 CCXT calls 经 per-client lock 串行底层 attempt，pagination 页间不持锁。
+- CCXT close 与底层 attempt 使用同一 lock；close 后旧 Client 引用返回 `PROVIDER_CLIENT_CLOSED`，不得调用 Provider。
 
 ## 9. Router tests
 
 - 三个 request schema 不能产生模糊组合。
 - `limit <= 100_000`；`SinceLatest` 第 100,001 根失败且无 partial response。
 - Provider capability error 映射稳定。
+- Binance inverse 在所有带 symbol 的 public method 前置拒绝；其他未知 symbol 映射 `INVALID_PROVIDER_REQUEST`。
+- `mark/index/premiumIndex` 传给 Provider，并使用互不混淆的 cache series；未知 variant 在 Client boundary 拒绝。
 - Cache read failure fallback network；普通 write failure 不丢 network response；capacity failure 返回 507。
 - Route 只调 `CcxtClient`，没有裸 CCXT/SQL/Provider branch。
+
+### Lifecycle/error mapping
+
+- `ExchangeManager` reinitialize/shutdown 关闭旧 Client 和 DuckDB connections；close 幂等。
+- 重复 whitelist identity 在配置阶段拒绝。
+- CCXT request/order/auth/funds/operation error 映射为稳定、脱敏的 HTTP code；Provider 原文不进入 response。
+- `fetch_market_info.leverage` 没有可靠 position 证据时为 `null`，position fetch 失败不得伪装成 leverage 1。
+- Binance normal/conditional order list 合并时按 ID 去重；Kraken Futures 与 Binance Spot 不进入该分支。
+- Exchange factory 固定 Binance Futures `linear` market filter、sandbox demo mode，以及 Kraken Futures/Spot 对应的不同 CCXT class。
+
+### Repository/Bruno safety contracts
+
+- Bruno GET URL query 与 `params:query` 完全一致，request-specific 值不得回流 environment。
+- OHLCV Request model、Client signature、OpenAPI 和 Bruno 均不得重新暴露服务端删尾参数。
+- 每个 Bruno method/path 必须对应现有 FastAPI route；Just 引用的 `.bru` 路径必须存在。
+- Mutating Bruno request 必须带 `[STATEFUL]`；`bru-readonly-basic` 只能引用 GET request。
+- `Test/online` 禁止 create/cancel/close/set/send 等 mutating call，`test-online` 不得包含 Telegram。
+- Cache package 不 import CCXT/TQSDK/FastAPI，公开 API 只保留 `read_best_prefix`、`write_segment`、`close`。
+- 生产模块保持每文件不超过 400 行；已删除的平行 CCXT module 不得重新出现。
 
 ## 10. Migration tests
 
@@ -117,6 +144,14 @@
 
 ## 11. Read-only online smoke
 
-`just test-ccxt-online` 只调用已启用 Binance/Kraken Futures 的 `LatestLimit`/`SinceLimit`/`SinceLatest`，强制 `enable_cache=false`，不调用下单、撤单、平仓或设置类 API。Online test 不进入默认 CI，且只验证当前 config whitelist 已启用的 Futures Provider。
+`just test-ccxt-online` 只调用已启用 Binance/Kraken Futures 的只读能力：三种 OHLCV 模式、Binance `mark/index/premiumIndex`、ticker、market info、balance、positions 以及订单/成交历史查询。公开行情覆盖全部 whitelist identities；私有账户查询每个 Provider 选择一个已启用 identity，并优先 sandbox，避免同一 Provider 的备用账户配置重复决定代码集成测试结果。OHLCV 强制 `enable_cache=false`，测试进程使用独立临时 DuckDB，不争用运行中服务的 cache file。该入口不调用下单、撤单、平仓、设置杠杆或设置保证金模式；Online test 不进入默认 CI。
+
+## 12. Test entry boundaries
+
+- 裸 `pytest` 和 `just test` 都只运行 `Test/` 中的 offline tests，并忽略 `Test/online`。
+- `just test-online` 是只读 online 聚合入口，仅执行 CCXT 与 TQ 查询；按 Provider 可使用 `just test-ccxt-online`、`just test-tq-online`。
+- Telegram send 不属于 online test；真实发送只能通过 `just debug-telegram-stateful` 显式执行。
+- `debug/route_tests` 会撤单/下单或修改 sandbox settings，标记为 `stateful`，不属于默认或普通 online suite。即使显式传给 pytest，也必须先设置 `CCXT_STATEFUL_DEBUG=1` 才会创建应用 Client；只应通过 `just debug-route-test(s)` 等明确入口运行。
+- Stateful order test 只取消本测试创建的订单，不调用全账户 `cancel_all_orders`；closed-order history 只作 route smoke，不依赖短时间最终一致性。
 
 完整迁移验收见 [迁移与验收](../architecture/02_migration_and_acceptance.md)。

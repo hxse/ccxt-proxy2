@@ -39,7 +39,7 @@ def test_fetch_ohlcv_latest_limit(client: TestClient):
         "timeframe": "1h",
         "limit": 5,
     }
-    response = client.get("/ccxt/ohlcv/latest-limit", params=params)
+    response = client.get("/ccxt/fetch_ohlcv/latest-limit", params=params)
     assert response.status_code == 200
     body = response.json()
     assert "last_bar_completion_confirmed" in body

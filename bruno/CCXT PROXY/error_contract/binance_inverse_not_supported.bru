@@ -1,0 +1,27 @@
+meta {
+  name: binance inverse -> NOT_SUPPORTED
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ccxt/fetch_ohlcv/latest-limit?exchange_name=binance&market=future&mode=live&symbol=BTC/USD:BTC&timeframe=15m&limit=1&variant=default&enable_cache=false
+  body: none
+  auth: inherit
+}
+
+params:query {
+  exchange_name: binance
+  market: future
+  mode: live
+  symbol: BTC/USD:BTC
+  timeframe: 15m
+  limit: 1
+  variant: default
+  enable_cache: false
+}
+
+assert {
+  res.status: eq 422
+  res.body.detail.code: eq NOT_SUPPORTED
+}

@@ -1,3 +1,4 @@
+import inspect
 from typing import Any
 
 import pytest
@@ -6,6 +7,7 @@ from pydantic import ValidationError
 
 from src.cache_tool import OhlcvResult
 from src.router import trader_router
+from src.tools.ccxt_client import CcxtClient
 from src.tools.exchange_manager import exchange_manager
 from src.types import (
     LatestLimitOhlcvRequest,
@@ -74,10 +76,13 @@ def test_three_ohlcv_routes_call_the_three_client_methods(monkeypatch):
 def test_router_exposes_only_the_three_unambiguous_ohlcv_paths():
     paths = {getattr(route, "path", None) for route in trader_router.ccxt_router.routes}
 
-    assert "/ccxt/ohlcv/since-limit" in paths
-    assert "/ccxt/ohlcv/since-latest" in paths
-    assert "/ccxt/ohlcv/latest-limit" in paths
+    assert "/ccxt/fetch_ohlcv/since-limit" in paths
+    assert "/ccxt/fetch_ohlcv/since-latest" in paths
+    assert "/ccxt/fetch_ohlcv/latest-limit" in paths
     assert "/ccxt/fetch_ohlcv" not in paths
+    assert "/ccxt/ohlcv/since-limit" not in paths
+    assert "/ccxt/ohlcv/since-latest" not in paths
+    assert "/ccxt/ohlcv/latest-limit" not in paths
 
 
 def test_openapi_contains_three_distinct_ohlcv_query_schemas():
@@ -86,12 +91,39 @@ def test_openapi_contains_three_distinct_ohlcv_query_schemas():
 
     paths = app.openapi()["paths"]
 
-    assert "/ccxt/ohlcv/since-limit" in paths
-    assert "/ccxt/ohlcv/since-latest" in paths
-    assert "/ccxt/ohlcv/latest-limit" in paths
+    assert "/ccxt/fetch_ohlcv/since-limit" in paths
+    assert "/ccxt/fetch_ohlcv/since-latest" in paths
+    assert "/ccxt/fetch_ohlcv/latest-limit" in paths
+    for path in (
+        "/ccxt/fetch_ohlcv/since-limit",
+        "/ccxt/fetch_ohlcv/since-latest",
+        "/ccxt/fetch_ohlcv/latest-limit",
+    ):
+        parameters = {item["name"] for item in paths[path]["get"]["parameters"]}
+        assert "include_last" not in parameters
 
 
-def test_route_forwards_cache_tail_and_variant_flags(monkeypatch):
+@pytest.mark.parametrize(
+    "request_type",
+    [SinceLimitOhlcvRequest, SinceLatestOhlcvRequest, LatestLimitOhlcvRequest],
+)
+def test_ohlcv_request_models_do_not_expose_include_last(request_type):
+    assert "include_last" not in request_type.model_fields
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        CcxtClient.fetch_ohlcv_since_limit,
+        CcxtClient.fetch_ohlcv_since_latest,
+        CcxtClient.fetch_ohlcv_latest_limit,
+    ],
+)
+def test_ohlcv_client_methods_do_not_expose_include_last(method):
+    assert "include_last" not in inspect.signature(method).parameters
+
+
+def test_route_forwards_cache_and_variant_flags(monkeypatch):
     fake = FakeClient()
     monkeypatch.setattr(exchange_manager, "get_client", lambda *args: fake)
     request = SinceLimitOhlcvRequest(
@@ -100,7 +132,6 @@ def test_route_forwards_cache_tail_and_variant_flags(monkeypatch):
         limit=2,
         variant="mark",
         enable_cache=False,
-        include_last=False,
     )
 
     trader_router.fetch_ohlcv_since_limit(request)
@@ -108,7 +139,6 @@ def test_route_forwards_cache_tail_and_variant_flags(monkeypatch):
     assert fake.calls[0][2] == {
         "variant": "mark",
         "enable_cache": False,
-        "include_last": False,
     }
 
 

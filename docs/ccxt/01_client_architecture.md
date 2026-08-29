@@ -20,6 +20,8 @@ client = exchange_manager.get_client(
 )
 ```
 
+Application shutdown 或 registry reinitialize 时，`ExchangeManager.close()` 依次关闭所有 `CcxtClient`/CCXT session 和共享 DuckDB cache；关闭操作幂等。Transport 在同一 request lock 内检查 closed state：已经开始的 attempt 可以完成，close 等待它结束，close 后任何旧 Client 引用的新 attempt 返回 503 `PROVIDER_CLIENT_CLOSED`，不能重新使用已关闭 session。重复的 `exchange/market/mode` whitelist identity 在配置阶段拒绝，不能构造后静默覆盖。
+
 ## 2. Public API 收口
 
 ### OHLCV
@@ -41,6 +43,8 @@ Client 同时封装项目已有的全部 CCXT 能力：
 - close position；
 - leverage 和 margin mode。
 
+`fetch_market_info.leverage` 是 required-but-nullable：只有 `fetch_positions([symbol])` 返回明确值时才返回整数；没有 position/capability 证据时返回 `null`。已声明支持 `fetchPositions` 的 Provider 如发生 network/auth failure，必须向上报错，禁止吞错并伪造为 leverage 1。
+
 Route 不得同时存在直接 CCXT call、`*_utils` facade 或 exchange-specific branch。可以在 `CcxtClient` 内使用 private helper，但只有 Client method 是 public provider boundary。
 
 ## 3. Capability-first
@@ -53,6 +57,8 @@ unsupported → NOT_SUPPORTED
 ```
 
 禁止为形式对称而通过 trades/CSV 临时重建一个 Provider 不具备的 OHLCV 能力。
+
+所有带 symbol 的 public method 还必须先通过同一 market resolver。Binance Futures symbol 只有 `market.linear == true` 才可继续；未加载的 inverse/COIN-M symbol 同样归类为 `NOT_SUPPORTED`。其他 Provider 的未知 symbol 返回 `INVALID_PROVIDER_REQUEST`。List/optional symbol 使用相同规则，不允许 OHLCV 与交易方法各自解释支持范围。
 
 ### Binance
 
@@ -89,6 +95,25 @@ unsupported → NOT_SUPPORTED
 
 非只读请求失败时记录结构化上下文并向上抛出，当前 HTTP request 失败，服务进程继续。Create-order timeout 必须明确标记 `operation status unknown`，不得盲目重试造成重复下单。
 
+### Provider error taxonomy
+
+Client 保留 CCXT exception 供 Binance normal/conditional order fallback 判断；完成 Client translation 后，由统一 HTTP boundary 映射为稳定错误：
+
+| CCXT 类别 | HTTP | code |
+| --- | ---: | --- |
+| `BadRequest` / `BadSymbol` / `ArgumentsRequired` | 422 | `INVALID_PROVIDER_REQUEST` |
+| `NotSupported` | 422 | `NOT_SUPPORTED` |
+| `OrderNotFound` | 404 | `ORDER_NOT_FOUND` |
+| `InvalidOrder` | 422 | `ORDER_REJECTED` |
+| `InsufficientFunds` | 409 | `INSUFFICIENT_FUNDS` |
+| `OperationRejected` | 409 | `PROVIDER_OPERATION_REJECTED` |
+| `CancelPending` | 502 | `OPERATION_STATUS_UNKNOWN` |
+| `AuthenticationError` / `PermissionDenied` | 502 | `PROVIDER_AUTH_FAILED` |
+| 已关闭的旧 Client 引用 | 503 | `PROVIDER_CLIENT_CLOSED` |
+| 其他 Provider failure | 502 | `PROVIDER_FAILURE` |
+
+只读 network failure 在 retry 后返回 `NETWORK_INCOMPLETE`；非只读 network failure 不 retry，返回 `OPERATION_STATUS_UNKNOWN`。HTTP response 只包含稳定、脱敏的 category message，Provider 原始异常仅写服务日志。
+
 ## 5. CCXT request lock
 
 同一 CCXT instance 中的 rate limiter、HTTP session 和 request state 是 mutable state。每个 Client 拥有独立：
@@ -113,7 +138,7 @@ acquire
 
 ## 6. OHLCV network boundary
 
-Client 内部三个 network-only method 必须：
+Client 内部三个用户语义由 `OhlcvNetworkFetcher` 的 forward/backward/snapshot primitives 实现；这些 network-only primitive 必须：
 
 1. 将 CCXT 只当作单页 Provider adapter；
 2. 自己处理 page limit、inclusive overlap 和 retry；
@@ -143,3 +168,13 @@ provider / mode / market / symbol / timeframe / variant
 已删除 `ccxt_utils.py`、`ccxt_utils_extended.py`、`binance_adapter.py` 及任何直接返回裸 CCXT instance 给 Route 的入口；不存在 deprecated forwarding wrapper。`ccxt_trading.py` 只是为遵守单文件 400 行限制的 private mixin，Route 仍只看到 `CcxtClient`。
 
 研究出的 Binance/Kraken 订单差异仍然保留，只是实现位置收口到 Client，见 [订单行为对比](../ccxt_research/order_behavior_comparison.md)。
+
+## 9. Bruno collection
+
+`bruno/environments/ccxt-proxy2.bru` 只保存 collection 共享配置：`baseUrl` 以及 secret `user`、`password`。Provider、mode、market、symbol、OHLCV defaults 等请求专用样例值属于各自 request，不得放入 environment。所有写请求名称标记 `[STATEFUL]`；示例 write mode 是 sandbox，Kraken write identity 未启用时应返回 503，禁止为了让示例成功而默认切到 live。
+
+只读基础入口是 `just bru-readonly-basic`；本地校验 inverse/unknown-symbol 的稳定错误使用 `just bru-error-contract`。订单 ID、价格、amount、leverage 和 margin mode 直接保存在对应 request body 中，运行 stateful request 前必须人工核对。
+
+为兼容 Bruno GUI 和当前 CLI，带 query 的 GET request 同时保存完整 URL query 与 `params:query`。GUI 在 Params 面板修改参数时会同步 URL；直接编辑 `.bru` 文件时也必须同步这两处。CLI 执行同步后的 URL，不通过 environment 注入请求专用 query。
+
+`/auth/token` 返回 `expires_in: 3600`。Bruno 保持 `auto_fetch_token: true`、`auto_refresh_token: false` 且不配置 Refresh Token URL；access token 过期后，Bruno 使用 Password Grant 自动重新登录获取新 token。

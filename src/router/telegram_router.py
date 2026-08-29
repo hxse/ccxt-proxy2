@@ -76,8 +76,9 @@ TELEGRAM_SEND_MESSAGE_RESPONSES: dict[int | str, dict[str, Any]] = {
 @telegram_router.post(
     "/send_message",
     response_model=TelegramSendMessageResponse,
-    summary="Send Telegram message to configured chats",
+    summary="向配置的 Telegram chats 发送消息",
     description=TELEGRAM_SEND_MESSAGE_DESCRIPTION,
+    response_description="每个目标 chat 的发送结果与 Telegram message_id。",
     responses=TELEGRAM_SEND_MESSAGE_RESPONSES,
 )
 def send_message(params: TelegramSendMessageRequest) -> TelegramSendMessageResponse:

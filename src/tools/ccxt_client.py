@@ -13,6 +13,7 @@ from src.cache_tool.models import merge_rows
 from src.domain_errors import (
     CacheCapacityExceeded,
     CapabilityNotSupported,
+    InvalidProviderRequest,
     ResponseRowLimitExceeded,
 )
 from src.tools.ccxt_ohlcv import OhlcvNetworkFetcher
@@ -21,6 +22,8 @@ from src.tools.ccxt_transport import CcxtTransport
 
 
 class CcxtClient(_CcxtTradingMixin):
+    _VALID_OHLCV_VARIANTS = {"default", "mark", "index", "premiumIndex"}
+
     def __init__(
         self,
         exchange: Any,
@@ -41,6 +44,9 @@ class CcxtClient(_CcxtTradingMixin):
     def load_markets(self) -> None:
         self._transport.read_call("loadMarkets", self.exchange.load_markets)
 
+    def close(self) -> None:
+        self._transport.close()
+
     def fetch_ohlcv_since_limit(
         self,
         symbol: str,
@@ -50,13 +56,12 @@ class CcxtClient(_CcxtTradingMixin):
         *,
         variant: str = "default",
         enable_cache: bool = True,
-        include_last: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant, limit)
         series = self._series(symbol, timeframe, variant)
         prefix = self._read_prefix(series, since, limit) if enable_cache else []
         if len(prefix) >= limit:
-            return OhlcvResult(prefix[:limit], True).for_response(include_last)
+            return OhlcvResult(prefix[:limit], True)
 
         network_since = prefix[-1][0] if prefix else since
         network_limit = limit - len(prefix) + (1 if prefix else 0)
@@ -75,7 +80,7 @@ class CcxtClient(_CcxtTradingMixin):
         confirmed = network.last_bar_completion_confirmed if rows else None
         raw = OhlcvResult(rows, confirmed)
         self._write_cache(series, raw, since, enable_cache)
-        return raw.for_response(include_last)
+        return raw
 
     def fetch_ohlcv_since_latest(
         self,
@@ -85,7 +90,6 @@ class CcxtClient(_CcxtTradingMixin):
         *,
         variant: str = "default",
         enable_cache: bool = True,
-        include_last: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant)
         if not self._ohlcv.supports_full_history:
@@ -106,7 +110,7 @@ class CcxtClient(_CcxtTradingMixin):
         if len(prefix) > MAX_RESPONSE_ROWS:
             raise ResponseRowLimitExceeded()
         if prefix and prefix[-1][0] == snapshot:
-            return OhlcvResult(prefix, True).for_response(include_last)
+            return OhlcvResult(prefix, True)
 
         network_since = prefix[-1][0] if prefix else since
         network_budget = MAX_RESPONSE_ROWS - len(prefix) + (1 if prefix else 0)
@@ -129,7 +133,7 @@ class CcxtClient(_CcxtTradingMixin):
             raise ResponseRowLimitExceeded()
         raw = OhlcvResult(rows, network.last_bar_completion_confirmed if rows else None)
         self._write_cache(series, raw, since, enable_cache)
-        return raw.for_response(include_last)
+        return raw
 
     def fetch_ohlcv_latest_limit(
         self,
@@ -139,14 +143,13 @@ class CcxtClient(_CcxtTradingMixin):
         *,
         variant: str = "default",
         enable_cache: bool = True,
-        include_last: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant, limit)
         raw = self._ohlcv.fetch_latest_limit(symbol, timeframe, limit, variant)
         self._write_cache(
             self._series(symbol, timeframe, variant), raw, None, enable_cache
         )
-        return raw.for_response(include_last)
+        return raw
 
     def _fetch_ohlcv_page(self, *args: Any, **kwargs: Any):
         return self._read_method("fetchOHLCV", "fetch_ohlcv", *args, **kwargs)
@@ -167,27 +170,46 @@ class CcxtClient(_CcxtTradingMixin):
         self._transport.require("fetchOHLCV")
         if limit is not None and not 1 <= limit <= MAX_RESPONSE_ROWS:
             raise ResponseRowLimitExceeded()
+        if variant not in self._VALID_OHLCV_VARIANTS:
+            raise InvalidProviderRequest(f"unsupported OHLCV variant: {variant}")
         if timeframe not in (getattr(self.exchange, "timeframes", None) or {}):
             raise CapabilityNotSupported(
                 f"{self.exchange_name}/{self.market} does not support {timeframe} OHLCV"
             )
-        if self.exchange_name == "binance" and self.market == "future":
-            try:
-                market = self.exchange.market(symbol)
-            except ccxt.BadSymbol as exc:
-                raise CapabilityNotSupported(
-                    f"binance/future symbol is outside the linear market scope: {symbol}"
-                ) from exc
-            if not market.get("linear"):
-                raise CapabilityNotSupported(
-                    f"binance/future supports linear markets only: {symbol}"
-                )
+        self._resolve_market(symbol)
         if variant != "default" and not (
             self.exchange_name == "binance" and self.market == "future"
         ):
             raise CapabilityNotSupported(
                 f"{self.exchange_name}/{self.market} does not support {variant} OHLCV"
             )
+
+    def _resolve_market(self, symbol: str) -> dict[str, Any]:
+        try:
+            market = self.exchange.market(symbol)
+        except ccxt.BadSymbol as exc:
+            if self.exchange_name == "binance" and self.market == "future":
+                raise CapabilityNotSupported(
+                    f"binance/future symbol is outside the linear market scope: {symbol}"
+                ) from exc
+            raise InvalidProviderRequest(f"unknown provider symbol: {symbol}") from exc
+        if (
+            self.exchange_name == "binance"
+            and self.market == "future"
+            and not market.get("linear")
+        ):
+            raise CapabilityNotSupported(
+                f"binance/future supports linear markets only: {symbol}"
+            )
+        return market
+
+    def _validate_symbol(self, symbol: str | None) -> None:
+        if symbol is not None:
+            self._resolve_market(symbol)
+
+    def _validate_symbols(self, symbols: list[str] | None) -> None:
+        for symbol in symbols or []:
+            self._resolve_market(symbol)
 
     def _series(self, symbol: str, timeframe: str, variant: str) -> OhlcvSeries:
         return OhlcvSeries(

@@ -5,7 +5,7 @@ import ccxt
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from debug.utils import get_kraken_sandbox, print_json
+from debug.utils import get_research_exchange, print_json
 
 
 def log_to_file(msg):
@@ -32,7 +32,7 @@ def check_kraken_sandbox_502():
 
     try:
         log_to_file("Initializing Kraken Futures Sandbox...")
-        exchange = get_kraken_sandbox("future")
+        exchange = get_research_exchange("kraken", "future", "sandbox")
         # exchange.verbose = True # 可以开启以查看请求 URL
 
         symbol = "BTC/USD:USD"

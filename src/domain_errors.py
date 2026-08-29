@@ -34,3 +34,48 @@ class InvalidProviderData(DomainError):
 class CacheCapacityExceeded(DomainError):
     status_code = 507
     code = "CACHE_CAPACITY_EXCEEDED"
+
+
+class InvalidProviderRequest(DomainError):
+    status_code = 422
+    code = "INVALID_PROVIDER_REQUEST"
+
+
+class ProviderOrderNotFound(DomainError):
+    status_code = 404
+    code = "ORDER_NOT_FOUND"
+
+
+class ProviderOrderRejected(DomainError):
+    status_code = 422
+    code = "ORDER_REJECTED"
+
+
+class ProviderInsufficientFunds(DomainError):
+    status_code = 409
+    code = "INSUFFICIENT_FUNDS"
+
+
+class ProviderOperationRejected(DomainError):
+    status_code = 409
+    code = "PROVIDER_OPERATION_REJECTED"
+
+
+class ProviderAuthenticationFailed(DomainError):
+    status_code = 502
+    code = "PROVIDER_AUTH_FAILED"
+
+
+class ProviderFailure(DomainError):
+    status_code = 502
+    code = "PROVIDER_FAILURE"
+
+
+class OperationStatusUnknown(DomainError):
+    status_code = 502
+    code = "OPERATION_STATUS_UNKNOWN"
+
+
+class ProviderClientClosed(DomainError):
+    status_code = 503
+    code = "PROVIDER_CLIENT_CLOSED"

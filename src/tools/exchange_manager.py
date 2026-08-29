@@ -29,7 +29,7 @@ class ExchangeManager:
         self._cache: DuckDbOhlcvCache | None = None
 
     def init_from_config(self, config: AppConfig) -> None:
-        self._registry.clear()
+        self.close()
         self._whitelist = [
             ExchangeWhitelistItem(**item.model_dump())
             for item in config.exchange_whitelist
@@ -44,24 +44,49 @@ class ExchangeManager:
             logger.warning("exchange whitelist is empty")
             return
 
-        for item in self._whitelist:
-            key = (item.exchange, item.market, item.mode)
-            bound = logger.bind(
-                exchange=item.exchange, market=item.market, mode=item.mode
-            )
-            bound.info("initializing CcxtClient")
-            if item.exchange == "binance":
-                exchange = get_binance_exchange(config, item.market, item.mode)
-            elif item.exchange == "kraken":
-                exchange = get_kraken_exchange(config, item.market, item.mode)
-            else:
-                raise ValueError(f"unsupported exchange: {item.exchange}")
-            client = CcxtClient(
-                exchange, item.exchange, item.market, item.mode, self._cache
-            )
-            client.load_markets()
-            self._registry[key] = client
-            bound.info("CcxtClient initialized")
+        try:
+            for item in self._whitelist:
+                key = (item.exchange, item.market, item.mode)
+                bound = logger.bind(
+                    exchange=item.exchange, market=item.market, mode=item.mode
+                )
+                bound.info("initializing CcxtClient")
+                if item.exchange == "binance":
+                    exchange = get_binance_exchange(config, item.market, item.mode)
+                elif item.exchange == "kraken":
+                    exchange = get_kraken_exchange(config, item.market, item.mode)
+                else:
+                    raise ValueError(f"unsupported exchange: {item.exchange}")
+                client = CcxtClient(
+                    exchange, item.exchange, item.market, item.mode, self._cache
+                )
+                self._registry[key] = client
+                client.load_markets()
+                bound.info("CcxtClient initialized")
+        except Exception:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        clients = list(self._registry.values())
+        cache = self._cache
+        self._registry = {}
+        self._whitelist = []
+        self._cache = None
+        for client in clients:
+            try:
+                client.close()
+            except Exception:
+                logger.bind(
+                    exchange=client.exchange_name,
+                    market=client.market,
+                    mode=client.mode,
+                ).exception("CcxtClient shutdown failed")
+        if cache is not None:
+            try:
+                cache.close()
+            except Exception:
+                logger.exception("DuckDB OHLCV cache shutdown failed")
 
     def get_client(
         self,
@@ -79,5 +104,6 @@ class ExchangeManager:
                 ),
             )
         return client
+
 
 exchange_manager = ExchangeManager()

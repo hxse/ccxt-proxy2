@@ -1,86 +1,43 @@
+import atexit
 import json
-import ccxt
-from pathlib import Path
+from typing import Any
 
-# 加载配置
-CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+from fastapi import HTTPException
 
-
-def load_config() -> dict:
-    with open(CONFIG_PATH, "r") as f:
-        return json.load(f)
+from src.base_types import ExchangeName, MarketType, ModeType
+from src.tools.ccxt_client import CcxtClient
+from src.tools.exchange_manager import exchange_manager
+from src.tools.shared import config
 
 
-def get_binance_sandbox(market: str = "future"):
-    """获取币安沙盒实例 - 只允许 sandbox 模式"""
-    config = load_config()
-    http_proxy = config["proxy"]["http"]
-
-    # 获取 test key
-    api_key = config["binance"]["test"]["api_key"]
-    secret = config["binance"]["test"]["secret"]
-
-    exchange = ccxt.binance(
-        {
-            "apiKey": api_key,
-            "secret": secret,
-            "enableRateLimit": True,
-            "options": {"defaultType": market},
-        }
-    )
-
-    # 设置代理
-    if config["binance"]["enable_proxy"]:
-        exchange.httpProxy = http_proxy
-
-    # 强制沙盒模式
-    exchange.enable_demo_trading(True)
-
-    # 加载市场
-    exchange.load_markets()
-    return exchange
+atexit.register(exchange_manager.close)
 
 
-def get_kraken_sandbox(market: str = "future"):
-    """获取海妖沙盒实例 - 只允许 sandbox 模式"""
-    config = load_config()
-    http_proxy = config["proxy"]["http"]
-
-    # 获取 test key
-    api_key = config["kraken"]["test"]["api_key"]
-    secret = config["kraken"]["test"]["secret"]
-
-    if market == "future":
-        exchange = ccxt.krakenfutures(
-            {
-                "apiKey": api_key,
-                "secret": secret,
-                "enableRateLimit": True,
-            }
-        )
-    else:
-        exchange = ccxt.kraken(
-            {
-                "apiKey": api_key,
-                "secret": secret,
-                "enableRateLimit": True,
-            }
-        )
-
-    # 设置代理
-    if config["kraken"]["enable_proxy"]:
-        exchange.httpProxy = http_proxy
-
-    # 强制沙盒模式
-    exchange.set_sandbox_mode(True)
-
-    # 加载市场
-    exchange.load_markets()
-    return exchange
+def get_debug_client(
+    exchange_name: ExchangeName,
+    market: MarketType = "future",
+    mode: ModeType = "sandbox",
+) -> CcxtClient:
+    """Return the production Client boundary for an enabled debug identity."""
+    try:
+        return exchange_manager.get_client(exchange_name, market, mode)
+    except HTTPException as exc:
+        if exc.status_code != 503:
+            raise
+        exchange_manager.init_from_config(config)
+        return exchange_manager.get_client(exchange_name, market, mode)
 
 
-def print_json(data, title: str = ""):
-    """格式化打印 JSON"""
+def get_research_exchange(
+    exchange_name: ExchangeName,
+    market: MarketType = "future",
+    mode: ModeType = "sandbox",
+) -> Any:
+    """Explicit raw Provider escape hatch for isolated research scripts only."""
+    return get_debug_client(exchange_name, market, mode).exchange
+
+
+def print_json(data: Any, title: str = "") -> None:
     if title:
         print(f"\n{'=' * 60}\n{title}\n{'=' * 60}")
     print(json.dumps(data, indent=2, default=str, ensure_ascii=False))

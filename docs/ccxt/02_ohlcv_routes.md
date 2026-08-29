@@ -10,7 +10,7 @@
 | `SinceLatest` | `since` | 从起点到请求开始时的 latest snapshot | 最佳单 prefix | 是 |
 | `LatestLimit` | `limit` | 最新倒数 N 根 | 否 | 是 |
 
-固定 URI 为 `/ccxt/ohlcv/since-limit`、`/ccxt/ohlcv/since-latest`、`/ccxt/ohlcv/latest-limit`。旧 `/ccxt/fetch_ohlcv` 已删除，不提供兼容转发。
+固定 URI 为 `/ccxt/fetch_ohlcv/since-limit`、`/ccxt/fetch_ohlcv/since-latest`、`/ccxt/fetch_ohlcv/latest-limit`。旧 `/ccxt/fetch_ohlcv` 已删除，不提供兼容转发。
 
 ## 2. 公共参数
 
@@ -20,8 +20,7 @@
 - `symbol`；
 - `timeframe`；
 - `variant`，默认 `default`；Binance Futures 额外支持 `mark/index/premiumIndex`；
-- `enable_cache`，默认 `true`；
-- `include_last`，默认 `true`。
+- `enable_cache`，默认 `true`。
 
 `enable_cache=false` 同时禁止 cache read 和 cache write，但不取消 network completeness 和 completion metadata 的计算。
 
@@ -136,17 +135,19 @@ Cache 使用 metadata 选择：
 cache_rows = rows if confirmed else rows[:-1]
 ```
 
-Route 始终先完成 cache decision，然后处理 `include_last`。
+Route 始终返回完整 `rows` 与对应 metadata。Cache 是否保存尾根与用户是否消费尾根是两个维度；调用方可根据 `last_bar_completion_confirmed` 自行决定如何使用最后一根。
 
-## 9. `include_last`
+## 9. 固定的完整 response
 
-`include_last` 是独立用户开关，唯一语义是最终数组机械删尾：
+三个 Route 都不存在服务端删尾参数：
 
-```python
-response_rows = rows if include_last else rows[:-1]
+```text
+Provider/Client 生成完整目标窗口
+→ Cache 根据 completion metadata 决定是否保存尾根
+→ Route 原样返回完整 rows + metadata
 ```
 
-它不判断 K 线状态，不影响 cacheability，不能 double trim。删尾后如仍有 rows，被删的 row 是新 response tail 的 successor，因此 response metadata 更新为 `true`；删后为空则为 `null`。
+因此数据足够时 `limit=N` 始终返回 N 根。需要“只使用有完成证据的 rows”的调用方，可以在 metadata 为 `false` 时自行忽略最后一根；服务端不替调用方执行这一策略。
 
 ## 10. Provider matrix
 
@@ -164,6 +165,7 @@ Binance Futures 仅支持 linear symbols，例如 `BTC/USDT:USDT`；`BTC/USD:BTC
 ## 11. Error contract
 
 - 参数/row budget 超限：稳定 4xx，无 partial response。
+- 未知 `variant` 或其他 Provider request 参数错误：422 `INVALID_PROVIDER_REQUEST`；Client boundary 与 HTTP schema 双重校验。
 - Provider method/timeframe/market subtype capability 缺失：`NOT_SUPPORTED`。
 - Kraken Spot 不额外推算 history window，只返回 CCXT thin-forward 结果。
 - Binance/Kraken Futures 固定周期 page 出现非连续 timestamp 或满页 no-progress：502 `NETWORK_INCOMPLETE`，不做自动修复。

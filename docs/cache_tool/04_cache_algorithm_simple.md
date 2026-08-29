@@ -9,7 +9,7 @@ read at most one cache prefix
 → network-only continuation
 → validate/merge/deduplicate
 → cache decision
-→ response include_last transform
+→ return full rows + completion metadata
 ```
 
 - 一旦进入 network 阶段，不再搜索第二个 cache segment。
@@ -164,20 +164,17 @@ Provider latest semantics 只证明尾根是查询当时最新 row，不证明�
 
 `limit+1` 会在倒数语义中多取更老 row，不能作为 latest tail successor，因此不使用。
 
-## 6. `include_last`
+## 6. 固定的完整 response
 
-Cache 先消费未删尾 `OhlcvResult`，最后才处理：
+Cache 和 Route 使用同一个未删尾 `OhlcvResult`：
 
-```python
-response_rows = rows if include_last else rows[:-1]
+```text
+metadata=true  → cache 写全部 rows，Route 返回全部 rows
+metadata=false → cache 写 rows[:-1]，Route 仍返回全部 rows
+metadata=null  → rows 为空
 ```
 
-`include_last=false` 是唯一能改变用户尾根的显式参数。它可使实际返回比 limit 少一根。删尾后：
-
-- 仍有 rows：被删 row 是新 tail successor，response metadata 为 `true`；
-- rows 为空：metadata 为 `null`。
-
-它不影响已完成的 cache trim，不得 double trim。
+服务端不提供删尾开关。调用方根据 `last_bar_completion_confirmed` 自行选择是否消费未知状态的最后一根，不能让这一消费策略反向改变 cache decision 或 route row count。
 
 ## 7. Terminal/no-progress
 

@@ -6,7 +6,12 @@ from typing import Any
 import ccxt
 from loguru import logger
 
-from src.domain_errors import CapabilityNotSupported, NetworkIncomplete
+from src.domain_errors import (
+    CapabilityNotSupported,
+    NetworkIncomplete,
+    OperationStatusUnknown,
+    ProviderClientClosed,
+)
 
 NETWORK_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
     ccxt.NetworkError,
@@ -22,6 +27,7 @@ class CcxtTransport:
         self.exchange = exchange
         self.identity = identity
         self.lock = threading.Lock()
+        self._closed = False
 
     def require(self, capability: str) -> None:
         if not self.exchange.has.get(capability):
@@ -59,12 +65,25 @@ class CcxtTransport:
     def write_call(self, operation: str, function, *args: Any, **kwargs: Any):
         try:
             return self._attempt(function, *args, **kwargs)
-        except NETWORK_RETRY_EXCEPTIONS:
+        except NETWORK_RETRY_EXCEPTIONS as exc:
             logger.bind(operation=operation).exception(
                 "non-read operation failed; operation status may be unknown"
             )
-            raise
+            raise OperationStatusUnknown(
+                f"{self.identity} {operation} status is unknown"
+            ) from exc
+
+    def close(self) -> None:
+        with self.lock:
+            if self._closed:
+                return
+            self._closed = True
+            close = getattr(self.exchange, "close", None)
+            if callable(close):
+                close()
 
     def _attempt(self, function, *args: Any, **kwargs: Any):
         with self.lock:
+            if self._closed:
+                raise ProviderClientClosed(f"{self.identity} client is closed")
             return function(*args, **kwargs)

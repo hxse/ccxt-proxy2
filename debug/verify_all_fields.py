@@ -7,7 +7,7 @@ from datetime import datetime
 # Allow importing from root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from debug.utils import get_binance_sandbox
+from debug.utils import get_debug_client
 
 
 def analyze_type(value, prefix=""):
@@ -31,33 +31,16 @@ def print_section(name):
 
 def main():
     try:
-        exchange = get_binance_sandbox("future")
-        # Try finding a valid symbol from loaded markets
-        valid_symbols = list(exchange.markets.keys())
-        print(f"Loaded {len(valid_symbols)} markets.")
-        if not valid_symbols:
-            print("No markets loaded!")
-            return
-
-        # Prefer BTC/USDT if available, else pick first
-        candidates = ["BTC/USDT", "BTC/USDT:USDT", "ETH/USDT", "ETH/USDT:USDT"]
-        symbol_request = valid_symbols[0]
-        for c in candidates:
-            if c in valid_symbols:
-                symbol_request = c
-                break
-
+        client = get_debug_client("binance", "future", "sandbox")
+        symbol_request = "BTC/USDT:USDT"
         print(f"Using Symbol: {symbol_request}")
 
         # 1. Market Info
         print_section("Market Info")
         try:
-            market = exchange.market(symbol_request)
-            analyze_type(market.get("linear"), "linear")
-            analyze_type(market.get("settle"), "settle")
-            analyze_type(market["precision"]["amount"], "precision.amount")
-            analyze_type(market["limits"]["amount"]["min"], "limits.amount.min")
-            analyze_type(market.get("contractSize"), "contractSize")
+            market = client.fetch_market_info(symbol_request)
+            for key, value in market.items():
+                analyze_type(value, key)
         except Exception:
             traceback.print_exc()
 
@@ -65,7 +48,7 @@ def main():
         print_section("Tickers")
         try:
             # fetch_tickers might require List[str]
-            tickers = exchange.fetch_tickers([symbol_request])
+            tickers = client.fetch_tickers([symbol_request])
             if tickers:
                 # Use the first ticker found
                 t = list(tickers.values())[0]
@@ -102,7 +85,7 @@ def main():
         # 3. Balance
         print_section("Balance")
         try:
-            balance = exchange.fetch_balance()
+            balance = client.fetch_balance()
             if "free" in balance and balance["free"]:
                 first_currency = list(balance["free"].keys())[0]
                 analyze_type(
@@ -121,9 +104,9 @@ def main():
         print_section("Order")
         try:
             # Try fetching closed orders as it's safer
-            orders = exchange.fetch_closed_orders(symbol_request, limit=1)
+            orders = client.fetch_closed_orders(symbol_request, None, 1)
             if not orders:
-                orders = exchange.fetch_open_orders(symbol_request)
+                orders = client.fetch_open_orders(symbol_request, None, None)
 
             if orders:
                 o = orders[0]
@@ -155,7 +138,9 @@ def main():
         # 5. OHLCV
         print_section("OHLCV")
         try:
-            ohlcv = exchange.fetch_ohlcv(symbol_request, "1m", limit=1)
+            ohlcv = client.fetch_ohlcv_latest_limit(
+                symbol_request, "1m", 1, enable_cache=False
+            ).rows
             if ohlcv:
                 item = ohlcv[0]
                 labels = ["Time", "Open", "High", "Low", "Close", "Volume"]
@@ -167,7 +152,7 @@ def main():
         # 6. Position (fetch_positions)
         print_section("Position")
         try:
-            positions = exchange.fetch_positions([symbol_request])
+            positions = client.fetch_positions([symbol_request])
             if positions:
                 p = positions[0]
                 keys = [

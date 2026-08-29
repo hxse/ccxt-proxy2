@@ -53,6 +53,7 @@ CcxtClient
 - 每个 DuckDB file 有独立 process-local write lock；读取依赖 snapshot isolation。
 - CCXT 与 DuckDB 不使用 `FileLock`；TQ 保持现有 `FileLock`。
 - Network 不在 DuckDB write lock 内运行。
+- Application shutdown/reinitialize 会幂等关闭 CCXT sessions、DuckDB connections、TqApi 和 Telegram HTTP client；CCXT close 与 attempt 串行，DuckDB close 等待 active readers，关闭后的旧对象拒绝新操作，不得只依赖进程退出回收。
 
 ## 5. Provider 能力不强行对称
 
@@ -63,7 +64,7 @@ CcxtClient
 
 两者支持三类 OHLCV Route、共用自分页和 DuckDB cache。完整分页的支持域是正常、固定周期连续的 crypto OHLCV；异常 gap 或满页 no-progress 必须 fail-fast，不建设自适应补拉系统。
 
-Binance Spot 和 Kraken Spot 继续暴露已有 Route，但只属于 best-effort，不作正式可用性承诺。Kraken Spot 只 thin-forward，不自分页、不读写 cache、不支持 `SinceLatest`；Kraken Spot sandbox 明确不支持。所有 Provider 均在方法入口检查 timeframe/method capability，不支持时返回稳定 `NOT_SUPPORTED`。
+Binance Spot 和 Kraken Spot 继续暴露已有 Route，但只属于 best-effort，不作正式可用性承诺。Kraken Spot 只 thin-forward，不自分页、不读写 cache、不支持 `SinceLatest`；Kraken Spot sandbox 明确不支持。所有 Provider 均在方法入口检查 method、timeframe 和 symbol market-scope capability；Binance inverse 统一返回稳定 `NOT_SUPPORTED`，其他未知 symbol 返回 `INVALID_PROVIDER_REQUEST`。
 
 ## 6. 不变量
 
@@ -93,10 +94,12 @@ src/
     ccxt_trading.py     # private account/order mixin
     ccxt_ohlcv.py       # private manual pagination
     ccxt_transport.py   # private lock/retry boundary
+    ccxt_errors.py      # private stable Provider error taxonomy
     tq_manager.py
     tq_data_source.py
   cache_tool/
     duckdb_ohlcv_cache.py
+    duckdb_schema.py       # private schema/version initialization
     models.py
   router/
     trader_router.py

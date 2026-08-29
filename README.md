@@ -19,6 +19,17 @@ uv run uvicorn src.main:app --host 127.0.0.1 --port 5123 --reload
 
 Windows 本地开发优先使用 `127.0.0.1`，避免 `localhost + --reload` 带来额外延迟。
 
+服务启动后可访问自动生成的 API 文档：
+
+```text
+Swagger UI  http://127.0.0.1:5123/docs
+Scalar UI   http://127.0.0.1:5123/scalar
+ReDoc       http://127.0.0.1:5123/redoc
+OpenAPI     http://127.0.0.1:5123/openapi.json
+```
+
+每个公开 operation 都必须提供 summary、行为/副作用说明、tag 和成功响应说明；该约束由离线 OpenAPI contract test 固化。
+
 可选的 DuckDB cache 配置（省略时使用以下默认值）：
 
 ```json
@@ -39,13 +50,19 @@ just test
 
 `Test/online` 和 `debug/route_tests` 会访问外部服务或沙盒账户，不属于默认离线测试。
 
-仅运行 Futures OHLCV 只读 online smoke test：
+聚合运行 CCXT 与 TQ 只读 online tests：
+
+```bash
+just test-online
+```
+
+仅运行 CCXT Futures 只读 online tests：
 
 ```bash
 just test-ccxt-online
 ```
 
-该入口不调用下单、撤单、平仓或设置类 API。
+这些 online 入口不调用下单、撤单、平仓、设置类 API，也不发送 Telegram 消息。
 
 ## Docker
 

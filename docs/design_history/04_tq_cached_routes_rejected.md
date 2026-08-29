@@ -80,13 +80,13 @@ TqClient 使用自适应 data_length：
 建议新增：
 
 ```text
-GET /ccxt/ohlcv/from-start
+GET /ccxt/fetch_ohlcv/from-start
     since + limit
 
-GET /ccxt/ohlcv/latest
+GET /ccxt/fetch_ohlcv/latest
     limit
 
-GET /ccxt/ohlcv/from-start-to-latest
+GET /ccxt/fetch_ohlcv/from-start-to-latest
     since
 ```
 

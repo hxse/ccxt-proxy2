@@ -122,7 +122,14 @@ class AppConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_exchange_whitelist_dependencies(self) -> "AppConfig":
+        seen_identities: set[tuple[ExchangeName, MarketType, ModeType]] = set()
         for item in self.exchange_whitelist:
+            identity = (item.exchange, item.market, item.mode)
+            if identity in seen_identities:
+                raise ValueError(
+                    "duplicate exchange_whitelist identity: " + "/".join(identity)
+                )
+            seen_identities.add(identity)
             if (
                 item.exchange == "kraken"
                 and item.market == "spot"

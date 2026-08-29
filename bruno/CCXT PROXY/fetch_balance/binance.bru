@@ -6,7 +6,7 @@ meta {
 
 get {
   url: {{baseUrl}}/ccxt/fetch_balance?exchange_name=binance&market=future&mode=sandbox
-  body: json
+  body: none
   auth: inherit
 }
 
@@ -14,4 +14,8 @@ params:query {
   exchange_name: binance
   market: future
   mode: sandbox
+}
+
+assert {
+  res.status: eq 200
 }

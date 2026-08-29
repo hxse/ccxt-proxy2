@@ -1,7 +1,8 @@
 from typing import Any
 
 import ccxt
-from loguru import logger
+
+from src.domain_errors import InvalidProviderData
 
 
 class _CcxtTradingMixin:
@@ -10,25 +11,29 @@ class _CcxtTradingMixin:
     market: str
 
     def fetch_tickers(self, symbols: list[str] | None = None):
+        self._validate_symbols(symbols)
         return self._read_method("fetchTickers", "fetch_tickers", symbols, params={})
 
     def fetch_balance(self):
         return self._read_method("fetchBalance", "fetch_balance", params={})
 
     def fetch_market_info(self, symbol: str) -> dict[str, Any]:
-        market = self.exchange.market(symbol)
+        market = self._resolve_market(symbol)
         minimum = market["limits"]["amount"]["min"]
         if minimum is None:
             minimum = market["precision"]["amount"]
-        leverage = 1
-        try:
+        leverage: int | None = None
+        if self.exchange.has.get("fetchPositions"):
             positions = self.fetch_positions([symbol])
             if positions:
-                leverage = int(positions[0].get("leverage") or 1)
-        except Exception:
-            logger.bind(symbol=symbol).warning(
-                "fetch_positions failed while deriving leverage; using 1"
-            )
+                value = positions[0].get("leverage")
+                if value is not None:
+                    try:
+                        leverage = int(value)
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        raise InvalidProviderData(
+                            "provider returned an invalid leverage value"
+                        ) from exc
         return {
             "symbol": symbol,
             "linear": bool(market.get("linear", False)),
@@ -48,6 +53,7 @@ class _CcxtTradingMixin:
         price: float | None = None,
         params: dict[str, Any] | None = None,
     ):
+        self._validate_symbol(symbol)
         return self._write_method(
             "createOrder",
             "create_order",
@@ -164,6 +170,7 @@ class _CcxtTradingMixin:
         )
 
     def fetch_order(self, order_id: str, symbol: str | None):
+        self._validate_symbol(symbol)
         try:
             return self._read_method(
                 "fetchOrder", "fetch_order", order_id, symbol, params={}
@@ -182,6 +189,7 @@ class _CcxtTradingMixin:
     def cancel_order(
         self, order_id: str, symbol: str | None, params: dict[str, Any] | None = None
     ):
+        self._validate_symbol(symbol)
         try:
             return self._write_method(
                 "cancelOrder", "cancel_order", order_id, symbol, params=params or {}
@@ -200,6 +208,7 @@ class _CcxtTradingMixin:
     def cancel_all_orders(
         self, symbol: str | None, params: dict[str, Any] | None = None
     ):
+        self._validate_symbol(symbol)
         base_params = params or {}
         first = self._write_method(
             "cancelAllOrders", "cancel_all_orders", symbol, params=base_params
@@ -215,11 +224,13 @@ class _CcxtTradingMixin:
         return [first, second]
 
     def fetch_my_trades(self, symbol: str | None, since: int | None, limit: int | None):
+        self._validate_symbol(symbol)
         return self._read_method(
             "fetchMyTrades", "fetch_my_trades", symbol, since, limit, params={}
         )
 
     def fetch_positions(self, symbols: list[str] | None = None):
+        self._validate_symbols(symbols)
         return self._read_method(
             "fetchPositions", "fetch_positions", symbols, params={}
         )
@@ -227,6 +238,7 @@ class _CcxtTradingMixin:
     def set_leverage(
         self, leverage: int, symbol: str | None, params: dict[str, Any] | None = None
     ):
+        self._validate_symbol(symbol)
         return self._write_method(
             "setLeverage", "set_leverage", leverage, symbol, params=params or {}
         )
@@ -237,6 +249,7 @@ class _CcxtTradingMixin:
         symbol: str | None,
         params: dict[str, Any] | None = None,
     ):
+        self._validate_symbol(symbol)
         return self._write_method(
             "setMarginMode",
             "set_margin_mode",
@@ -253,6 +266,7 @@ class _CcxtTradingMixin:
         since: int | None,
         limit: int | None,
     ) -> list[dict[str, Any]]:
+        self._validate_symbol(symbol)
         ordinary = self._read_method(
             capability, method, symbol, since, limit, params={}
         )
@@ -274,4 +288,13 @@ class _CcxtTradingMixin:
         raise NotImplementedError
 
     def _write_method(self, capability: str, method: str, *args: Any, **kwargs: Any):
+        raise NotImplementedError
+
+    def _resolve_market(self, symbol: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def _validate_symbol(self, symbol: str | None) -> None:
+        raise NotImplementedError
+
+    def _validate_symbols(self, symbols: list[str] | None) -> None:
         raise NotImplementedError

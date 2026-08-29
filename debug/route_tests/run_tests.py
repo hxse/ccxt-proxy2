@@ -9,6 +9,8 @@ if os.getcwd() not in sys.path:
 
 
 def run_tests_and_report():
+    if os.getenv("CCXT_STATEFUL_DEBUG") != "1":
+        raise SystemExit("stateful route report requires CCXT_STATEFUL_DEBUG=1")
     print("Running Route Tests...")
 
     # Define report path

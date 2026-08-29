@@ -2,6 +2,8 @@
 
 > **Status: Rejected design. Do not implement.** 本文概括旧方案的边界和否决理由；逐篇原始设计与测试矩阵保存在 [`design_history`](../design_history/README.md)。
 
+> 本文中的 `include_last` 仅是旧 RouteIntent 档案；当前公开和内部 OHLCV API 均已删除该参数。
+
 ## 1. 原问题
 
 旧蓝图试图同时解决：

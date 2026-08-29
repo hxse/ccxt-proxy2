@@ -17,7 +17,16 @@ file_router = APIRouter(
 BASE_DIR = STRATEGY_DIR.resolve()
 
 
-@file_router.get("/list")
+@file_router.get(
+    "/list",
+    summary="列出 strategy 文件",
+    description=(
+        "递归列出服务端 strategy 根目录内的文件，返回相对 filename/path；"
+        "目录为空时返回 No files found。"
+    ),
+    response_description="文件列表或空目录提示。",
+    responses={401: {"description": "Bearer token 无效或缺失。"}},
+)
 async def list_files():
     """
     返回所有文件的列表。
@@ -46,7 +55,20 @@ async def list_files():
     return {"files": file_list}
 
 
-@file_router.post("/upload")
+@file_router.post(
+    "/upload",
+    summary="上传 strategy 文件",
+    description=(
+        "通过 multipart/form-data 上传单个文件到 strategy 根目录下的相对 path。"
+        "服务端 resolve 最终路径并拒绝 .. 或 symlink 逃逸；同名文件会被覆盖。"
+    ),
+    response_description="实际保存的相对文件名和成功消息。",
+    responses={
+        400: {"description": "文件名缺失或目标路径逃逸 strategy 根目录。"},
+        401: {"description": "Bearer token 无效或缺失。"},
+        500: {"description": "文件写入失败，响应不会暴露内部路径。"},
+    },
+)
 async def upload_file(path: str = Form(default=""), file: UploadFile = File(...)):
     """
     上传单个文件并保存到服务器。支持任意文件类型和相对路径。
@@ -80,7 +102,21 @@ async def upload_file(path: str = Form(default=""), file: UploadFile = File(...)
         raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
 
 
-@file_router.get("/download")
+@file_router.get(
+    "/download",
+    response_class=FileResponse,
+    summary="下载 strategy 文件",
+    description=(
+        "按相对 path 和 filename 下载 strategy 根目录内的文件。服务端拒绝 .. "
+        "和 symlink 路径逃逸。"
+    ),
+    response_description="application/octet-stream 文件内容。",
+    responses={
+        400: {"description": "filename 缺失或目标路径逃逸 strategy 根目录。"},
+        401: {"description": "Bearer token 无效或缺失。"},
+        404: {"description": "目标文件不存在。"},
+    },
+)
 async def download_file(path: str = "", filename: str = ""):
     """
     根据路径和文件名下载单个文件。支持任意文件类型和相对路径。

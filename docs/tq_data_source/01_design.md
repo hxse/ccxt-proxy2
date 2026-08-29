@@ -7,7 +7,7 @@
 TQ 是独立 thin-forward data source，不是 CCXT OHLCV Provider adapter。
 
 - 不支持 `since`。
-- 不支持 CCXT `limit/include_last/enable_cache` 语义。
+- 不支持 CCXT `limit/enable_cache` 语义。
 - 不接入 `DuckDbOhlcvCache`。
 - 不做 window estimator、snapshot anchor、successor proof 或外层磁盘 cache。
 - 复用 TqSdk 同一 `TqApi` 实例中的 realtime serial。
@@ -129,6 +129,8 @@ History 原始 Pandas 宽表必须转为长表，不将 symbol 作为动态 JSON
 ## 9. `TqManager` lifecycle 与 lock
 
 一个 process 使用一个 singleton `TqManager`，惰性持有一个 `TqApi`。每次创建新 API 会丢失 serial reuse，因此禁止 per-request initialization。
+
+Application lifespan shutdown 调用幂等 `TqManager.close()`，在持有同一 FileLock 时关闭并清空 `TqApi`；不只依赖进程退出回收状态客户端。
 
 `TqApi` 是状态客户端，所有访问继续通过 TQ 自己的 `FileLock`。这是独立于 CCXT `threading.Lock` 和 DuckDB write lock 的锁域。
 

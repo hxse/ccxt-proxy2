@@ -45,13 +45,6 @@ class OhlcvResult:
         if self.rows and self.last_bar_completion_confirmed is None:
             raise ValueError("non-empty OHLCV result requires completion metadata")
 
-    def for_response(self, include_last: bool) -> "OhlcvResult":
-        if include_last or not self.rows:
-            return self
-        rows = self.rows[:-1]
-        return OhlcvResult(rows, True if rows else None)
-
-
 def canonical_row(values: Sequence[object]) -> OhlcvRow:
     if len(values) < 6:
         raise ValueError("OHLCV row requires six values")

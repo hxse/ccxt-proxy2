@@ -2,6 +2,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from src.cache_tool import DuckDbOhlcvCache, OhlcvResult
 from src.tools.ccxt_client import CcxtClient
 
@@ -148,3 +150,33 @@ def test_duckdb_reader_sees_precommit_or_postcommit_snapshot(temp_dir, monkeypat
     after_commit = cache.read_best_prefix("series", 1, None)
     assert [row[0] for row in before_commit] == [1, 2]
     assert [row[0] for row in after_commit] == [1, 2, 3]
+
+
+def test_duckdb_close_waits_for_active_reader(temp_dir, monkeypatch):
+    cache = DuckDbOhlcvCache(temp_dir / "close.duckdb", 100_001, 200_000)
+    cache.write_segment("series", OhlcvResult([_row(1), _row(2)], True), 1)
+    read_started = threading.Event()
+    allow_read = threading.Event()
+    original_connection = cache._connection
+
+    class BlockingConnection:
+        def execute(self, query, parameters):
+            read_started.set()
+            assert allow_read.wait(2)
+            return original_connection().execute(query, parameters)
+
+    monkeypatch.setattr(cache, "_connection", lambda: BlockingConnection())
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        reader = executor.submit(cache.read_best_prefix, "series", 1, None)
+        assert read_started.wait(2)
+        closer = executor.submit(cache.close)
+        with cache._lifecycle:
+            assert cache._lifecycle.wait_for(lambda: cache._closing, timeout=2)
+        assert not closer.done()
+        allow_read.set()
+        assert [row[0] for row in reader.result(timeout=2)] == [1, 2]
+        closer.result(timeout=2)
+
+    with pytest.raises(RuntimeError, match="is closed"):
+        cache.read_best_prefix("series", 1, None)

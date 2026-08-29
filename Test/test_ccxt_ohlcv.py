@@ -200,6 +200,24 @@ def test_binance_calendar_month_does_not_use_fixed_millisecond_continuity_check(
     assert result.last_bar_completion_confirmed is True
 
 
+def test_binance_calendar_month_latest_pages_with_until_anchor():
+    months = [
+        1_704_067_200_000,
+        1_706_745_600_000,
+        1_709_251_200_000,
+        1_711_929_600_000,
+    ]
+    source = PageSource(months)
+    fetcher = OhlcvNetworkFetcher("binance", "future", source)
+    fetcher.page_limit = 3
+
+    result = fetcher.fetch_latest_limit("BTC/USDT:USDT", "1M", 4, "default")
+
+    assert [row[0] for row in result.rows] == months
+    assert source.calls[1]["since"] is None
+    assert source.calls[1]["params"] == {"until": months[1]}
+
+
 def test_invalid_provider_row_fails_the_whole_network_operation():
     def invalid_page(*args, **kwargs):
         return [[10, 1.0, float("nan"), 0.0, 1.0, 1.0]]

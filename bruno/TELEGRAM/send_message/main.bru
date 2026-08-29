@@ -1,5 +1,5 @@
 meta {
-  name: main
+  name: main [STATEFUL]
   type: http
   seq: 1
 }
@@ -13,9 +13,9 @@ post {
 body:json {
   {
     "chats": [
-      "{{telegramChat}}"
+      "scanner"
     ],
-    "text": "{{telegramText}}",
+    "text": "ccxt-proxy2 telegram test",
     "disable_web_page_preview": true,
     "disable_notification": false
   }

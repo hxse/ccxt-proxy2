@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/ohlcv/since-limit
+  url: {{baseUrl}}/ccxt/fetch_ohlcv/since-limit?exchange_name=binance&market=future&mode=live&symbol=BTC/USDT:USDT&timeframe=15m&since=1740787200000&limit=3&variant=default&enable_cache=true
   body: none
   auth: inherit
 }
@@ -17,8 +17,11 @@ params:query {
   symbol: BTC/USDT:USDT
   timeframe: 15m
   since: 1740787200000
-  limit: 10
+  limit: 3
   variant: default
   enable_cache: true
-  include_last: true
+}
+
+assert {
+  res.status: eq 200
 }

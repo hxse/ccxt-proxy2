@@ -123,9 +123,5 @@ def calc_order_amount(market, target_value_usd, price):
 ### 3.4 杠杆配置验证 (Leverage Verification)
 - **脚本**: [`debug/debug_leverage.py`](../../debug/debug_leverage.py)
 - **复现命令**: `just debug-leverage`
-- **验证结论**:
-  - ✅ **Binance U本位**: `fetch_leverage_tiers` 返回 10 个档位 (Max 125x)。
-  - ⚠️ **Binance 币本位**: 沙盒环境未返回 Tiers 数据，可能需生产环境验证。
-  - ✅ **Kraken U本位**: `fetch_leverage_tiers` 返回 6 个档位 (Max 50x)。
-  - ✅ **Kraken 币本位**: 需使用 `future` 实例访问，返回 1 个合并档位 (Max 50x)。
-  - ℹ️ **说明**: 杠杆信息需通过 `fetch_positions()` 获取当前持仓的实际杠杆值。
+- **当前脚本边界**: 通过生产 `CcxtClient.fetch_market_info()` 检查 Binance USDⓈ-M linear 与 Kraken Futures，不再构造 Binance Coin-M exchange，也不直接调用未暴露的 raw leverage-tier API。
+- **说明**: 只有 `fetch_positions()` 返回明确 leverage 时，market-info 才返回整数；没有 position 证据时返回 `null`，不能用 1 代表 unknown。

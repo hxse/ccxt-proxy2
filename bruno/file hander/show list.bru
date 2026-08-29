@@ -10,10 +10,10 @@ get {
   auth: inherit
 }
 
-body:multipart-form {
-  : @file(D:\my_repo\ccxt-proxy2\README.md)
-}
-
 settings {
   encodeUrl: true
+}
+
+assert {
+  res.status: eq 200
 }
