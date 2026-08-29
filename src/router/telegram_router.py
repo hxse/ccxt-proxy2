@@ -7,7 +7,6 @@ from src.router.auth_handler import manager
 from src.tools.telegram_manager import telegram_manager
 from src.types_telegram import TelegramSendMessageRequest
 
-
 telegram_router = APIRouter(
     prefix="/telegram",
     dependencies=[Depends(manager)],

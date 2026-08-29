@@ -1,8 +1,7 @@
 import ccxt
 
-from src.types import MarketType, ModeType
+from src.base_types import MarketType, ModeType
 from src.tools.config_types import AppConfig
-from src.tools.retry_utils import call_with_retry
 
 
 def get_binance_exchange(
@@ -39,17 +38,14 @@ def get_binance_exchange(
         # binance_exchange.set_sandbox_mode(True)
         binance_exchange.enable_demo_trading(True)
 
-    call_with_retry(
-        binance_exchange.load_markets,
-        operation_name=f"binance/{market}/{mode} load_markets",
-    )
-
     return binance_exchange
 
 
 def get_kraken_exchange(
     config: AppConfig, market: MarketType, mode: ModeType = "sandbox"
 ):
+    if market == "spot" and mode == "sandbox":
+        raise ValueError("kraken spot sandbox is not supported")
     kraken_config = config.kraken
     if kraken_config is None:
         raise ValueError("kraken config is missing")
@@ -81,10 +77,5 @@ def get_kraken_exchange(
         kraken_exchange.httpProxy = http_proxy if kraken_config.enable_proxy else None
         if mode == "sandbox":
             kraken_exchange.set_sandbox_mode(True)
-
-    call_with_retry(
-        kraken_exchange.load_markets,
-        operation_name=f"kraken/{market}/{mode} load_markets",
-    )
 
     return kraken_exchange

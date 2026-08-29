@@ -7,23 +7,22 @@ dependencies = [
     "uvicorn",
     "ccxt",
     "pydantic",
-    "pyarrow",
     "filelock",
     "jinja2",
     "scalar-fastapi",
     "python-multipart",
-    "polars",
     "numpy",
     "tzdata",
     "fastapi-login",
     "loguru",
     "tqsdk",
     "httpx",
+    "duckdb>=1.5.5",
+    "pandas>=3.0.5",
 ]
 
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.12.0",
     "pytest",
 ]

@@ -1,15 +1,17 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Annotated, get_args
+from typing import Annotated, Literal, get_args
+
 from fastapi import Query
+from pydantic import BaseModel, Field
+
 from src.base_types import (
-    ExchangeName,
-    MarketType,
-    ModeType,
-    SideType,
-    PositionSide,
     VALID_PERIODS,
     BaseExchangeRequest,
     BaseSymbolRequest,
+    ExchangeName,
+    MarketType,
+    ModeType,
+    PositionSide,
+    SideType,
 )
 
 
@@ -19,18 +21,11 @@ class ExchangeWhitelistItem(BaseModel):
     mode: ModeType
 
 
-class FileInfo(BaseModel):
-    """缓存文件信息模型"""
-
-    symbol: str
-    period: str
-    start_time: int
-    end_time: int
-    count: int
+OhlcvVariant = Literal["default", "mark", "index", "premiumIndex"]
 
 
-class OHLCVParams(BaseSymbolRequest):
-    """OHLCV 请求参数模型"""
+class BaseOhlcvRequest(BaseSymbolRequest):
+    """三个 OHLCV 路由共享的无歧义参数。"""
 
     timeframe: VALID_PERIODS = Field(
         ...,
@@ -38,21 +33,26 @@ class OHLCVParams(BaseSymbolRequest):
         description="K线周期 (Min: 1m, Max: 1M)",
         examples=list(get_args(VALID_PERIODS)),
     )
-    since: Optional[int] = Field(
-        None,
-        title="起始时间戳 (ms)",
-        description="获取该时间之后的数据",
-        examples=[1672531200000],
-    )
-    limit: Optional[int] = Field(
-        None, title="数据条数", description="默认 100, 最大 1000", examples=[100]
-    )
+    variant: OhlcvVariant = Field("default", title="价格序列")
     enable_cache: bool = Field(
-        True, title="启用缓存", description="是否优先从本地缓存读取"
+        True, title="启用缓存", description="False 时同时禁止 cache read/write"
     )
-    enable_test: bool = Field(
-        False, title="启用测试模式(返回假数据)", description="仅用于调试"
+    include_last: bool = Field(
+        True, title="包含最后一根", description="False 时机械删除 response 尾行"
     )
+
+
+class SinceLimitOhlcvRequest(BaseOhlcvRequest):
+    since: int = Field(..., ge=0, title="起始时间戳 (ms)")
+    limit: int = Field(..., ge=1, le=100_000, title="最大返回数量")
+
+
+class SinceLatestOhlcvRequest(BaseOhlcvRequest):
+    since: int = Field(..., ge=0, title="起始时间戳 (ms)")
+
+
+class LatestLimitOhlcvRequest(BaseOhlcvRequest):
+    limit: int = Field(..., ge=1, le=100_000, title="最新倒数数量")
 
 
 class MarketOrderRequest(BaseSymbolRequest):
@@ -85,8 +85,8 @@ class StopMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
     amount: float = Field(..., title="数量", examples=[0.001])
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: float | None = Field(
-        None, title="触发价格", description="止损触发价格", examples=[39000.0]
+    triggerPrice: float = Field(
+        ..., gt=0, title="触发价格", description="止损触发价格", examples=[39000.0]
     )
     clientOrderId: str | None = Field(
         None, title="客户端自定义ID", examples=["stop_loss_1"]
@@ -104,8 +104,8 @@ class TakeProfitMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
     amount: float = Field(..., title="数量", examples=[0.001])
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: float | None = Field(
-        None, title="触发价格", description="止盈触发价格", examples=[42000.0]
+    triggerPrice: float = Field(
+        ..., gt=0, title="触发价格", description="止盈触发价格", examples=[42000.0]
     )
     clientOrderId: str | None = Field(
         None, title="客户端自定义ID", examples=["take_profit_1"]
@@ -174,4 +174,41 @@ class FetchOrderRequest(BaseExchangeRequest):
     id: str = Field(..., title="订单ID", examples=["1234567890"])
 
 
-# MarketInfoResponse has been moved to src/responses.py
+class FetchOpenOrdersRequest(BaseExchangeRequest):
+    symbol: str | None = None
+    since: int | None = None
+    limit: int | None = None
+
+
+class FetchClosedOrdersRequest(BaseExchangeRequest):
+    symbol: str | None = None
+    since: int | None = None
+    limit: int | None = None
+
+
+class FetchMyTradesRequest(BaseExchangeRequest):
+    symbol: str | None = None
+    since: int | None = None
+    limit: int | None = None
+
+
+class FetchPositionsRequest(BaseExchangeRequest):
+    symbols: list[str] | None = None
+
+
+class SetLeverageRequest(BaseExchangeRequest):
+    leverage: int
+    symbol: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class SetMarginModeRequest(BaseExchangeRequest):
+    marginMode: Literal["cross", "isolated"]
+    symbol: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class CancelOrderRequest(BaseExchangeRequest):
+    id: str
+    symbol: str | None = None
+    model_config = {"extra": "allow"}

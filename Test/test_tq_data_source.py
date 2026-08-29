@@ -1,11 +1,11 @@
 import math
 
-import polars as pl
+import pandas as pd
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from src.tools.config_types import TqConfig
 from src.tools.tq_data_source import (
     TqDataFrameError,
     clean_tq_serial_records,
@@ -13,7 +13,6 @@ from src.tools.tq_data_source import (
     normalize_tq_serial_frame,
 )
 from src.tools.tq_manager import TqManager
-from src.tools.config_types import TqConfig
 from src.types_tq import (
     MAX_TQ_DATA_LENGTH,
     TQ_ADJ_TYPE_QUERY_ENUM,
@@ -32,7 +31,7 @@ class FakeTqApi:
 
     def get_kline_serial(self, symbol, duration_seconds, data_length, adj_type=None):
         self.calls.append("get_kline_serial")
-        return pl.DataFrame(
+        return pd.DataFrame(
             {
                 "datetime": [1718000000000000000],
                 "open": [3600.0],
@@ -44,7 +43,7 @@ class FakeTqApi:
 
     def get_tick_serial(self, symbol, data_length, adj_type=None):
         self.calls.append("get_tick_serial")
-        return pl.DataFrame(
+        return pd.DataFrame(
             {
                 "datetime": [1718000000000000000],
                 "last_price": [3605.0],
@@ -83,7 +82,7 @@ def _build_tq_dependency_app() -> FastAPI:
 
 
 def test_kline_trims_leading_placeholders_and_allows_short_response():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "id": [-1, 10, 11],
             "datetime": [0, 1718000000000000000, 1718000060000000000],
@@ -105,7 +104,7 @@ def test_kline_trims_leading_placeholders_and_allows_short_response():
 
 
 def test_kline_middle_placeholder_is_not_silently_removed():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "datetime": [1718000000000000000, 0, 1718000060000000000],
             "open": [3600.0, math.nan, 3601.0],
@@ -120,7 +119,7 @@ def test_kline_middle_placeholder_is_not_silently_removed():
 
 
 def test_kline_rejects_non_increasing_datetime():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "datetime": [1718000000000000000, 1718000000000000000],
             "open": [3600.0, 3601.0],
@@ -135,7 +134,7 @@ def test_kline_rejects_non_increasing_datetime():
 
 
 def test_tick_trims_leading_placeholder_using_price_fields_not_volume():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "datetime": [0, 1718000000000000000],
             "last_price": [math.nan, 3605.0],
@@ -158,7 +157,7 @@ def test_tick_trims_leading_placeholder_using_price_fields_not_volume():
 
 
 def test_serialization_converts_nan_and_inf_to_none():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "datetime": [1718000000000000000],
             "open": [3600.0],
@@ -175,8 +174,23 @@ def test_serialization_converts_nan_and_inf_to_none():
     assert result[0]["volume"] is None
 
 
+def test_serial_rejects_row_when_every_price_is_non_finite():
+    frame = pd.DataFrame(
+        {
+            "datetime": [1718000000000000000],
+            "open": [float("inf")],
+            "high": [float("inf")],
+            "low": [float("-inf")],
+            "close": [float("nan")],
+        }
+    )
+
+    with pytest.raises(TqDataFrameError):
+        normalize_tq_serial_frame(frame, "kline")
+
+
 def test_history_wide_frame_converts_to_long_records():
-    frame = pl.DataFrame(
+    frame = pd.DataFrame(
         {
             "date": ["2026-06-10", "2026-06-11"],
             "KQ.m@DCE.i": ["DCE.i2509", "DCE.i2510"],
@@ -261,30 +275,15 @@ def test_tq_request_validation_uses_documented_http_errors():
 
 
 def test_tq_http_invalid_adj_type_uses_documented_error():
-    client = TestClient(_build_tq_dependency_app())
+    with pytest.raises(HTTPException) as exc_info:
+        tq_ohlcv_request(symbol=["SHFE.rb2505"], duration_seconds=60, adj_type="X")
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "TQ_INVALID_ADJ_TYPE"
 
-    response = client.get(
-        "/ohlcv",
-        params={
-            "symbol": "SHFE.rb2505",
-            "duration_seconds": 60,
-            "adj_type": "X",
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "TQ_INVALID_ADJ_TYPE"
-
-    response = client.get(
-        "/tick",
-        params={
-            "symbol": "SHFE.rb2505",
-            "adj_type": "X",
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "TQ_INVALID_ADJ_TYPE"
+    with pytest.raises(HTTPException) as exc_info:
+        tq_tick_request(symbol="SHFE.rb2505", adj_type="X")
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "TQ_INVALID_ADJ_TYPE"
 
 
 def test_tq_openapi_query_schema_documents_bounds_and_adj_type_enum():

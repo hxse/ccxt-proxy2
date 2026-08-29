@@ -1,5 +1,9 @@
 # CCXT 下单规则手册
 
+> **状态：Research snapshot。** 公式和示例来自当时的 market metadata 与 sandbox 验证；下单前仍须读取当前 Provider 返回的 precision、limit 与 contract metadata。目标代码归属见 [`CcxtClient`](../ccxt/01_client_architecture.md)。
+>
+> 表中保留币本位知识用于历史查阅；当前 Proxy 不支持 Binance COIN-M/inverse，只正式保证 Binance USDⓈ-M linear Futures。
+
 ## Part 1: API 字段说明
 
 > 针对 4 种场景: Binance U本位/币本位, Kraken U本位/币本位
@@ -53,22 +57,22 @@
 def calc_order_amount(market, target_value_usd, price):
     """
     计算符合精度要求的下单数量
-    
+
     Args:
         market: exchange.market(symbol) 返回的市场信息
         target_value_usd: 目标仓位价值 (USD)
         price: 当前价格
     """
-    precision = market['precision']['amount']
-    
-    if market['inverse']:  # 币本位
-        raw_amount = target_value_usd / market['contractSize']
+    precision = market["precision"]["amount"]
+
+    if market["inverse"]:  # 币本位
+        raw_amount = target_value_usd / market["contractSize"]
     else:  # U本位
         raw_amount = target_value_usd / price
-    
+
     # 关键：精度截断 (向下取整到精度倍数)
     final_amount = int(raw_amount / precision) * precision
-    
+
     return final_amount
 ```
 
@@ -92,10 +96,10 @@ def calc_order_amount(market, target_value_usd, price):
 
 ## Part 3: 测试报告
 
-> 运行 `just report` 生成最新报告
+> 以下验证依赖交易所 sandbox/账户状态；分别运行各节列出的 `just` 命令复核。
 
 ### 3.1 下单验证 (Order Verification)
-- **脚本**: [`debug/debug_order.py`](file:///d:/my_repo/ccxt-proxy2/debug/debug_order.py)
+- **脚本**: [`debug/route_tests/test_order_routes.py`](../../debug/route_tests/test_order_routes.py)
 - **复现命令**: `just debug-order`
 - **验证结论**:
   - ✅ **Binance U本位**: 下单 `0.005`，余额减少 ~22 USDT (约等于 0.005 BTC 价值)。证明 `amount` 為 **币数量**。
@@ -104,21 +108,21 @@ def calc_order_amount(market, target_value_usd, price):
   - ✅ **Kraken 币本位**: 下单 `10`，成功成交。证明 `amount` 為 **合约张数**。
 
 ### 3.2 最小数量限制验证 (Min Amt Verification)
-- **脚本**: [`debug/debug_min_size.py`](file:///d:/my_repo/ccxt-proxy2/debug/debug_min_size.py)
-- **复现命令**: `just debug-min`
+- **脚本**: [`debug/check_market_info_full.py`](../../debug/check_market_info_full.py)
+- **复现命令**: `just debug-market-info`
 - **验证结论**:
   - ✅ **动态获取**: 脚本成功从 `limits.amount.min` 获取最小限制。
   - ✅ **Kraken 特例**: 脚本识别 Kraken 返回 `None`，自动回退使用 `precision.amount` 作为最小值，验证通过。
 
 ### 3.3 精度截断验证 (Precision Verification)
-- **脚本**: [`debug/debug_precision.py`](file:///d:/my_repo/ccxt-proxy2/debug/debug_precision.py)
-- **复现命令**: `just debug-prec`
+- **脚本**: [`debug/check_precision.py`](../../debug/check_precision.py)
+- **复现命令**: `just debug-precision`
 - **验证结论**:
   - ✅ **Binance**: 传入非精度倍数（如 0.0015 且精度 0.001），API 报错或截断，验证了精度机制生效。
 
 ### 3.4 杠杆配置验证 (Leverage Verification)
-- **脚本**: [`debug/debug_leverage.py`](file:///d:/my_repo/ccxt-proxy2/debug/debug_leverage.py)
-- **复现命令**: `just debug-lev`
+- **脚本**: [`debug/debug_leverage.py`](../../debug/debug_leverage.py)
+- **复现命令**: `just debug-leverage`
 - **验证结论**:
   - ✅ **Binance U本位**: `fetch_leverage_tiers` 返回 10 个档位 (Max 125x)。
   - ⚠️ **Binance 币本位**: 沙盒环境未返回 Tiers 数据，可能需生产环境验证。

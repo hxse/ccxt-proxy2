@@ -1,6 +1,6 @@
+import time
 from dataclasses import dataclass
 from pathlib import Path
-import time
 from typing import Any
 
 from fastapi import HTTPException
@@ -191,9 +191,7 @@ class TqManager:
             product_id=_clean_text(getattr(quote, "product_id", None)),
         )
 
-    def _validate_underlying_item(
-        self, item: _UnderlyingItemDraft
-    ) -> TqUnderlyingItem:
+    def _validate_underlying_item(self, item: _UnderlyingItemDraft) -> TqUnderlyingItem:
         if item.ins_class != "CONT":
             raise HTTPException(status_code=422, detail="TQ_NOT_CONT_SYMBOL")
         if item.underlying_symbol is None:

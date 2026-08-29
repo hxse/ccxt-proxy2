@@ -44,10 +44,6 @@ cleanup:
 debug-order:
     just debug-route-test test_order_routes
 
-# 3. 调试已结订单查询
-debug-fetch-closed:
-    just debug debug_fetch_closed
-
 # 4. 调试精度
 debug-precision:
     just debug check_precision
@@ -81,10 +77,6 @@ debug-research-close-all:
 # 10. 验证响应模型
 debug-verify-response-models:
     just debug verify_response_models
-
-# 11. 验证 Binance adapter
-debug-verify-binance-adapter:
-    just debug verify_binance_adapter
 
 # 12. 验证原始字段
 debug-verify-all-fields:
@@ -203,7 +195,7 @@ bru-run path:
 
 # 只跑基础只读请求
 bru-readonly-basic:
-    cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY EXTENDED/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
+    cd bruno && bru run Root.bru 'CCXT PROXY/fetch_balance/binance.bru' 'CCXT PROXY/fetch_market_info/binance.bru' 'CCXT PROXY/fetch_positions/binance.bru' --env-file environments/ccxt-proxy2.bru --env-var user="$BRU_USER" --env-var password="$BRU_PASSWORD" --reporter-skip-all-headers --noproxy
 
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:
@@ -218,11 +210,17 @@ bru-telegram-send:
 test *args:
     uv run --no-sync pytest Test --ignore=Test/online {{args}}
 
+test-file path *args:
+    uv run --no-sync pytest "{{path}}" {{args}}
+
 test-tq-offline:
     uv run --no-sync pytest -v -ra Test/test_tq_*.py
 
 test-tq-online:
     TQ_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_tq_online.py
+
+test-ccxt-online:
+    CCXT_ONLINE=1 uv run --no-sync pytest -v -ra -s Test/online/test_ccxt_online.py
 
 test-telegram-offline:
     uv run --no-sync pytest -v -ra Test/test_telegram_*.py
@@ -234,10 +232,10 @@ fmt:
     uvx ruff format .
 
 lint:
-    uvx ruff check .
+    uvx ruff check --select E4,E7,E9,F,I src Test
 
 fix:
-    uvx ruff check --fix .
+    uvx ruff check --select E4,E7,E9,F,I --fix src Test
 
 check:
     uvx ty check

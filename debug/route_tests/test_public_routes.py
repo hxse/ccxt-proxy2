@@ -30,7 +30,7 @@ def test_fetch_tickers(client: TestClient):
         assert ticker["symbol"] == SYMBOL
 
 
-def test_fetch_ohlcv(client: TestClient):
+def test_fetch_ohlcv_latest_limit(client: TestClient):
     params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
@@ -39,9 +39,11 @@ def test_fetch_ohlcv(client: TestClient):
         "timeframe": "1h",
         "limit": 5,
     }
-    response = client.get("/ccxt/fetch_ohlcv", params=params)
+    response = client.get("/ccxt/ohlcv/latest-limit", params=params)
     assert response.status_code == 200
-    data = response.json()
+    body = response.json()
+    assert "last_bar_completion_confirmed" in body
+    data = body["rows"]
     assert isinstance(data, list)
 
     if len(data) > 0:

@@ -1,12 +1,11 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import pytest
+from pydantic import ValidationError
 
 from src.responses_telegram import (
     TelegramSendMessageItem,
     TelegramSendMessageResponse,
 )
-from src.router.auth_handler import manager as auth_manager
-from src.router.telegram_router import telegram_router
+from src.router.telegram_router import send_message
 from src.types_telegram import TelegramSendMessageRequest
 
 
@@ -30,32 +29,15 @@ class FakeTelegramManager:
         )
 
 
-def _client(fake_manager: FakeTelegramManager, monkeypatch) -> TestClient:
-    app = FastAPI()
-    app.dependency_overrides[auth_manager] = lambda: "test-user"
-    monkeypatch.setattr(
-        "src.router.telegram_router.telegram_manager",
-        fake_manager,
-    )
-    app.include_router(telegram_router)
-    return TestClient(app)
-
-
 def test_telegram_route_sends_message(monkeypatch):
     fake_manager = FakeTelegramManager()
-    client = _client(fake_manager, monkeypatch)
-
-    response = client.post(
-        "/telegram/send_message",
-        json={
-            "chats": ["scanner"],
-            "text": "hello",
-            "disable_notification": True,
-        },
+    monkeypatch.setattr("src.router.telegram_router.telegram_manager", fake_manager)
+    request = TelegramSendMessageRequest(
+        chats=["scanner"], text="hello", disable_notification=True
     )
+    response = send_message(request)
 
-    assert response.status_code == 200
-    assert response.json() == {
+    assert response.model_dump() == {
         "items": [
             {
                 "chat": "scanner",
@@ -77,16 +59,15 @@ def test_telegram_route_sends_message(monkeypatch):
 
 def test_telegram_route_rejects_raw_chat_id(monkeypatch):
     fake_manager = FakeTelegramManager()
-    client = _client(fake_manager, monkeypatch)
+    monkeypatch.setattr("src.router.telegram_router.telegram_manager", fake_manager)
 
-    response = client.post(
-        "/telegram/send_message",
-        json={
-            "chats": ["scanner"],
-            "chat_id": "-1001",
-            "text": "hello",
-        },
-    )
+    with pytest.raises(ValidationError):
+        TelegramSendMessageRequest.model_validate(
+            {
+                "chats": ["scanner"],
+                "chat_id": "-1001",
+                "text": "hello",
+            }
+        )
 
-    assert response.status_code == 422
     assert fake_manager.requests == []

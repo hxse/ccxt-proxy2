@@ -1,0 +1,24 @@
+meta {
+  name: kraken
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/ccxt/ohlcv/since-limit
+  body: none
+  auth: inherit
+}
+
+params:query {
+  exchange_name: kraken
+  market: future
+  mode: live
+  symbol: BTC/USD:USD
+  timeframe: 15m
+  since: 1740787200000
+  limit: 10
+  variant: default
+  enable_cache: true
+  include_last: true
+}

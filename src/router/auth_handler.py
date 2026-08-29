@@ -1,10 +1,11 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Response
-from fastapi_login.exceptions import InvalidCredentialsException
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_login import LoginManager
-from datetime import timedelta
-from src.tools.config_types import UserConfig
+from fastapi_login.exceptions import InvalidCredentialsException
 
+from src.tools.config_types import UserConfig
 from src.tools.shared import config
 
 # 创建鉴权路由

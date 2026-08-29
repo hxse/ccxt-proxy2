@@ -6,8 +6,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from src.tools.config_types import TelegramConfig
 from src.responses_telegram import TelegramSendMessageItem
+from src.tools.config_types import TelegramConfig
 from src.tools.telegram_manager import TelegramManager
 from src.types_telegram import TelegramSendMessageRequest
 

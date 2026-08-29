@@ -1,13 +1,12 @@
 import shutil
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from src.router.auth_handler import manager
 from src.router.logging_utils import INTERNAL_SERVER_ERROR_DETAIL
 from src.tools.shared import STRATEGY_DIR
-from src.router.auth_handler import manager
-
 
 # 创建文件处理路由，并添加鉴权依赖
 file_router = APIRouter(

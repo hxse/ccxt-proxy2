@@ -3,7 +3,6 @@ from typing import Annotated, Literal
 from fastapi import HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 TqAdjType = Literal["F", "B", "FORWARD", "BACK"]
 
 DEFAULT_TQ_DATA_LENGTH = 10000

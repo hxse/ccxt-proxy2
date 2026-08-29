@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
+
 from fastapi import status
-from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 root_path = next(
     (p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()),
@@ -12,19 +12,17 @@ if root_path:
     sys.path.insert(0, str(root_path))
 
 
-from src.tools.shared import app  # noqa: E402
-from src.router.trader_router import ccxt_router  # noqa: E402
-from src.router.file_handler import file_router  # noqa: E402
-from src.router.auth_handler import auth_router  # noqa: E402
-from src.router.extended_router import extended_router  # noqa: E402
-from src.router.tq_router import tq_router  # noqa: E402
-from src.router.telegram_router import telegram_router  # noqa: E402
 from scalar_fastapi import get_scalar_api_reference  # noqa: E402
 
+from src.router.auth_handler import auth_router  # noqa: E402
+from src.router.file_handler import file_router  # noqa: E402
+from src.router.telegram_router import telegram_router  # noqa: E402
+from src.router.tq_router import tq_router  # noqa: E402
+from src.router.trader_router import ccxt_router  # noqa: E402
+from src.tools.shared import app  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(ccxt_router)
-app.include_router(extended_router)
 app.include_router(file_router)
 app.include_router(tq_router)
 app.include_router(telegram_router)

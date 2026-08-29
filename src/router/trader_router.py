@@ -1,203 +1,238 @@
-from fastapi import APIRouter, Depends, HTTPException
-from src.router.logging_utils import internal_server_error, request_logger
-from src.tools.ccxt_utils import (
-    fetch_tickers_ccxt,
-    fetch_ohlcv_ccxt,
-    fetch_balance_ccxt,
-    fetch_market_info_ccxt,
-    create_market_order_ccxt,
-    create_limit_order_ccxt,
-    create_stop_market_order_ccxt,
-    create_take_profit_market_order_ccxt,
-    close_position_ccxt,
-    cancel_all_orders_ccxt,
-    fetch_order_ccxt,
+from typing import Any
+
+from fastapi import APIRouter, Depends
+
+from src.responses import (
+    BalanceResponse,
+    CancelAllOrdersResponse,
+    ClosePositionResponse,
+    GenericResponse,
+    MarketInfoResponse,
+    OhlcvResponse,
+    OrderResponse,
+    OrdersResponse,
+    PositionsResponse,
+    TickersResponse,
+    TradesResponse,
 )
 from src.router.auth_handler import manager
+from src.tools.exchange_manager import exchange_manager
 from src.types import (
-    MarketOrderRequest,
+    BalanceRequest,
+    CancelAllOrdersRequest,
+    CancelOrderRequest,
+    ClosePositionRequest,
+    FetchClosedOrdersRequest,
+    FetchMyTradesRequest,
+    FetchOpenOrdersRequest,
+    FetchOrderRequest,
+    FetchPositionsRequest,
+    LatestLimitOhlcvRequest,
     LimitOrderRequest,
+    MarketInfoRequest,
+    MarketOrderRequest,
+    SetLeverageRequest,
+    SetMarginModeRequest,
+    SinceLatestOhlcvRequest,
+    SinceLimitOhlcvRequest,
     StopMarketOrderRequest,
     TakeProfitMarketOrderRequest,
-    ClosePositionRequest,
-    CancelAllOrdersRequest,
-    OHLCVParams,
-    BalanceRequest,
     TickersRequest,
-    MarketInfoRequest,
-    FetchOrderRequest,
-)
-from src.responses import (
-    TickersResponse,
-    BalanceResponse,
-    OrderResponse,
-    MarketInfoResponse,
-    ClosePositionResponse,
-    CancelAllOrdersResponse,
 )
 
-# 创建文件处理路由，并添加鉴权依赖
 ccxt_router = APIRouter(
     prefix="/ccxt", dependencies=[Depends(manager)], tags=["CCXT PROXY"]
 )
 
 
+def _client(params):
+    return exchange_manager.get_client(params.exchange_name, params.market, params.mode)
+
+
+def _ohlcv_response(result) -> OhlcvResponse:
+    return OhlcvResponse(
+        rows=result.rows,
+        last_bar_completion_confirmed=result.last_bar_completion_confirmed,
+    )
+
+
+@ccxt_router.get("/ohlcv/since-limit", response_model=OhlcvResponse)
+def fetch_ohlcv_since_limit(params: SinceLimitOhlcvRequest = Depends()):
+    result = _client(params).fetch_ohlcv_since_limit(
+        params.symbol,
+        params.timeframe,
+        params.since,
+        params.limit,
+        variant=params.variant,
+        enable_cache=params.enable_cache,
+        include_last=params.include_last,
+    )
+    return _ohlcv_response(result)
+
+
+@ccxt_router.get("/ohlcv/since-latest", response_model=OhlcvResponse)
+def fetch_ohlcv_since_latest(params: SinceLatestOhlcvRequest = Depends()):
+    result = _client(params).fetch_ohlcv_since_latest(
+        params.symbol,
+        params.timeframe,
+        params.since,
+        variant=params.variant,
+        enable_cache=params.enable_cache,
+        include_last=params.include_last,
+    )
+    return _ohlcv_response(result)
+
+
+@ccxt_router.get("/ohlcv/latest-limit", response_model=OhlcvResponse)
+def fetch_ohlcv_latest_limit(params: LatestLimitOhlcvRequest = Depends()):
+    result = _client(params).fetch_ohlcv_latest_limit(
+        params.symbol,
+        params.timeframe,
+        params.limit,
+        variant=params.variant,
+        enable_cache=params.enable_cache,
+        include_last=params.include_last,
+    )
+    return _ohlcv_response(result)
+
+
 @ccxt_router.get("/fetch_balance", response_model=BalanceResponse)
-def get_balance(params: BalanceRequest = Depends()):
-    try:
-        result = fetch_balance_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("fetch_balance", params)
+def fetch_balance(params: BalanceRequest = Depends()):
+    return {"balance": _client(params).fetch_balance()}
 
 
 @ccxt_router.get("/fetch_tickers", response_model=TickersResponse)
-def get_tickers(params: TickersRequest = Depends()):
-    """
-    获取指定交易所的交易对报价（tickers）数据。
-    """
-    try:
-        result = fetch_tickers_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("fetch_tickers", params)
-
-
-@ccxt_router.get("/fetch_ohlcv", response_model=list[list[float]])
-def get_ohlcv(params: OHLCVParams = Depends()):
-    """
-    获取 OHLCV（开盘价、最高价、最低价、收盘价、成交量）数据。
-    """
-    try:
-        ohlcv_data = fetch_ohlcv_ccxt(params)
-        return ohlcv_data
-    except HTTPException as e:
-        request_logger("fetch_ohlcv", params).warning(
-            "fetch_ohlcv failed with http error: {}", e.detail
-        )
-        raise e
-    except Exception:
-        raise internal_server_error("fetch_ohlcv", params)
+def fetch_tickers(params: TickersRequest = Depends()):
+    return {"tickers": _client(params).fetch_tickers(params.symbols_list)}
 
 
 @ccxt_router.get("/fetch_market_info", response_model=MarketInfoResponse)
-def get_market_info(params: MarketInfoRequest = Depends()):
-    """
-    获取市场元数据 (用于下单计算)
-
-    返回精度、最小数量、合约类型、杠杆等信息。
-    """
-    try:
-        result = fetch_market_info_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("fetch_market_info", params)
+def fetch_market_info(params: MarketInfoRequest = Depends()):
+    return _client(params).fetch_market_info(params.symbol)
 
 
 @ccxt_router.get("/fetch_order", response_model=OrderResponse)
-def get_order(params: FetchOrderRequest = Depends()):
-    """
-    获取特定订单详情
-    注意kraken目前不支持
-    """
-    try:
-        result = fetch_order_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("fetch_order", params)
+def fetch_order(params: FetchOrderRequest = Depends()):
+    return {"order": _client(params).fetch_order(params.id, params.symbol)}
 
 
 @ccxt_router.post("/create_market_order", response_model=OrderResponse)
 def create_market_order(params: MarketOrderRequest):
-    """
-    在指定交易所创建市价订单。
-    """
-    try:
-        result = create_market_order_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("create_market_order", params)
+    extra = _order_extra(params)
+    order = _client(params).create_order(
+        params.symbol, "market", params.side, params.amount, params=extra
+    )
+    return {"order": order}
 
 
 @ccxt_router.post("/create_limit_order", response_model=OrderResponse)
 def create_limit_order(params: LimitOrderRequest):
-    """
-    在指定交易所创建限价订单。
-    """
-    try:
-        result = create_limit_order_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("create_limit_order", params)
+    extra = _order_extra(params)
+    if params.timeInForce:
+        extra["timeInForce"] = params.timeInForce
+    if params.postOnly:
+        extra["postOnly"] = True
+    order = _client(params).create_order(
+        params.symbol, "limit", params.side, params.amount, params.price, extra
+    )
+    return {"order": order}
 
 
 @ccxt_router.post("/create_stop_market_order", response_model=OrderResponse)
 def create_stop_market_order(params: StopMarketOrderRequest):
-    """
-    在指定交易所创建止损市价订单。
-    """
-    try:
-        result = create_stop_market_order_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("create_stop_market_order", params)
+    order = _client(params).create_stop_market_order(
+        params.symbol,
+        params.side,
+        params.amount,
+        params.triggerPrice,
+        reduce_only=params.reduceOnly,
+        client_order_id=params.clientOrderId,
+        time_in_force=params.timeInForce,
+        params=params.model_extra,
+    )
+    return {"order": order}
 
 
 @ccxt_router.post("/create_take_profit_market_order", response_model=OrderResponse)
 def create_take_profit_market_order(params: TakeProfitMarketOrderRequest):
-    """
-    在指定交易所创建止盈市价订单。
-    """
-    try:
-        result = create_take_profit_market_order_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("create_take_profit_market_order", params)
+    order = _client(params).create_take_profit_market_order(
+        params.symbol,
+        params.side,
+        params.amount,
+        params.triggerPrice,
+        reduce_only=params.reduceOnly,
+        client_order_id=params.clientOrderId,
+        time_in_force=params.timeInForce,
+        params=params.model_extra,
+    )
+    return {"order": order}
 
 
 @ccxt_router.post("/close_position", response_model=ClosePositionResponse)
 def close_position(params: ClosePositionRequest):
-    """
-    关闭指定品种的当前仓位 (不包含限价挂单和止盈止损挂单)。
-    "side": "long" "short" null, 如果是null就平仓所有方向
-
-
-    Equivalent to Close Position.
-    """
-    try:
-        result = close_position_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("close_position", params)
+    remaining = _client(params).close_position(
+        params.symbol, params.side, params.model_extra
+    )
+    return {"remaining_positions": remaining}
 
 
 @ccxt_router.post("/cancel_all_orders", response_model=CancelAllOrdersResponse)
 def cancel_all_orders(params: CancelAllOrdersRequest):
-    """
-    取消指定交易对所有挂单
-    """
-    try:
-        result = cancel_all_orders_ccxt(params)
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception:
-        raise internal_server_error("cancel_all_orders", params)
+    result = _client(params).cancel_all_orders(params.symbol, params.model_extra)
+    return {"result": result}
+
+
+@ccxt_router.get("/fetch_open_orders", response_model=OrdersResponse)
+def fetch_open_orders(params: FetchOpenOrdersRequest = Depends()):
+    orders = _client(params).fetch_open_orders(
+        params.symbol, params.since, params.limit
+    )
+    return {"orders": orders}
+
+
+@ccxt_router.get("/fetch_closed_orders", response_model=OrdersResponse)
+def fetch_closed_orders(params: FetchClosedOrdersRequest = Depends()):
+    orders = _client(params).fetch_closed_orders(
+        params.symbol, params.since, params.limit
+    )
+    return {"orders": orders}
+
+
+@ccxt_router.get("/fetch_my_trades", response_model=TradesResponse)
+def fetch_my_trades(params: FetchMyTradesRequest = Depends()):
+    trades = _client(params).fetch_my_trades(params.symbol, params.since, params.limit)
+    return {"trades": trades}
+
+
+@ccxt_router.get("/fetch_positions", response_model=PositionsResponse)
+def fetch_positions(params: FetchPositionsRequest = Depends()):
+    return {"positions": _client(params).fetch_positions(params.symbols)}
+
+
+@ccxt_router.post("/set_leverage", response_model=GenericResponse)
+def set_leverage(params: SetLeverageRequest):
+    result = _client(params).set_leverage(
+        params.leverage, params.symbol, params.model_extra
+    )
+    return {"result": result}
+
+
+@ccxt_router.post("/set_margin_mode", response_model=GenericResponse)
+def set_margin_mode(params: SetMarginModeRequest):
+    result = _client(params).set_margin_mode(
+        params.marginMode, params.symbol, params.model_extra
+    )
+    return {"result": result}
+
+
+@ccxt_router.post("/cancel_order", response_model=OrderResponse)
+def cancel_order(params: CancelOrderRequest):
+    order = _client(params).cancel_order(params.id, params.symbol, params.model_extra)
+    return {"order": order}
+
+
+def _order_extra(params) -> dict[str, Any]:
+    extra = dict(params.model_extra or {})
+    if params.clientOrderId:
+        extra["clientOrderId"] = params.clientOrderId
+    return extra

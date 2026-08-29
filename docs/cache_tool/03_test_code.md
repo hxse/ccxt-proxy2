@@ -1,114 +1,122 @@
-# 测试策略与覆盖说明
+# DuckDB OHLCV Cache 测试规范
 
-本测试套件旨在验证缓存系统的完整性、连续性和边界条件处理。
+> **Status: Maintained test contract.** 旧 Parquet/proof-log tests 已删除；本文定义当前 Client/Cache/Route 的必要回归覆盖，Provider 实际行为由显式 online smoke test 补充。
 
-## 测试目录结构
+## 1. 原则
 
-```
-Test/
-  conftest.py          # Pytest Fixtures (临时目录、Mock 数据配置)
-  utils.py             # 测试辅助函数 (Mock生成、连续性断言)
-  test_storage.py      # 存储层测试
-  test_log_manager.py  # 日志管理测试
-  test_continuity.py   # 连续性检查测试
-  test_integration.py  # 集成测试
-  test_cache_algorithm.py # 缓存算法专项测试
-  test_edge_cases.py   # 边界场景测试
-```
+- 默认测试全部离线，不访问 Binance/Kraken/TQ/Telegram。
+- Provider 测试使用单页 raw API response mock，验证 Client 自分页。
+- Cache 测试使用独立临时 DuckDB file，不共享 state。
+- Cache 正确性断言基于实际 timestamp/order/overlap，不使用 timeframe adjacency。
+- Binance/Kraken Futures network mock 在 `m/h/d/w` 上必须包含连续成功页与异常 gap 失败页；只有 Provider 实际支持的 `1M` 才可跳过固定毫秒邻接断言。
+- Online/debug tests 必须显式启用，不得进入默认 CI。
 
----
+## 2. CcxtClient/network tests
 
-## 1. 测试基础设施
+### 三类 Route
 
-### `conftest.py`
-- **`temp_dir`**: 为每个测试用例提供独立的临时目录，测试结束后自动清理。
-- **`sample_loc`**: 提供标准的 `DataLocation` 对象（Binance/BTC_USDT/15m）。
+- `SinceLimit`：数据足够、少于 limit、恰好 page boundary、多页。
+- `SinceLatest`：固定 snapshot、分页期间出现新 row 不追加。
+- `LatestLimit`：无 since，Provider 最新 N 根。
 
-### `utils.py`
-- **`mock_ohlcv(start, count, period_ms)`**: 生成可预测的 Mock 数据（价格随时间线性递增），便于验证。
-- **`assert_time_continuous(df)`**: 验证 DataFrame 中的时间戳是否严格连续。
+### Pagination
 
----
+- 第二页从上一页 tail 含首请求。
+- Overlap same timestamp 合并只保留新 row。
+- Binance/Kraken Futures 固定周期 page 出现非连续 timestamp 时触发 `NETWORK_INCOMPLETE`。
+- 连续性校验不搜索 gap、不扩大时间窗口、不返回 partial rows。
+- Page head 不含预期 anchor 时报错。
+- Empty/短页 anchor-only 可作为边界；满页 no-progress 必须返回 `NETWORK_INCOMPLETE`。
+- Network 中途失败不返回 partial result。
+- Read-only retry 按次数生效；create/cancel/close/leverage 不自动 retry。
 
-## 2. 存储层测试 (`test_storage.py`)
+### Tail evidence
 
-验证底层的 Parquet 读写能力。
+- `SinceLimit` 存在严格更晚 successor → metadata `true`。
+- Lookahead 只返回 overlap anchor → `false`。
+- Proof successor 不占 limit、不进 response、不作为未证明 cache tail。
+- `SinceLatest` 休盘无 successor → 返回 tail + metadata `false`。
+- `LatestLimit` 非空结果 metadata 始终保守 `false`。
+- 分页 overlap same timestamp 不能作为 successor。
 
-- **写入与读取**: 验证首次写入后能否正确读取。
-- **追加连续数据**: 验证首尾重叠的数据写入后，能否正确合并并去重（10+10-1=19）。
-- **时间范围过滤**: 验证 `read_ohlcv` 的 `start` / `end` 参数是否有效。
-- **幂等性**: 验证重复写入相同数据不会产生副作用。
-- **模式隔离**: 验证 `live` 和 `demo` 模式的数据是否严格隔离，互不干扰。
-- **缓存去尾**: 验证返回给用户的数据包含最后一根，但落盘数据默认不包含最后一根。
+## 3. Cache read tests
 
----
+- Exact since 命中。
+- Bracketed since 命中，predecessor 不返回。
+- Leading gap：`covered_from <= since < first_time` 命中。
+- `since < covered_from` 和 `since > last_time` miss。
+- 多 candidate 选可复用 rows 最多者；同数时按 freshness/tie-breaker。
+- 只读一个 segment，不自动拼第二段。
+- `max_rows` 硬限制 read result；`SinceLatest` 可用 100,001 检出超限。
+- Candidate 和 rows 在同一 snapshot。
 
-## 3. 日志管理测试 (`test_log_manager.py`)
+## 4. `covered_from` tests
 
-验证日志的记录、合并与重建。
+- 品种上市前 since/上市时 first row 产生 leading gap proof。
+- 后续更晚但仍早于 first row 的 since 复用同一 segment。
+- 更早 verified request 将 coverage 从 12:00 扩到 11:00。
+- `LatestLimit` 新 segment 设 `covered_from=first_time`。
+- 不支持 since 权威语义的 Provider 不能创建 leading proof。
+- Eviction 裁掉 segment 前缀后重置 `covered_from=new first_time`。
 
-- **日志追加**: 验证 `append_log` 能正确写入 JSONL。
-- **日志合并 (`compact_log`)**:
-    - **连续合并**: 验证 `t1-t2` 和 `t2-t3` 能合并为 `t1-t3`。
-    - **重叠合并**: 验证 `t1-t3` 和 `t2-t4` 能合并为 `t1-t4`。
-    - **断裂保持**: 验证中间有断裂的日志不会被错误合并。
-    - **无变化跳过写回**: 合并前后一致时，验证不重写日志文件（mtime 不变或写入次数不增加）。
-- **proof log 完整性**:
-    - 验证日志追加与压缩不会破坏证明语义。
-    - **日志缺失不自动恢复**: 验证 proof log 缺失时返回空日志，而不会尝试从 parquet 文件回填。
-    - **日志损坏显式失败**: 验证损坏日志会直接报错，不会被自动“修复”为新的证明链。
-    - **旧数据保留**: 验证即使 proof log 丢失，parquet 数据仍保留在磁盘上。
+## 5. Write/merge tests
 
----
+- 无 overlap 创建新 segment。
+- 存在一个 exact timestamp overlap 即可合并。
+- 只有 min/max 范围交叉、但无相同 timestamp 时不合并。
+- Incoming 同时 overlap 多 segment 时合并成一个。
+- Incoming valid same-time row 原子覆盖。
+- Incoming missing timestamp 不删除旧 row。
+- Incoming batch 含 NULL/NaN/Infinity/invalid row 时整批不写，旧值不变。
+- Metadata 与 rows 同 transaction 提交，任一失败无半成品。
+- 合并后 first/last/count/covered_from 与实际 rows 一致。
 
-## 4. 连续性测试 (`test_continuity.py`)
+## 6. Cacheability/response tests
 
-验证连续性检查工具的准确性。所有连续性判断都只基于 proof log，不基于 parquet 文件本身。
+- Metadata `true` → cache 写入全部 user rows。
+- Metadata `false` → cache 写 `rows[:-1]`，response 仍返回全部 rows。
+- `limit=10` 在数据足够时 true/false 都返回 10 根。
+- 空 result/null metadata 和单 row false 都不写空 segment。
+- 完整 cache hit 的 response tail metadata 为 `true`。
+- `include_last=false` 在 cache decision 后只删尾一次，并重算 response metadata。
 
-- **无断裂场景**: 验证连续或重叠的日志不报告 Gap。
-- **断裂检测**: 验证中间缺失的数据段能被正确识别为 Gap。
-- **安全重抓区间计算**: 验证 `find_refetch_ranges` 能正确计算出目标范围内需要重抓的区间（头部缺失、中间断裂、尾部缺失）。
-- **缺日志场景**: 验证没有日志时不会把已有 parquet 误判为连续缓存。
+## 7. Capacity/eviction tests
 
----
+- Startup config 满足 `100_000 < per_series <= total`。
+- Series count 按 series 内 distinct time；total 按 live `(series_key,time)`。
+- Per-series 超限后淘汰到 90% watermark。
+- Global 超限后跨 series 按 `(time,segment_id)` 淘汰到 90%。
+- Eviction 只形成 segment prefix delete，不制造中间缺口。
+- Incoming 过旧时可在同 transaction 被淘汰。
+- 空 segment metadata 删除，剩余 segment metadata 重算。
+- Eviction 失败整个 transaction rollback，Route 映射 507，服务继续。
+- `enable_cache=false` 不读、不写、不淘汰。
 
-## 5. 集成测试 (`test_integration.py`)
+## 8. Concurrency tests
 
-验证 `get_ohlcv_with_cache` 的完整工作流。
+- 多 reader 看到 commit 前或后的一致 snapshot，不看中间状态。
+- 多 writer 通过同 database-path lock 串行，不是每个 object 各一把锁。
+- 不同 Python threads 不共享同一 DuckDB connection。
+- Network latency 不持 DuckDB lock。
+- 并发 CCXT calls 经 per-client lock 串行底层 attempt，pagination 页间不持锁。
 
-- **完整流程**: 首次获取 → 缓存写入 → 追加获取 → 连续性验证。
-- **缓存命中**: 验证当请求范围在缓存内时，**不会**触发 fetch 回调（零网络请求）。
-- **缺 proof log 时不命中缓存**: 验证即使磁盘已有 parquet，只要 proof log 缺失或起点未被证明，就必须重新走网络。
-- **数据隔离**: 再次验证不同 DataLocation 之间的数据互不影响。
-- **两阶段行为**: 验证先读连续缓存文件，缓存不足时再进入网络阶段。
-- **休盘/跳空兼容**: 验证存在自然市场休盘时，算法仍可通过首尾重叠链路拼接数据，而不依赖固定时间间隔预测。
+## 9. Router tests
 
----
+- 三个 request schema 不能产生模糊组合。
+- `limit <= 100_000`；`SinceLatest` 第 100,001 根失败且无 partial response。
+- Provider capability error 映射稳定。
+- Cache read failure fallback network；普通 write failure 不丢 network response；capacity failure 返回 507。
+- Route 只调 `CcxtClient`，没有裸 CCXT/SQL/Provider branch。
 
-## 6. 缓存算法专项测试 (`test_cache_algorithm.py`)
+## 10. Migration tests
 
-专门针对"简化缓存算法"的边界场景测试。
+- 新系统不读旧 Parquet/proof log。
+- 不存在新旧 public cache entry 并行。
+- 旧 cache tests 只在 cutover 前保留，不得为新实现伪造 compatibility。
+- `uv lock --check`、默认 offline tests 和新增 target tests 通过后才完成 cutover。
 
-- **起始命中 (Start in Cache)**: 起始时间在缓存内，应复用缓存，仅请求后续数据。
-- **起始未命中 (Start NOT in Cache)**: 起始时间不在缓存内，应直接发起网络请求。
-- **无起始时间 (None Start)**: 必须跳过缓存读取，强制刷新最新数据。
-- **网络返回不足**: 模拟网络数据源耗尽，验证算法能正确退出循环。
-- **中间缓存不复用**: 验证简化算法的特性——即使请求范围覆盖了中间某段缓存，也不会去复用它（这是为了降低算法复杂度做的权衡）。
-- **候选分区裁剪 + 引擎优化**: 从 `start_time` 命中起始分区后，只把候选分区交给 Polars，并由引擎处理过滤与 limit。
-- **+1 条件补偿**:
-  - `result` 为空时，请求 `remaining_count`。
-  - `result` 非空时，请求 `remaining_count + 1`（覆盖缓存命中后 `remaining=1` 边界）。
+## 11. Read-only online smoke
 
----
+`just test-ccxt-online` 只调用已启用 Binance/Kraken Futures 的 `LatestLimit`/`SinceLimit`/`SinceLatest`，强制 `enable_cache=false`，不调用下单、撤单、平仓或设置类 API。Online test 不进入默认 CI，且只验证当前 config whitelist 已启用的 Futures Provider。
 
-## 7. 边界场景测试 (`test_edge_cases.py`)
-
-专门测试各种边界和异常场景。
-
-- **最后一根K线价格更新**: 验证去重时 `keep="last"` 能正确更新已有K线的价格。
-- **网络返回空数据**: 验证空返回时算法不死循环，正确退出。
-- **大批量请求分批**: 验证超过 `MAX_PER_REQUEST` (1500) 的请求能正确分批。
-- **日志损坏不自动重建**: 验证损坏 proof log 时不会尝试从 parquet 伪造恢复。
-- **去重后无新增仍保存**: 验证即使没有新K线，已有K线的更新也会被保存。
-- **日志语义不混合**: 验证日志不包含纯缓存复用段，记录的是网络写入范围且承担连续性证明。
-- **仅 1 根返回场景**: 验证去尾后无可写数据时，正确跳过缓存写入与日志追加。
+完整迁移验收见 [迁移与验收](../architecture/02_migration_and_acceptance.md)。

@@ -1,5 +1,7 @@
 # Telegram 消息转发设计蓝图
 
+> **状态：Implemented。** 本文描述当前 Telegram route contract；它不属于 CCXT/DuckDB 重构范围。
+
 ## 目标
 
 本设计为 `ccxt-proxy2` 增加一个独立的 Telegram 消息转发层，用于通过同一个 Telegram Bot 向多个预配置 chat 发送消息。

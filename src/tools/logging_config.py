@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 import os
 import re
 import sys
@@ -106,6 +106,7 @@ class InterceptHandler(logging.Handler):
 def setup_logging() -> None:
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     json_logs = os.getenv("LOG_JSON", "0") == "1"
+    enqueue_logs = os.getenv("LOG_ENQUEUE", "0") == "1"
 
     logger.configure(
         extra={"request_id": "-", "context": ""},
@@ -116,7 +117,7 @@ def setup_logging() -> None:
         sys.stdout,
         level=level,
         serialize=json_logs,
-        enqueue=True,
+        enqueue=enqueue_logs,
         backtrace=False,
         diagnose=False,
         format=(

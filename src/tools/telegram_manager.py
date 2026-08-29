@@ -13,7 +13,6 @@ from src.tools.config_types import TelegramConfig
 from src.tools.shared import config
 from src.types_telegram import TelegramSendMessageRequest
 
-
 TELEGRAM_API_BASE_URL = "https://api.telegram.org"
 TELEGRAM_HTTP_TIMEOUT_SECONDS = 10.0
 TELEGRAM_MAX_RETRIES = 3
@@ -188,10 +187,7 @@ class TelegramManager:
         return bool(
             result.error
             and result.error.startswith("telegram network error:")
-            and (
-                "ConnectError" in result.error
-                or "ConnectTimeout" in result.error
-            )
+            and ("ConnectError" in result.error or "ConnectTimeout" in result.error)
         )
 
     def _send_message_url(self, bot_token: str) -> str:

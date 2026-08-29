@@ -164,7 +164,9 @@ def run_action(client: TestClient, args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run one focused trading debug action.")
+    parser = argparse.ArgumentParser(
+        description="Run one focused trading debug action."
+    )
     parser.add_argument(
         "action",
         choices=[

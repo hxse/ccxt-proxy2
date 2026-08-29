@@ -1,6 +1,8 @@
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional
-from src.base_types import PositionSide
+
+from src.base_types import PositionSide, SideType
 
 # === Market Info ===
 
@@ -229,12 +231,10 @@ class OrderResponse(BaseModel):
 
 # === OHLCV ===
 
-OHLCVItem = List[float]  # [time, open, high, low, close, volume]
 
-
-class OHLCVResponse(BaseModel):
-    # Route response_model use List[OHLCVItem]
-    pass
+class OhlcvResponse(BaseModel):
+    rows: List[tuple[int, float, float, float, float, float]]
+    last_bar_completion_confirmed: bool | None
 
 
 class CancelAllOrdersResponse(BaseModel):
@@ -302,3 +302,36 @@ class ClosePositionResponse(BaseModel):
         title="剩余持仓列表",
         description="平仓操作后剩余的持仓（理论上应为空或变少）",
     )
+
+
+class TradeStructure(BaseModel):
+    id: str
+    timestamp: Optional[int] = None
+    datetime: Optional[str] = None
+    symbol: str
+    order: Optional[str] = None
+    type: Optional[str] = None
+    side: SideType
+    takerOrMaker: Optional[str] = None
+    price: float
+    amount: float
+    cost: float
+    fee: Optional[Dict[str, Any]] = None
+    info: Optional[Dict[str, Any]] = None
+    model_config = {"extra": "allow"}
+
+
+class OrdersResponse(BaseModel):
+    orders: List[OrderStructure]
+
+
+class TradesResponse(BaseModel):
+    trades: List[TradeStructure]
+
+
+class PositionsResponse(BaseModel):
+    positions: List[PositionStructure]
+
+
+class GenericResponse(BaseModel):
+    result: Dict[str, Any]

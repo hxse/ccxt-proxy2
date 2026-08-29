@@ -1,137 +1,201 @@
-# 核心模块接口说明（V2 设计语义）
+# DuckDB Cache API、Transaction 与 Capacity
 
-本核心层设计遵循**数据与日志分离**、**首尾衔接优先**和**按时间分块存储**的原则。
+> **Status: Implemented design.** 本文定义当前 `DuckDbOhlcvCache` 的应用边界和原子流程。
 
-## 目录结构
+## 1. Public API
 
+```python
+class DuckDbOhlcvCache:
+    def read_best_prefix(
+        self,
+        series_key: str,
+        since: int,
+        max_rows: int | None,
+    ) -> list[OhlcvRow]: ...
+
+    def write_segment(
+        self,
+        series_key: str,
+        result: OhlcvResult,
+        verified_covered_from: int | None,
+    ) -> None: ...
 ```
-src/cache_tool/
-  models.py        # Pydantic 模型定义
-  config.py        # 分块配置与路径生成
-  storage.py       # OHLCV 数据读写（Parquet）
-  log_manager.py   # 日志管理（JSONL）
-  continuity.py    # 连续性检查
-  entry.py         # 统一入口与缓存算法
+
+不公开 `clear`、`prune`、`compact` 或通用 SQL/DSL。Capacity eviction 是 `write_segment()` 内部 transaction step，不是 Route 可调用能力。
+
+## 2. Read candidate
+
+对带明确 `since` 的请求，candidate 基本条件是：
+
+```text
+segment.covered_from <= since <= segment.last_time
 ```
 
----
+三种安全命中：
 
-## 1. 模型定义 (`models.py`)
+```text
+Exact       : 存在 time == since
+Bracketed   : 同一 segment 存在 time < since 和 time > since
+Leading gap : covered_from <= since < first_time
+```
 
-利用 Pydantic 进行严格的数据验证。
+读取统一返回：
 
-### 核心模型
+```sql
+SELECT time, open, high, low, close, volume
+FROM ohlcv_rows
+WHERE segment_id = ?
+  AND time >= ?
+ORDER BY time
+LIMIT ?;
+```
 
-- **`OHLCVRow`**: 单条 K 线数据。验证 `high >= low`, `high >= max(open, close)` 等逻辑。
-- **`LogEntry`**: 单条获取日志。记录数据的时间范围 (`data_start`, `data_end`) 和条数。
-    *   **关于 `count`**: 为 `Optional[int]`。单次写入(`append_log`)时准确，合并(`compact_log`)后置为 `None` 以避免误导。
-- **`DataRange`** / **`Gap`**: 用于连续性检查的辅助模型。
-- **`PartitionWindow`**: 分块窗口类型，值为 `"month"` / `"year"` / `"decade"`。
-- **`DataLocation`**: 唯一定位数据的参数组合 (Exchange, Mode, Market, Symbol, Period)。
+`?` 是 parameter binding，不拼接用户 SQL。小于 since 的 predecessor 只用于证明 Bracketed coverage，绝不返回。
 
----
+## 3. Best-prefix selection
 
-## 2. 配置与路径 (`config.py`)
+多个 candidate 时：
 
-负责文件系统的路径映射和分块策略。
+1. 选从 `since` 起可复用 rows 最多的 segment；
+2. 相同时选 `updated_at` 更新的 segment；
+3. 仍相同时按 `segment_id ASC`；
+4. 只读这一个 segment，不再读第二个。
 
-### 关键配置
+Candidate selection 和 row read 在一条 SQL 或同一 read transaction 中完成，避免并发 write 导致 metadata/rows 来自不同 snapshot。
 
-- **`MAX_PER_REQUEST`**: 硬编码为 1500（交易所限制）。
-- **`PARTITION_CONFIG`**: 分块策略配置。
-    - 分钟级 (`1m`-`30m`) → **按月** (`YYYY-MM`)
-    - 小时级 (`1h`-`4h`) → **按年** (`YYYY`)
-    - 日线及以上 → **按10年** (`2020s`)
+`max_rows` 是内存/response budget：
 
-### 核心函数
+- `SinceLimit` 最多读 `limit`；
+- `SinceLatest` 最多读 100,001 根用于识别超限；
+- `LatestLimit` 不读 cache。
 
-- `get_partition_key(timestamp_ms, period)`: 计算时间戳对应的分块文件名。
-- `get_data_dir(...)`: 生成数据的标准存储路径。
-- `period_to_ms(period)`: 将周期字符串（如 `"15m"`）转换为毫秒数。
+## 4. Cacheable row selection
 
----
+Cache 不自己判断尾根，只消费 Client 已给出的证据：
 
-## 3. 存储层 (`storage.py`)
+```python
+if not result.rows:
+    return
 
-底层数据 IO 操作，基于 Polars 和 Parquet。
+cache_rows = result.rows if result.last_bar_completion_confirmed else result.rows[:-1]
+```
 
-### 核心函数
+`false` 是 unknown，不是 confirmed-open。`null` 只对应空 rows。去尾后无 rows 时整个 write no-op，不创建空 segment。
 
-#### `read_ohlcv(base_dir, loc, start_time, end_time, count=None) -> pl.DataFrame`
-读取指定范围的 OHLCV 数据。
-*   **实现语义**：先用 `start_time` 命中起始时间分区，裁掉其前面的文件，只把候选分区交给 Polars Lazy 执行 `filter + sort + limit(count)`。
-*   **性能语义**：这是“缩小候选文件范围，并依赖 Polars 做谓词/limit 下推”，不是“算法层面严格保证文件级早停”。
-*   因此不要求也不承诺“绝不触碰后续候选分区”；实际读取行为取决于 Polars 执行计划和 Parquet 统计信息。
-*   **证明语义**：`read_ohlcv` 只是读数据，不证明连续性；能不能把读出的数据当作“连续缓存”，取决于 `fetch_log.jsonl`。
+## 5. Write transaction
 
-#### `save_ohlcv(base_dir, loc, new_data)`
-保存数据。自动执行以下关键步骤：
-1.  **按时间分块**：将数据分散到对应的 `.parquet` 文件中。
-2.  **合并去重**：读取已有文件，追加新数据。
-3.  **去重策略**：使用 `.unique(keep="last")`，保留最新的数据（应对 K 线未走完的情况）。
-4.  **日志语义**：`fetch_log.jsonl` 是 proof log，记录网络写入范围并承担连续性证明；纯缓存复用不会产生新日志。
+```text
+acquire per-database write lock
+→ BEGIN
+→ validate canonical cache_rows/coverage
+→ 查找与 incoming 有 exact timestamp 交集的所有 segments
+→ 无 overlap：新建 segment_id
+→ 有 overlap：选 canonical segment
+→ merge incoming + all overlap segments
+→ valid incoming row 在同 timestamp 冲突时胜出
+→ 删除被吸收的 rows/metadata
+→ 重算 canonical first/last/count/covered_from
+→ enforce per-series/global capacity
+→ 重算所有被 eviction 影响的 metadata
+→ COMMIT
+→ release lock
+```
 
-#### 缓存去尾策略（默认）
-*   对外返回：保留最后一根 K 线（用户可见）。
-*   写入缓存：默认去掉最后一根 K 线（避免未收线长期污染缓存）。
-*   若去尾后无数据可写（例如仅 1 根返回），则跳过落盘与日志追加。
+任一步失败都 rollback。Network 请求必须在锁外完成。
 
-设计取舍说明：
-*   对“尾部高频请求”（尤其 `count=1`）而言，目标通常是获取最新值而非最大缓存命中率。
-*   因此即使这类请求会增加网络调用，也优先保证新鲜度与语义正确性。
-*   同时该策略可避免未完成 K 线长期滞留在缓存中，降低“历史缓存被尾部脏数据污染”的风险。
+## 6. Overlap 与 coverage merge
 
-#### `save_ohlcv_with_lock(...)`
-带文件锁的保存操作，防止并发写入冲突。锁文件名为 `.lock`。
+Overlap 定义：
 
----
+```text
+incoming timestamp set ∩ segment timestamp set != ∅
+```
 
-## 4. 日志管理 (`log_manager.py`)
+不能只用 `[first_time,last_time]` 相交。
 
-管理 `fetch_log.jsonl`，这是判断缓存连续性的核心依据。
+Canonical segment 优先保留 `row_count` 最大者；相同按 `segment_id ASC`。合并后：
 
-### 核心函数
+```text
+first_time = MIN(actual row time)
+last_time  = MAX(actual row time)
+row_count  = COUNT(actual rows)
+covered_from = earliest still-valid coverage lower bound
+```
 
-#### `append_log(...)`
-追加一条新的获取记录。
+当更早 verified request 实际连接到该 chain：
 
-#### `compact_log(data_dir)`
-**核心维护函数**。合并可连接的日志条目，减少碎片。
-*   **合并条件**：首尾衔接 (`end == start`) 或 重叠/包含。
-*   **性能约束**：若合并前后完全一致（`changed=False`），应直接返回，避免重写日志文件。
+```python
+covered_from = min(existing_covered_from, verified_covered_from)
+```
 
-#### `read_log(data_dir) -> list[LogEntry]`
-读取日志文件为 `LogEntry` 列表。
-*   **缺失/损坏语义**：如果日志文件不存在、损坏或不可解析，应视为“连续性证明不可用”。
-*   **缓存策略**：调用方不得自动恢复 proof log，而应跳过缓存命中，直接走网络路径。
-*   **实现状态**：proof log 自动恢复与手动重建能力已废除，不再提供 `rebuild_log_from_data(...)`。
+## 7. History update policy
 
----
+```text
+valid incoming same timestamp → atomic replace
+timestamp absent from network   → keep existing
+incoming batch 有 invalid/NULL  → 整次 cache write no-op; keep existing
+new timestamp                   → insert
+```
 
-## 5. 连续性检查 (`continuity.py`)
+Cache 不根据“network 没有返回”生成 tombstone，因为自然休盘和 Provider 历史删除无法仅从缺行区分。
 
-提供缓存状态的诊断工具。
+## 8. Capacity definitions
 
-- `check_continuity(data_dir) -> list[Gap]`: 基于 proof log 返回所有已证明链条中的断裂点。
-- `find_refetch_ranges(...)`: 计算目标范围内的安全重抓区间（safe refetch ranges），用于增量下载。
+```text
+max_response_rows          = 100,000
+max_cache_rows_per_series  = 2,000,000（默认）
+max_cache_rows_total       = 20,000,000（默认）
+```
 
----
+Cache 计数：
 
-## 6. 统一入口 (`entry.py`)
+```text
+series_count = 该 series 的 distinct time
+total_count  = 全部 live (series_key,time) identities
+```
 
-对外暴露的高级接口，封装了缓存策略。
+Global 不得 `COUNT(DISTINCT time)`，因为各 symbol/timeframe 会共享 timestamp。配置应在启动时满足：
 
-### 核心函数
+```text
+100,000 < per_series_limit <= total_limit
+```
 
-#### `get_ohlcv_with_cache(...)`
+## 9. Automatic eviction
 
-**简化缓存算法**实现：
+合并后在同一 transaction 中按顺序执行：
 
-1.  **日志整理（按需）**：可执行 `compact_log`；无变化时不得重写日志文件。
-2.  **阶段A（缓存阶段）**：只有 proof log 能证明从 `start_time` 可连续到达缓存 span（`cache_end`）时，才按时间分区顺序读取该范围。
-3.  **阶段B（网络阶段）**：若仍不足，从 `current_time` 连续请求网络补齐，且不再复用中间缓存。
-4.  **+1 补偿规则**：
-    *   若 `result` 已有数据（来自缓存或前一轮网络），下一次请求用 `remaining_count + 1`。
-    *   若 `result` 为空，使用 `remaining_count`。
-5.  **写入策略**：返回完整结果给用户；缓存默认去尾后落盘；日志记录网络写入范围，不记录纯缓存复用段。
-6.  **缺日志语义**：若没有 proof log，或 proof log 不能覆盖请求起点，则缓存命中失效，直接重新请求网络。
+1. Current series 超限：按 `(time,segment_id)` 删除最旧 rows，直到 `floor(per_series_limit * 0.9)`。
+2. Global 超限：按同一优先级跨 series 删除最旧 rows，直到 `floor(total_limit * 0.9)`。
+3. 删空的 segment 删 metadata；只删部分的 segment 重算 metadata。
+
+只能删 segment 前缀，不制造中间缺口。被截断的 segment 必须：
+
+```text
+covered_from = new first_time
+```
+
+因为被删区间原本确实包含 rows，不能继续宣称为 leading empty gap。
+
+Incoming 不特殊保护。请求过旧历史时，新写 rows 可能当场被年龄优先级淘汰；这避免为保留旧数据而驱逐新数据。不记录 `last_accessed_at`，不实现 LRU。
+
+Eviction 成功不影响 Route response。Eviction SQL/transaction 失败或处理后仍超限时 rollback，由全局 handler 返回 HTTP 507 `CACHE_CAPACITY_EXCEEDED`；服务进程继续。
+
+## 10. Connection/lock lifecycle
+
+- 一个 Uvicorn process read-write 一个 native DuckDB file。
+- 不在 FastAPI threads 共享同一 Python connection。
+- Cache 使用 thread-local connections。
+- 每个 database path 共享一把 process-local `threading.Lock`。多个 Cache object 不得各自创建无关锁。
+- Read 不加 application write lock，依赖 DuckDB snapshot isolation。
+- Write 持锁并使用 transaction。
+- 不使用 `FileLock`规避 DuckDB 的 single-writer-process 约束。
+
+## 11. Failure policy
+
+- Cache read failure：warning，当作 miss，走完整 network path。
+- 普通 cache write failure：error，不影响已成功的 network response。
+- Overlap mismatch：放弃 prefix，从原始 query 完整重拉一次。
+- Transaction conflict：rollback，按普通 write failure 处理。
+- Eviction/capacity failure：rollback 并返回 507。
+
+Capacity 只限制 logical rows，不是严格 database byte 上限。不增加 RSS 监控、JSON byte 估算或自动物理 compact；需要完全重置时在停止进程后删除精确 cache DB。

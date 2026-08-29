@@ -1,11 +1,11 @@
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # === Enums / Literals ===
 ExchangeName = Literal["binance", "kraken"]
 MarketType = Literal["future", "spot"]
 ModeType = Literal["sandbox", "live"]
-OrderType = Literal["market", "limit", "STOP_MARKET", "TAKE_PROFIT_MARKET"]
 SideType = Literal["buy", "sell"]
 PositionSide = Literal["long", "short"]
 VALID_PERIODS = Literal[
@@ -40,7 +40,10 @@ class BaseExchangeRequest(BaseModel):
     market: MarketType = Field(
         ...,
         title="市场类型",
-        description="future (合约) 或 spot (现货)",
+        description=(
+            "future (合约) 或 spot (现货)。Binance future 仅表示 "
+            "USDⓈ-M linear Futures。"
+        ),
         examples=["future", "spot"],
     )
     mode: ModeType = Field(

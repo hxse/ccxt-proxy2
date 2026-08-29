@@ -35,12 +35,12 @@ def check_symbol(exchange, symbol):
         contract_size = market.get("contractSize")
         print(f"Contract Size: {contract_size} (Type: {type(contract_size)})")
 
-        # 6. Leverage (int) - This logic in ccxt_utils comes from fetch_positions
+        # 6. Leverage (int) - CcxtClient derives it from fetch_positions
         # We need to simulate fetching positions or just check what fetch_positions returns safely
         # But here we can just check if we can fetch valid leverage info from market properties or account
         # The current implementation defaults to 1 if no position.
         # Let's see if we can get leverage tiers or max leverage from market info itself?
-        # Actually ccxt_utils uses: current_leverage = int(pos.get("leverage", 1))
+        # CcxtClient uses current_leverage = int(pos.get("leverage", 1))
         # So we should check what type pos['leverage'] usually is.
         # But we might not have a position.
         # Let's try to fetch positions.

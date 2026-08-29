@@ -1,5 +1,7 @@
 # 交易所订单行为对比研究 (Binance vs Kraken)
 
+> **状态：Research snapshot。** 行为结论来自当时的 CCXT sandbox/实盘经验；它记录 Provider 差异，不承诺交易所永远保持相同行为。目标重构必须把仍然有效的差异收口到 [`CcxtClient`](../ccxt/01_client_architecture.md)，不得继续散落在 Route 或多个 adapter 中。
+
 ## 1. 概述
 
 本研究旨在对比 **Binance Futures** (USDⓈ-M) 和 **Kraken Futures** 在订单管理方面的 API 行为差异，并映射到 `ccxt-proxy` 的路由层表现。
@@ -76,9 +78,9 @@
 
 ---
 
-## 3. Proxy 路由层行为对比
+## 3. 当前 Proxy 路由层行为对比
 
-此部分描述 `ccxt-proxy` 各个路由在当前（未修复）状态下的表现及所需修复。
+此部分保留当时发现问题时的 Route 表现；修复状态见第 4 节。
 
 ### 3.1 Route: `GET /ccxt/fetch_open_orders`
 *(映射 API: `fetch_open_orders`)*
@@ -131,8 +133,8 @@
 
 Binance Futures 的 API 隔离设计导致了 CCXT 的行为分裂。为了保证 `ccxt-proxy` 提供统一的、与 Kraken 一致的“标准行为”体验，**必须**在后端对上述 5 个路由（3.1-3.5）进行针对性封装。
 
-**修复状态 (2025-01-13):**
-上述 3.1 至 3.5 的修复逻辑已在 `src/tools/binance_adapter.py` 中完全实现，并集成到 `src/tools/ccxt_utils.py` 和 `src/tools/ccxt_utils_extended.py` 中。`close_all_positions` (3.6) 保持原样，符合设计预期。
+**当前修复状态：**
+上述 3.1 至 3.5 的 Binance Futures 兼容逻辑已收口到 `CcxtClient` 的 private trading mixin；旧 `binance_adapter.py`/`ccxt_utils*.py` 已删除。该双路/fallback 逻辑只对 Binance Futures 启用，Binance Spot 只做 best-effort 原生转发。`close_position` 保持“只平仓、不额外撤单”语义。
 
 ## 5. 已知限制 (Known Limitations)
 

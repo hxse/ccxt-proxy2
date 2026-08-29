@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.base_types import ExchangeName, MarketType, ModeType
 
-
 CHAT_ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -58,6 +57,20 @@ class TqConfig(BaseModel):
     password: str = ""
 
 
+class OhlcvCacheConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_path: str = "./data/cache/ohlcv.duckdb"
+    max_rows_per_series: int = Field(2_000_000, gt=100_000)
+    max_rows_total: int = Field(20_000_000, gt=100_000)
+
+    @model_validator(mode="after")
+    def validate_limits(self) -> "OhlcvCacheConfig":
+        if self.max_rows_per_series > self.max_rows_total:
+            raise ValueError("ohlcv cache per-series limit must not exceed total limit")
+        return self
+
+
 class TelegramConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -78,9 +91,7 @@ class TelegramConfig(BaseModel):
         normalized: dict[str, str] = {}
         for alias, chat_id in chats.items():
             if not alias or not CHAT_ALIAS_PATTERN.fullmatch(alias):
-                raise ValueError(
-                    "telegram chat aliases must match [A-Za-z0-9_-]+"
-                )
+                raise ValueError("telegram chat aliases must match [A-Za-z0-9_-]+")
             normalized_chat_id = chat_id.strip()
             if not normalized_chat_id:
                 raise ValueError("telegram chat ids must not be empty")
@@ -105,12 +116,19 @@ class AppConfig(BaseModel):
     binance: ExchangeConfig | None = None
     kraken: ExchangeConfig | None = None
     tq: TqConfig | None = None
+    ohlcv_cache: OhlcvCacheConfig = Field(default_factory=OhlcvCacheConfig)
     telegram: TelegramConfig | None = None
     exchange_whitelist: list[ExchangeWhitelistItemConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_exchange_whitelist_dependencies(self) -> "AppConfig":
         for item in self.exchange_whitelist:
+            if (
+                item.exchange == "kraken"
+                and item.market == "spot"
+                and item.mode == "sandbox"
+            ):
+                raise ValueError("kraken spot sandbox is not supported")
             exchange_config = getattr(self, item.exchange)
             if exchange_config is None:
                 raise ValueError(

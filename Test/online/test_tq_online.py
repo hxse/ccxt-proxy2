@@ -5,7 +5,6 @@ import pytest
 from src.tools.tq_manager import tq_manager
 from src.types_tq import TqOhlcvRequest, TqTickRequest, TqUnderlyingSymbolRequest
 
-
 pytestmark = pytest.mark.skipif(
     os.getenv("TQ_ONLINE") != "1",
     reason="TQ online tests require TQ_ONLINE=1 and configured TQ credentials",

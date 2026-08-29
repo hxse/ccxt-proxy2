@@ -1,6 +1,11 @@
 # Binance vs Kraken 市场数据展示对比
 
+> **状态：Research snapshot。** 本文是 2026-01-09 的人工观测，不是实时行情、稳定 API contract 或 Provider capability 定义。实现时以 [CcxtClient 与 Provider capability](../ccxt/01_client_architecture.md) 为准。
+>
+> 当前 Proxy 对 Binance Futures 只正式支持 USDⓈ-M linear；表中 Binance COIN-M 只是研究快照，不是可调用能力。
+
 **数据来源**：用户手动复制的实盘网页数据
+
 **采集时间**：2026-01-09
 
 ## 1. 数据来源链接
@@ -55,6 +60,6 @@
     *   OI: 用 **USD** 显示
 
 ## 5. 建议
-鉴于 Kraken 币本位深度极差，建议在策略中：
+基于该次快照，策略可以优先考虑：
 *   **Kraken**: 仅交易 `BTC/USD:USD` (Linear)。
 *   **Binance**: 可交易 `BTC/USDT:USDT` (Linear) 和 `BTC/USD:BTC` (Inverse)。

@@ -1,21 +1,22 @@
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi import HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import json
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 from uuid import uuid4
-from pydantic import ValidationError
-from loguru import logger
-from src.router.logging_utils import INTERNAL_SERVER_ERROR_DETAIL
-from src.tools.exchange_manager import exchange_manager
-from src.tools.config_types import AppConfig
-from src.tools.logging_config import setup_logging
 
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from loguru import logger
+from pydantic import ValidationError
+
+from src.domain_errors import DomainError
+from src.router.logging_utils import INTERNAL_SERVER_ERROR_DETAIL
+from src.tools.config_types import AppConfig
+from src.tools.exchange_manager import exchange_manager
+from src.tools.logging_config import setup_logging
 
 setup_logging()
 
@@ -118,6 +119,19 @@ async def handle_http_exception(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
+@app.exception_handler(DomainError)
+async def handle_domain_error(request: Request, exc: DomainError):
+    request_id = getattr(request.state, "request_id", "-")
+    with logger.contextualize(request_id=request_id):
+        logger.bind(
+            method=request.method,
+            path=request.url.path,
+            status_code=exc.status_code,
+            error_code=exc.code,
+        ).log("ERROR" if exc.status_code >= 500 else "WARNING", "domain error")
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.exception_handler(Exception)
 async def handle_unexpected_exception(request: Request, exc: Exception):
     request_id = getattr(request.state, "request_id", "-")
@@ -135,10 +149,6 @@ async def handle_unexpected_exception(request: Request, exc: Exception):
         status_code=500,
         content={"detail": INTERNAL_SERVER_ERROR_DETAIL},
     )
-
-
-OHLCV_DIR = Path("./data/ohlcv")
-OHLCV_DIR.mkdir(exist_ok=True)
 
 
 STRATEGY_DIR = Path("./data/strategy")

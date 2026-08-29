@@ -1,122 +1,80 @@
-# 放弃的方案对比
+# OHLCV Cache 方案对比与决策记录
 
-> **注意**：本文档描述的所有方案都是**已放弃的方案**。本文的目的是解释为什么这些方案不适合本项目，帮助理解当前设计的选择。这些方案与本项目的最终实现无关。
+> **Status: Implemented design + rejected-design archive.** DuckDB single-prefix 方案已经落地；其他方案只用于解释决策。
 
----
+## 1. 最终选择
 
-## 方案概览
-
-| 方案 | 核心思想 | 为什么放弃 |
-|------|---------|-----------|
-| 按大小分块 + 首尾重叠 | 固定数据行数分块 | 合并/碎片整理逻辑过于复杂 |
-| 单文件方案 | 无分块 | 无法验证数据连续性 |
-| batch_id 内嵌方案 | 数据中嵌入 batch 信息 | batch 合并逻辑复杂度回升 |
-
----
-
-## 放弃的方案一：按大小分块 + 首尾重叠
-
-### 文件结构
-```
-BTC_USDT 15m 20230101T060000Z 20230101T093000Z 0015.parquet
-BTC_USDT 15m 20230101T093000Z 20230101T120000Z 0015.parquet
+```text
+CcxtClient
+└── DuckDbOhlcvCache
+    └── embedded DuckDB native file
 ```
 
-### 核心逻辑
-- 每个文件存储固定数量（`cache_size`）的数据行
-- 后一个文件的首条数据 = 前一个文件的尾条数据（首尾重叠）
-- 通过文件名比较判断连续性
+核心特征：
 
-### 为什么放弃
+- Cache 无 network、无 callback、无 Provider page。
+- Read 最多复用一个最佳 prefix segment，不解多个中间缺口。
+- Write 可原子合并所有实际 timestamp overlap 的 segments。
+- Cache 只信任 Client 已验证的 fetch chain/overlap；Binance/Kraken Futures Client 额外使用 fixed interval 对异常 page fail-fast。
+- 尾根只在观察到严格更晚 successor 时落盘。
+- 物理存储、WAL、checkpoint、row group 交给 DuckDB。
 
-| 问题 | 需要的逻辑 |
-|------|-----------|
-| 分块边界计算 | `get_chunk_slices`，处理正向/反向 |
-| 追加数据 | `handle_cache_write` 处理多种重叠情况 |
-| 碎片整理 | `consolidator` 合并小文件，需要判断"满文件序列" |
-| 读取数据 | 找起始文件→加载多个→合并→去重 |
+## 2. 方案总表
 
-**代码行数**：~800 行
+| 方案 | 状态 | 决策 |
+| --- | --- | --- |
+| DuckDB + logical segment + single prefix | **Adopted target** | 实用语义与可维护性的平衡 |
+| Parquet 时间分区 + JSONL proof log | Legacy, 已删除 | IO/proof/corruption 路径过多，与 network 耦合 |
+| Parquet 按行数分片 `.1/.2` | Rejected | 需要手动分片、合并、rename 和 cleanup |
+| 单一大 Parquet | Rejected | 反复重写，又无法单靠 rows 证明 fetch chain |
+| `batch_id` 内嵌到 OHLCV | Rejected | 动态合并 identity，动态列污染 canonical schema |
+| Callback-driven generic CacheEngine | Rejected | Route intent 与缺口 operation 协议过于复杂 |
+| 多片段 Forward/Backward Walker | Rejected | 分支、proof 和 Provider 能力组合成本过高 |
+| 中位数密度估算/adaptive refill | Rejected | 只减少请求次数，不提供正确性，维护不划算 |
+| TQ 对称 cached Route | Rejected | TqSdk 自有 serial cache，当前外层重复缓存无必要 |
 
-**结论**：复杂度过高，容易出错，难以维护。
+## 3. 为什么不继续 Parquet/proof log
 
----
+旧设计将以下问题交给应用：
 
-## 放弃的方案二：单文件方案
+- 时间分区路径与大文件重写；
+- Parquet 读写与 Polars execution-plan 性能依赖；
+- JSONL proof 丢失/损坏/压缩；
+- 文件锁、atomic rename 和数据/证明一致性；
+- cache entry 同时决定 Provider page limit 和 network pagination。
 
-### 文件结构
-```
-BTC_USDT_15m.parquet   ← 所有数据一个文件
-```
+DuckDB 用 transaction 和关系表替代物理文件编排。它不自动理解 segment/successor，但让应用只剩业务规则。
 
-### 为什么放弃
+## 4. 为什么不做通用多片段 Resolver
 
-| 优点 | 缺点 |
-|------|------|
-| 最简单 | 无法验证连续性 |
-| 无需管理多文件 | 丢失获取历史信息 |
-| | 无法区分"数据缺失"和"节假日缺失" |
+旧蓝图将用户意图分为 `SinceLimit/LatestLimit/SinceLatest`，再由 CacheEngine 产生 `FullQuery/AfterCount/BeforeCount`，通过 callback/capability object 向 Binance、Kraken、TQ 投射。它还需要：
 
-**结论**：无法满足"区分数据缺失 vs 节假日缺失"的核心需求。
+- 任意多 proven spans；
+- ForwardWalker/BackwardWalker；
+- 缺口 bridge 和 anchor conflict；
+- Provider `COMPLETE/EXHAUSTED/UNAVAILABLE` 状态；
+- 密度 estimator 和自适应补拉；
+- proof 与物理新增 rows 解耦。
 
----
+方案理论通用，但对当前实际请求成本过高。目标方案只在请求起点选一个最佳 prefix，进入 network 后不再读第二个 segment。详细历史保留在 [已否决 Resolver](05_cache_algorithm_deprecated.md) 和 [已否决 Estimator](06_estimator_deprecated.md)。
 
-## 放弃的方案三：batch_id 内嵌方案
+## 5. 关键否决项
 
-### 文件结构
-```python
-# 数据中包含 __batch_id__ 列
-df = [time, open, high, low, close, volume, __batch_id__]
-```
+- 不使用 CCXT automatic pagination；Client 手动做 inclusive overlap。
+- 不以本机时间/timeframe 判断最后一根是否完成。
+- 不在每个 Provider page 落盘 pending tail。
+- 不建通用 `DuckDbStore`/DSL；parameterized SQL 封装在 cache class。
+- 不开 DuckDB server；使用 embedded native file。
+- 不关闭 WAL；WAL 是 crash recovery，不是历史备份。
+- 不使用 `FileLock` 保护 CCXT/DuckDB；它们使用不同的 process-local lock。
+- 不实现 LRU/last-access write amplification；capacity 按 row time 淘汰最旧前缀。
+- 不保留旧 cache 兼容和旧 public facade。
 
-### 核心逻辑
-- 每次获取的数据带上 batch_id
-- 通过 batch_id 判断数据来源
-- 首尾重叠的数据保留相同 time 但不同 batch_id
+## 6. 权威顺序
 
-### 为什么放弃
+1. [目标架构](../architecture/01_target_architecture.md)
+2. [OHLCV Route contract](../ccxt/02_ohlcv_routes.md)
+3. [DuckDB cache 模型](01_design.md)
+4. 本文的 rejected-design 记录
 
-| 问题 | 说明 |
-|------|------|
-| batch_id 需要动态合并 | 如果首尾连接或包含，需要把 batch_id 改成一样的 |
-| 读取时需要去重处理 | 相同 time 可能有多条记录 |
-| 日志信息受限 | 只有 batch_id，无法记录获取时间、来源等元数据 |
-
-**结论**：batch_id 合并逻辑的复杂度与"按大小分块"方案相当，没有真正简化问题。
-
----
-
-## 复杂度对比
-
-```
-                    写入    读取    追加    合并    验证    总复杂度
-按大小分块           ████    ████    █████   █████   ██      ████████████████████
-单文件               █       █       █       -       -       ███
-batch_id 内嵌        ██      ███     ██      ████    ██      █████████████
-按时间分块+日志分离  ██      █       ██      █       ██      ████████ (当前方案)
-```
-
----
-
-## 为什么按时间分块比按大小分块简单
-
-| 维度 | 按大小分块 | 按时间分块 |
-|------|-----------|-----------|
-| **分块边界** | 动态计算，依赖数据量 | 固定（月初/年初/10年初） |
-| **边界重叠** | 需要首尾重叠保证连续性 | 文件边界本身不需要重叠；当前方案的连续性由独立 proof log 承担 |
-| **追加数据** | 可能跨多个块，需要分割 | 最多跨 2 个块（跨月/跨年） |
-| **碎片整理** | 需要 consolidator | 不需要 |
-| **文件命名** | 需要编码 start/end/count | 只需要年份或月份 |
-| **判断归属** | 需要遍历查找 | 直接从时间戳提取 |
-
----
-
-## 总结
-
-这些方案被放弃的共同原因：
-
-1. **复杂度过高**：需要处理各种边界情况和合并逻辑
-2. **难以维护**：代码量大，测试用例多，容易出错
-3. **无法满足需求**：单文件方案无法验证连续性
-
-当前选择的"按时间分块 + 日志分离"方案是经过对比后的最佳平衡点。
+任何旧文档中的 Parquet/proof/callback 建议如与上述 target 冲突，均视为已否决。

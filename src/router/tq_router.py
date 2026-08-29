@@ -14,7 +14,6 @@ from src.types_tq import (
     tq_underlying_symbol_request,
 )
 
-
 tq_router = APIRouter(
     prefix="/tq",
     dependencies=[Depends(manager)],

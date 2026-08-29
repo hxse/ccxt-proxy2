@@ -1,344 +1,197 @@
-# 缓存算法（完整版 - 未采用 - 仅作参考）
+# 已否决：通用多片段 Cache Resolver
 
-> [!CAUTION]
-> **已弃用方案**
->
-> 这是一个设计更复杂但理论缓存利用率更高的方案。
-> **本项目实际并未采用此算法**，而是采用了更易于维护的 [简化缓存算法](./05_cache_algorithm_simple.md)。
->
-> 保留本文档仅作为设计思路的参考和存档。切勿照此实现。
+> **Status: Rejected design. Do not implement.** 本文概括旧方案的边界和否决理由；逐篇原始设计与测试矩阵保存在 [`design_history`](../design_history/README.md)。
 
+## 1. 原问题
 
+旧蓝图试图同时解决：
 
-## 概述
+- 三类用户请求；
+- 任意多段离散 cache；
+- 中间缺口只请求缺失部分；
+- Binance、Kraken、TQ 不同上游能力；
+- 休盘/节假日的非连续 rows；
+- 不使用 fixed interval 的 completeness proof。
 
-本缓存系统是一个智能的 OHLCV 数据缓存层，核心目标是：
-- 减少网络请求次数
-- 复用已有缓存数据（包括中间缓存）
-- 处理数据断裂和缺失
-- 保证数据连续性
+其核心抽象是：
 
----
+```text
+RouteIntent × CacheTopology
+        ↓
+FetchOperation sequence
+        ↓
+Provider-specific API translation
+```
 
-## 核心参数
-
-| 参数 | 说明 | 来源 |
-|------|------|------|
-| `start_time` | 请求起始时间戳 | 用户传入 |
-| `count` | 请求 K 线数量 | 用户传入 |
-| `max_per_request` | 单次网络请求最大数量 | 硬编码默认值（如 1500） |
-| `period` | K 线周期 | 用户传入 |
-
-> **注意**：`max_per_request` 硬编码为交易所的最大限制（如币安 1500），不暴露给用户，避免配置错误。
-
----
-
-## 无起始时间的处理
-
-当 `start_time` 为 `None` 时（请求"最新的N根K线"）：
-
-1. **跳过缓存读取**：最新数据无法从缓存获取
-2. **直接网络请求**：从交易所获取最新数据
-3. **写入缓存和日志**：获取后保存供后续使用
+## 2. RouteIntent
 
 ```python
-if start_time is None:
-    # 跳过缓存读取，直接请求
-    new_data = fetch_callback(symbol, period, None, count)
-    
-    # 只写入缓存和日志，不读取
-    save_ohlcv(base_dir, loc, new_data)
-    
-    return new_data
+SinceLimitIntent(series, since, limit, include_last=True)
+LatestLimitIntent(series, limit, include_last=True)
+SinceLatestIntent(series, since, include_last=True)
 ```
 
----
+RouteIntent 表达最终用户目标，不表达缓存内部当前要补的缺口。旧方案要求三个 strongly typed cache entry 共享同一 engine。
 
-## 算法流程
-
-### 前置条件
-
-**每次请求前，必须先运行同步的日志合并算法**，确保日志文件中：
-- 无包含关系（重叠日志已合并）
-- 只有首尾相连关系和断裂关系
-
-这保证了算法可以高效运行，不需要处理复杂的重叠判断。
+## 3. FetchOperation
 
 ```python
-# 伪代码
-def get_ohlcv_with_cache(...):
-    with FileLock(...):
-        # 1. 先合并日志
-        compact_log(data_dir)
-        
-        # 2. 再执行缓存算法
-        return fetch_with_cache(...)
+FullQuery(intent)
+AfterCount(series, anchor, count)
+BeforeCount(series, anchor_or_none, count)
 ```
 
----
+语义：
 
-### 核心算法
+```text
+AfterCount(anchor=30,count=100)
+= 从 30 含首向时间增大方向取最多 100 根
+
+BeforeCount(anchor=40,count=100)
+= 截止 40 含首向时间减小方向取最多 100 根
+
+BeforeCount(anchor=None,count=100)
+= 最新倒数 100 根
+```
+
+Operation 不包含 `include_last`，因为内部 bridge 必须保留 overlap anchor。
+
+## 4. FetchResult/status
 
 ```python
-def fetch_with_cache(
-    start_time: int,
-    count: int,
-    max_per_request: int = 1500,
-    fetch_callback: Callable,
-    ...
-) -> pl.DataFrame:
-    """
-    智能缓存获取算法
-    
-    核心思想：
-    1. 分批请求网络数据
-    2. 每批请求后检查是否可以复用缓存
-    3. 合并数据，直到达到目标数量或数据源耗尽
-    """
-    
-    # 读取合并后的日志（只有首尾相连或断裂关系）
-    log_entries = read_log(data_dir)
-    
-    result = pl.DataFrame()
-    current_time = start_time
-    remaining_count = count
-    
-    is_first_request = True
-    while remaining_count > 0:
-        # 只有第二轮开始才 +1 补偿首条重复
-        if is_first_request:
-            batch_size = min(max_per_request, remaining_count)
-            is_first_request = False
-        else:
-            batch_size = min(max_per_request, remaining_count + 1)
-        
-        # 网络请求（从 current_time 开始）
-        new_data = fetch_callback(symbol, period, current_time, batch_size)
-        
-        # 边界检查1：网络返回空数据
-        if new_data.is_empty():
-            break  # 数据源耗尽，退出循环
-        
-        # 合并网络数据到结果
-        result = merge_data(result, new_data, keep="last")
-        
-        # 获取当前数据的末尾时间
-        current_end_time = result["time"].max()
-        
-        # 检查末尾时间是否落在某个缓存日志范围内
-        cache_entry = find_covering_log(log_entries, current_end_time)
-        
-        if cache_entry is not None:
-            # 复用缓存：从缓存中读取该段数据并合并
-            cached_data = read_ohlcv_range(
-                data_dir, 
-                cache_entry.data_start, 
-                cache_entry.data_end
-            )
-            result = merge_data(result, cached_data, keep="last")
-            
-            # 更新当前时间为缓存数据的末尾
-            current_end_time = cache_entry.data_end
-        
-        # 更新状态
-        current_time = current_end_time  # 下次从末尾开始请求（首尾衔接）
-        current_count = len(result)
-        remaining_count = count - current_count
-        
-        # 边界检查2：网络返回数据不足
-        if len(new_data) < batch_size:
-            break  # 数据源耗尽（已到最新），退出循环
-    
-    # 截取到目标数量
-    if len(result) > count:
-        result = result.head(count)
-    
-    # 保存到缓存（按时间块分割）
-    save_ohlcv(base_dir, loc, result)
-    
-    return result
+FetchResult(data, status)
+
+COMPLETE  # 数量/anchor 目标已满足
+EXHAUSTED  # Provider 权威确认到达边界
+UNAVAILABLE  # Provider API 无法访问该 anchor/range
 ```
 
----
+`UNAVAILABLE` 绝不能解释为“区间没有 K 线”。`NO_PROGRESS` 由 CacheEngine 在去重后无新 timestamp 时检测。
 
-### 辅助函数
+## 5. Source/callback protocol
+
+旧方案不传多个裸 callback，而传 capability object：
 
 ```python
-def find_covering_log(log_entries: list[LogEntry], time: int) -> LogEntry | None:
-    """
-    查找包含指定时间的日志条目
-    
-    判断条件：log.data_start <= time <= log.data_end
-    """
-    for entry in log_entries:
-        if entry.data_start <= time <= entry.data_end:
-            return entry
-    return None
-
-
-def merge_data(
-    existing: pl.DataFrame, 
-    new: pl.DataFrame, 
-    keep: str = "last"
-) -> pl.DataFrame:
-    """
-    合并数据并去重
-    
-    keep="last" 保留新数据（最后一根 K 线可能未走完，保留最新的）
-    """
-    if existing.is_empty():
-        return new
-    if new.is_empty():
-        return existing
-    
-    merged = pl.concat([existing, new])
-    return merged.unique(subset=["time"], keep=keep).sort("time")
+class OhlcvSource(Protocol):
+    def execute(self, operation: FetchOperation) -> FetchResult: ...
 ```
 
----
+Provider 内部 dispatcher 将 `FullQuery/AfterCount/BeforeCount` 翻译成原始 API。CacheEngine 不关心这个 translation，Provider 也不读 CacheStore。
 
-## 边界情况处理
+该协议的出发点正确：零 cache 时需要“完整 Route fetch”，有片段时需要“某方向补若干根”，两者未必是同一 Provider API 能力。
 
-### 1. 网络返回数据不足
+## 6. Zero-cache 与 fragmented-cache
 
-```
-场景：请求 10 根，网络只返回 7 根
-原因：已到达最新数据，交易所没有更多了
-处理：退出循环，保存已获取的数据
-```
+```text
+零 cache:
+SinceLimit   → FullQuery
+LatestLimit  → FullQuery
+SinceLatest → FullQuery
 
-### 2. 缓存完全覆盖请求范围
-
-```
-场景：请求 t=10 开始 5 根，日志 t=8-20 已覆盖
-处理：直接从缓存读取，不发起网络请求
-
-优化：在循环开始前检查，如果目标范围完全在缓存内，直接返回
+有片段:
+向后缺口 → AfterCount
+向前缺口 → BeforeCount
+latest probe → BeforeCount(anchor=None,count=1)
 ```
 
-### 3. 多段断裂的日志
+`FullQuery` 也可用于 `enable_cache=false` 或 cache 过于碎片时的整体 fallback。
 
-```
-场景：日志 t=8-15, t=100-120，请求 t=1 开始 50 根
-处理：
-  - 请求 1-10，发现 10 在 8-15 内，合并得 1-15
-  - 请求 15-25，发现 25 不在任何日志内，继续
-  - ...
-  - 最终 16-99 从网络获取，8-15 复用缓存
-```
+## 7. Proven spans
 
-### 4. 首尾刚好相等
+假设：
 
-```
-场景：网络数据末尾 = 8，日志范围 8-15
-判断：8 <= 8 <= 15 → True
-处理：正确合并
+```text
+[20------30]      [40------50]
 ```
 
-### 5. 防止死循环
+`30→40` 是 unproven gap，不得猜测是休盘或有数据。Span 内部可以是：
 
-```python
-# 关键退出条件（满足任一即退出）：
-1. new_data.is_empty()           # 网络返回空
-2. len(new_data) < batch_size    # 网络返回不足（数据源耗尽）
-3. remaining_count <= 0          # 已达到目标数量
+```text
+20,21,22,26,30
 ```
 
----
+因为同一 fetch chain 已证明这是完整序列。Proof compaction 只合并 overlap/contain/actual-anchor bridge，不用 interval adjacency。
 
-## 去重策略
+## 8. ForwardWalker
 
-**使用 `keep="last"`（保留新数据）**
+用于 `SinceLimit` 以及已固定 latest anchor 的 `SinceLatest`：
 
-原因：最后一根 K 线可能尚未走完，新数据更准确。
-
-```python
-merged.unique(subset=["time"], keep="last")
+```text
+cursor 落在 proven span → 读取实际 rows
+cursor 落在 gap         → AfterCount
+实际结果包含右侧 anchor → bridge 成功，复用下一 span
+未达 count/anchor       → 从新 tail 继续
 ```
 
----
+`SinceLimit` 收集到 N 根即停。`SinceLatest` 先做 latest probe，然后走到实际包含 fixed anchor。
 
-## 保存规则
+## 9. BackwardWalker
 
-### 数据保存
+用于 `LatestLimit`：
 
-按时间块规则分割保存：
-
-```python
-def save_ohlcv(...):
-    # 根据周期确定分块规则
-    # 分钟级 → 按月分块
-    # 小时级 → 按年分块
-    # 日线级 → 按10年分块
-    
-    for partition_key, group in data.group_by(partition_column):
-        # 分别保存到对应的 .parquet 文件
-        save_to_file(f"{partition_key}.parquet", group)
+```text
+从真实 latest anchor 向过去收集
+命中 span → 倒序读取
+遇缺口 → BeforeCount
+收集 N 根 → 停止并恢复升序
 ```
 
-### 日志保存
+它不应从一个很旧 cache tail 一直抓到 latest，而是从 latest 向后计数，必要时完全忽略旧 cache。
 
-日志不分块，每个 `exchange/mode/market/symbol/period` 组合使用一个 `fetch_log.jsonl` 文件。
+## 10. Gap bridge 冲突
 
-每次保存数据后，追加一条日志：
+对 `[20,30]` 与 `[40,50]`，正向 bridge 请求从 30 含首开始：
 
-```python
-append_log(data_dir, data_start, data_end, count)
+- 结果实际包含 40：bridge 成功；
+- 未包含 40 且未满足 Route：扩大并继续；
+- 去重无进展：停止；
+- `UNAVAILABLE`：不建 proof；
+- `EXHAUSTED` 但右侧 cache 40 存在：Provider 与 cache 冲突，不静默合并。
+
+反向 bridge 对称使用 `BeforeCount`。
+
+## 11. Provider translation
+
+### Binance
+
+```text
+AfterCount  → since + limit + 手动 overlap pagination
+BeforeCount → endTime/until + limit + 反向 pagination
 ```
 
----
+### TQ
 
-## 首尾衔接原则
-
-> [!CAUTION]
-> **这是本系统最重要的设计原则之一**
->
-> 违反此原则会导致数据遗漏或重复，且难以调试。
-
-**网络请求必须从已有数据的末尾时间开始，不能自己计算下一个时间点。**
-
-```
-错误做法：已有 1-5，计算 period，请求从 6 开始
-正确做法：已有 1-5，请求从 5 开始，合并时去重
+```text
+选 data_length
+→ 读 realtime serial
+→ 过滤 anchor/验证 count
+→ 不足逐级扩大到 10000
+→ 仍不包 anchor 则 UNAVAILABLE
 ```
 
-原因：
-- 不同市场的 K 线间隔不同（加密货币 24/7，股票有休市）
-- 计算可能导致遗漏或重复
-- 首尾衔接 + 去重更简单可靠
+### Range API
 
----
+可以用 interval 估算第一个 time window，但必须以实际 rows/anchor 验证，估算不生成 proof。
 
-## 完整示例
+## 12. Store 与落盘
 
-```
-输入：start_time=1, count=30, max_per_request=10
-日志：t=8-15, t=20-27
+旧 target `CacheStore` 只做 Parquet/proof/local lock，提供 asc/desc range read、write/upsert 和 proven-span index。Resolver 累积整次 resolve 的 network data，最终只排除整体 network tail，不在每个 operation 删尾。`include_last` 只在最终 response 机械执行一次。
 
-执行过程：
-1. 请求 1-10（10根）
-   → 检查 10 在 8-15 内 ✓
-   → 从缓存读取 8-15，合并得 1-15
+网络不得在 Store FileLock 内运行：
 
-2. 请求 15-25（10根，从15开始）
-   → 检查 25 在 20-27 内 ✓
-   → 从缓存读取 20-27，合并得 1-27
-
-3. 请求 27-30（4根，因为只剩4根需求）
-   → 合并得 1-30
-
-4. 截取到 30 根，保存缓存和日志
-
-结果：
-- 网络请求 3 次（而非 3 次各10根）
-- 复用了 8-15 和 20-27 的缓存数据
+```text
+lock: read proof/rows and plan
+unlock: execute Provider operation
+lock: recheck + idempotent commit
 ```
 
----
+## 13. 否决理由
 
-## 同步执行
+1. RouteIntent、FetchOperation、FetchStatus 和 Provider adapter 组成了一套新 framework。
+2. 任意多缺口需要方向化 read、bridge conflict、proof planning 和双向 walker。
+3. TQ/Binance 为了适配逻辑 operation 还要各自建 estimator。
+4. 实际业务主要是从起点向后读取，single-prefix 已覆盖高价值部分。
+5. 个人项目无法合理承担通用金融时序 cache framework 的长期维护。
 
-**所有操作都是同步的**，不使用异步：
-- FastAPI 路由层已自带异步
-- 内部计算无需异步
-- 避免并发问题
+现行 target 保留有价值的原则：Provider/cache 解耦、inclusive overlap、不猜 interval、Provider capability 显式报错。但删除 callback protocol、walkers、多缺口规划与 estimator。

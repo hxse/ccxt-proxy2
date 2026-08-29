@@ -70,10 +70,10 @@ def main():
         print(f"Setup failed: {e}")
         return
 
-    # 2. Execute Close All Logic (Copy-paste from src/tools/ccxt_utils.py)
+    # 2. Execute the historical close-all experiment
     print("\n[2] Executing close_all_order_ccxt logic...")
     try:
-        # --- Logic from ccxt_utils.py ---
+        # --- Exchange behavior probe ---
         params = {"reduceOnly": True}
         positions = exchange.fetch_positions([symbol])
         print(f"Current Position: {positions[0]['contracts']} contracts")
