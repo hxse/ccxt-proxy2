@@ -18,6 +18,7 @@ from src.tools.shared import config
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
+    TqTradingCalendarRequest,
     TqUnderlyingSymbolRequest,
 )
 
@@ -104,6 +105,32 @@ class TqManager:
                         )
                     ]
                 return TqUnderlyingSymbolResponse(items=items, history=history)
+            except tq_data_source.TqDataFrameError as exc:
+                raise HTTPException(status_code=422, detail=exc.detail) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise self._map_tq_exception(exc) from exc
+
+    def fetch_trading_calendar(
+        self, request: TqTradingCalendarRequest
+    ) -> list[dict[str, object]]:
+        with self._lock:
+            api = self._get_api()
+            try:
+                frame = api.get_trading_calendar(request.start_date, request.end_date)
+                records = tq_data_source.trading_calendar_frame_to_records(frame)
+                expected_rows = (request.end_date - request.start_date).days + 1
+                if (
+                    len(records) != expected_rows
+                    or records[0]["date"] != request.start_date.isoformat()
+                    or records[-1]["date"] != request.end_date.isoformat()
+                ):
+                    raise HTTPException(
+                        status_code=502,
+                        detail="TQ_CALENDAR_INCOMPLETE",
+                    )
+                return records
             except tq_data_source.TqDataFrameError as exc:
                 raise HTTPException(status_code=422, detail=exc.detail) from exc
             except HTTPException:
@@ -211,6 +238,11 @@ class TqManager:
         )
         if "adj_type" in message or "复权" in message:
             return HTTPException(status_code=400, detail="TQ_INVALID_ADJ_TYPE")
+        if "交易日历可以处理的范围为" in message:
+            return HTTPException(
+                status_code=422,
+                detail="TQ_CALENDAR_RANGE_UNAVAILABLE",
+            )
         if "K线数据周期" in message:
             return HTTPException(status_code=400, detail="TQ_INVALID_DURATION_SECONDS")
         if "序列长度" in message:

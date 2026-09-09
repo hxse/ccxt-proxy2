@@ -1,10 +1,16 @@
 import math
 import os
+from datetime import date
 
 import pytest
 
 from src.tools.tq_manager import tq_manager
-from src.types_tq import TqOhlcvRequest, TqTickRequest, TqUnderlyingSymbolRequest
+from src.types_tq import (
+    TqOhlcvRequest,
+    TqTickRequest,
+    TqTradingCalendarRequest,
+    TqUnderlyingSymbolRequest,
+)
 
 pytestmark = [
     pytest.mark.online,
@@ -73,3 +79,19 @@ def test_tq_online_fetch_underlying_symbol_smoke():
     assert item.underlying_symbol
     assert len(result.history) <= 3
     assert all(history.underlying_symbol for history in result.history)
+
+
+def test_tq_online_fetch_trading_calendar_smoke():
+    result = tq_manager.fetch_trading_calendar(
+        TqTradingCalendarRequest(
+            start_date=date(2021, 2, 1),
+            end_date=date(2021, 2, 3),
+        )
+    )
+
+    assert [item["date"] for item in result] == [
+        "2021-02-01",
+        "2021-02-02",
+        "2021-02-03",
+    ]
+    assert all(isinstance(item["trading"], bool) for item in result)

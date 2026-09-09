@@ -12,7 +12,8 @@ TqSdk 返回 Pandas DataFrame。Adapter 负责：
 4. time-axis 校验；
 5. NaN/Infinity 转 JSON `null`；
 6. records 输出；
-7. underlying history wide-to-long。
+7. underlying history wide-to-long；
+8. trading calendar date/bool schema 与完整闭区间校验。
 
 不做 CCXT six-column normalization，不强行删除 TQ raw fields。
 
@@ -143,11 +144,15 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 | 400 | `TQ_INVALID_DURATION_SECONDS` | duration 非正 |
 | 400 | `TQ_INVALID_DATA_LENGTH` | 不在 `1..10000` |
 | 400 | `TQ_INVALID_ADJ_TYPE` | adj type 不支持 |
+| 400 | `TQ_INVALID_DATE_RANGE` | calendar 起点晚于终点 |
 | 422 | `TQ_INVALID_TIME_AXIS` | time 非正/重复/倒序/中间 placeholder |
+| 422 | `TQ_INVALID_TRADING_CALENDAR` | calendar date/trading schema 非法 |
+| 422 | `TQ_CALENDAR_RANGE_UNAVAILABLE` | 超出 TqSdk 日历覆盖年份 |
 | 422 | `TQ_NOT_CONT_SYMBOL` | underlying route 收到非 CONT |
 | 422 | `TQ_UNDERLYING_SYMBOL_EMPTY` | CONT 缺 underlying |
 | 500 | `TQ_NOT_CONFIGURED` | 未配置 TQ |
 | 502 | `TQ_NETWORK_UNAVAILABLE` | TQ 网络/登录失败 |
+| 502 | `TQ_CALENDAR_INCOMPLETE` | calendar 未逐日完整覆盖请求闭区间 |
 
 批量 underlying 查询中任一 symbol 无效时整个请求返回 422，detail 带失败 symbol。
 
@@ -163,6 +168,7 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 - NaN/Infinity 到 `null`；
 - multi-symbol fields 保留；
 - underlying current mapping 和 history melt；
+- calendar ISO date range、date/bool conversion、顺序/唯一性与完整覆盖；
 - `n=None` 不调 history API；
 - TqManager 每次 request 推进 message loop；
 - FileLock/singleton lifecycle；
@@ -175,13 +181,14 @@ Online tests 默认 skip，只在显式提供 TQ credentials/network 时运行�
 - Kline serial 返回 list；
 - Tick serial 返回 list；
 - CONT underlying 返回 mapping；
+- 中国期货交易日历返回完整的逐日 records；
 - 结束时正确关闭 TqApi。
 
 建议入口继续使用 `just test-tq-online` 和 `debug/tq_probe.py`；默认 `just test` 只收集 offline tests。
 
 ## 13. Migration acceptance
 
-- TQ Route request/response/OpenAPI 不变。
+- 三个既有 realtime Route contract 不变；新增独立 `fetch_trading_calendar` Route。
 - `src/tools/tq_data_source.py` 无 `import polars`。
 - `pandas` 是 direct dependency。
 - TQ 仍使用现有 `FileLock`，不改成 CCXT/DuckDB lock。

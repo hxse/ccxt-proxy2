@@ -2,15 +2,21 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from src.responses_tq import TqRecord, TqUnderlyingSymbolResponse
+from src.responses_tq import (
+    TqRecord,
+    TqTradingCalendarItem,
+    TqUnderlyingSymbolResponse,
+)
 from src.router.auth_handler import manager
 from src.tools.tq_manager import tq_manager
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
+    TqTradingCalendarRequest,
     TqUnderlyingSymbolRequest,
     tq_ohlcv_request,
     tq_tick_request,
+    tq_trading_calendar_request,
     tq_underlying_symbol_request,
 )
 
@@ -26,7 +32,8 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": (
             "请求参数不符合 TQ 实时序列接口要求。常见 detail: "
             "TQ_INVALID_SYMBOL、TQ_INVALID_DURATION_SECONDS、"
-            "TQ_INVALID_DATA_LENGTH、TQ_INVALID_ADJ_TYPE。"
+            "TQ_INVALID_DATA_LENGTH、TQ_INVALID_ADJ_TYPE、"
+            "TQ_INVALID_DATE_RANGE。"
         )
     },
     401: {"description": "未通过本项目 Bearer token 鉴权。"},
@@ -34,11 +41,17 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": (
             "TQ 返回的数据不可安全序列化或业务语义不满足要求。"
             "例如时间轴非严格递增、前置占位行裁剪后仍有非法时间，或请求包含"
-            "未知 query 参数。"
+            "未知 query 参数。交易日历超出 TQ 可用年份时 detail 为 "
+            "TQ_CALENDAR_RANGE_UNAVAILABLE。"
         )
     },
     500: {"description": "服务端未配置 TQ，detail 为 TQ_NOT_CONFIGURED。"},
-    502: {"description": "TQ 网络、登录或上游服务不可用。"},
+    502: {
+        "description": (
+            "TQ 网络、登录或上游服务不可用；日历未完整覆盖请求的每日区间时 "
+            "detail 为 TQ_CALENDAR_INCOMPLETE。"
+        )
+    },
 }
 
 TQ_OHLCV_DESCRIPTION = """
@@ -112,6 +125,25 @@ TQ_UNDERLYING_DESCRIPTION = """
 - 当前 symbol 必须是 TQ `CONT` 主连合约；非主连或缺少 `underlying_symbol` 返回 422。
 """
 
+TQ_TRADING_CALENDAR_DESCRIPTION = """
+薄转发 TQ `get_trading_calendar(start_dt, end_dt)`，返回闭区间内每个北京时间自然日是否为中国期货交易日。
+
+日期与时区语义：
+
+- `start_date/end_date` 是不带时刻和时区的 calendar date，格式固定为 `YYYY-MM-DD`；它们不是 UTC 毫秒时间戳。
+- 服务将输入直接解释为中国期货日历中的自然日（`Asia/Shanghai`），不根据客户端、服务器或 UTC 时区做日期换算。
+- 例如 `start_date=2026-09-01` 始终表示中国日历的 2026-09-01，不表示该日零点对应的某个 instant。
+- 响应中的 `date` 沿用同一语义；它不负责把夜盘时刻归属到某个 trading day。
+
+能力边界：
+
+- 请求区间两端都包含；起点晚于终点返回 `TQ_INVALID_DATE_RANGE`。
+- 日历是中国期货通用节假日/周末标记，不区分 symbol 或交易所，也不表达夜盘归属、具体开闭市时刻、节前禁入或换月政策。
+- 请求超出 TqSdk 当前节假日数据覆盖年份时返回 `TQ_CALENDAR_RANGE_UNAVAILABLE`，不截断响应。
+- 成功响应必须逐自然日完整覆盖闭区间、日期严格递增且唯一；Provider 短响应返回 `TQ_CALENDAR_INCOMPLETE`。
+- 本接口不接入 DuckDB cache；TqSdk 自己维护节假日数据，调用仍在现有 TqApi `FileLock` 内完成。
+"""
+
 
 @tq_router.get(
     "/fetch_ohlcv",
@@ -158,3 +190,18 @@ def fetch_underlying_symbol(
     根据 TQ 主连 symbol 查询当前实际主力合约和可选历史映射。
     """
     return tq_manager.fetch_underlying_symbol(params)
+
+
+@tq_router.get(
+    "/fetch_trading_calendar",
+    response_model=list[TqTradingCalendarItem],
+    summary="查询 TQ 中国期货交易日历",
+    description=TQ_TRADING_CALENDAR_DESCRIPTION,
+    response_description="闭区间内逐自然日的 date/trading records。",
+    responses=TQ_COMMON_RESPONSES,
+)
+def fetch_trading_calendar(
+    params: TqTradingCalendarRequest = Depends(tq_trading_calendar_request),
+):
+    """薄转发 TQ get_trading_calendar。"""
+    return tq_manager.fetch_trading_calendar(params)

@@ -46,7 +46,7 @@
 
 ### Phase 5：TQ DataFrame engine
 
-1. TQ Route 与 request/response 不变。
+1. 三个既有 TQ realtime Route 与 request/response 不变；交易日历作为独立 thin-forward Route 增加。
 2. `tq_data_source` 直接处理 TqSdk Pandas DataFrame。
 3. 保留 TqManager singleton 和 FileLock。
 4. 新增 `pandas` direct dependency，删除 TQ 对 Polars 的依赖。
@@ -113,6 +113,7 @@
 - Pandas placeholder trim、dtype、time axis、NaN/Infinity、wide-to-long。
 - TQ FileLock 和 singleton lifecycle 不回归。
 - TQ 不调用 DuckDB cache。
+- `fetch_trading_calendar` 完整覆盖请求日期闭区间，超出 TqSdk calendar coverage 时稳定报错。
 
 ## 5. 验收清单
 
@@ -124,7 +125,7 @@
 6. Cache 中没有无 successor 证据的尾根。
 7. DuckDB merge/eviction 在单 transaction 内原子完成。
 8. CCXT 和 DuckDB 使用两把不同的 process-local lock。
-9. TQ 对外行为不变，内部不再依赖 Polars。
+9. TQ 既有 realtime 行为不变，新增独立交易日历能力，内部不再依赖 Polars。
 10. 旧 facade、Parquet/proof、callback 和过时测试被删除。
 11. `uv lock --check`、默认离线测试和目标新增测试全部通过。
 12. 上线前至少对已启用的 Binance/Kraken Futures live identity 运行一次三模式 public market-data online smoke test；private account credential 不作为该 suite 的通过条件，sandbox 只用于 `just debug*`，非只读 online test 不属于本次验收。

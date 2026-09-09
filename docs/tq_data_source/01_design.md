@@ -1,6 +1,6 @@
 # TQ 行情转发、Route 与 Lifecycle
 
-> **Status: Implemented.** TQ 三个 Route 的语义保持不变，内部直接处理 TqSdk 返回的 Pandas DataFrame。
+> **Status: Implemented.** TQ realtime Route 保持 thin-forward，并公开独立的中国期货交易日历查询。
 
 ## 1. 边界
 
@@ -22,9 +22,10 @@ TQ 是独立 thin-forward data source，不是 CCXT OHLCV Provider adapter。
 GET /tq/fetch_ohlcv
 GET /tq/fetch_tick
 GET /tq/fetch_underlying_symbol
+GET /tq/fetch_trading_calendar
 ```
 
-三个 Route 都复用项目已有 `/auth/token` Bearer authentication，不增加 TQ 专用 HTTP token、query token 或 Basic Auth。
+四个 Route 都复用项目已有 `/auth/token` Bearer authentication，不增加 TQ 专用 HTTP token、query token 或 Basic Auth。
 
 ## 3. TqSdk 能力
 
@@ -35,9 +36,12 @@ api.get_kline_serial(symbol, duration_seconds, data_length, adj_type=None)
 api.get_tick_serial(symbol, data_length, adj_type=None)
 api.query_symbol_info(symbol)
 api.query_his_cont_quotes(symbol, n=n)
+api.get_trading_calendar(start_dt, end_dt)
 ```
 
 `data_length` 范围是 `1..10000`，默认 10000。它是固定宽度滚动窗口的上限，不保证响应一定有该数量。服务运行更久不会让同一 serial 返回超过 `data_length` 的 rows。
+
+因此现有 `/tq/fetch_ohlcv` 不能证明“某个指定历史起点到终点是否完整覆盖”：请求本身没有日期边界，短于 `data_length` 也是已定义的正常结果。若未来必须对任意久远旧合约窗口提供覆盖证明，需要单独增加带 `start_dt/end_dt` 的历史数据能力；不能把短 serial 一律改成错误，也不能由交易日历替代 K 线 coverage proof。
 
 专业版历史接口 `get_kline_data_series/get_tick_data_series` 不属于第一版能力，也不依赖其 `~/.tqsdk/data_series_1` 磁盘 cache。
 
@@ -127,7 +131,29 @@ underlying_symbol = info["underlying_symbol"]
 
 History 原始 Pandas 宽表必须转为长表，不将 symbol 作为动态 JSON key。非 `CONT` 返回 422；`CONT` 缺 underlying 也返回 422。
 
-## 9. `TqManager` lifecycle 与 lock
+## 9. `/tq/fetch_trading_calendar`
+
+薄转发 `TqApi.get_trading_calendar(start_dt, end_dt)`：
+
+| 参数 | 类型 | 语义 |
+| --- | --- | --- |
+| `start_date` | ISO `date` | 中国期货日历的起始自然日（`Asia/Shanghai`），包含 |
+| `end_date` | ISO `date` | 中国期货日历的结束自然日（`Asia/Shanghai`），包含 |
+
+这两个参数是只表示 calendar date 的 `YYYY-MM-DD` 字符串，不是 UTC 毫秒时间戳，也不表示零点 instant。服务不会根据客户端、服务器或 UTC 时区换算日期；例如 `2026-09-01` 始终指中国期货日历中的 2026-09-01。响应 `date` 也使用这一语义，不表达夜盘时刻应归属的 trading day。
+
+响应是闭区间内逐自然日记录：
+
+```json
+[
+  {"date": "2026-09-11", "trading": true},
+  {"date": "2026-09-12", "trading": false}
+]
+```
+
+它表达中国期货通用交易日/休息日，不区分交易所或 symbol，也不负责夜盘到交易日的映射、交易时段、节前禁入或换月策略。请求超出 TqSdk 当前节假日数据覆盖范围时返回 422 `TQ_CALENDAR_RANGE_UNAVAILABLE`；成功结果必须完整覆盖每日闭区间，否则返回 502 `TQ_CALENDAR_INCOMPLETE`。不增加外层 cache。
+
+## 10. `TqManager` lifecycle 与 lock
 
 一个 process 使用一个 singleton `TqManager`，惰性持有一个 `TqApi`。每次创建新 API 会丢失 serial reuse，因此禁止 per-request initialization。
 
@@ -137,7 +163,7 @@ Application lifespan shutdown 调用幂等 `TqManager.close()`，在持有同一
 
 多 Uvicorn worker 会产生多个 `TqApi` 和多份进程内 serial cache；第一版部署保持 single process。
 
-## 10. Config/auth
+## 11. Config/auth
 
 TQ config 只用于服务连接 TqSdk，不是 HTTP 入口鉴权：
 
@@ -152,7 +178,7 @@ TQ config 只用于服务连接 TqSdk，不是 HTTP 入口鉴权：
 
 `tq` 可选；未配置时首次访问返回 `TQ_NOT_CONFIGURED`，不影响其他路由启动。未登录的 `/tq/*` 仍由项目统一认证层返回 401。
 
-## 11. Dependencies
+## 12. Dependencies
 
 当前实现显式声明：
 

@@ -197,7 +197,7 @@ bru-error-contract:
 
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:
-    uv run --no-sync python scripts/run_bruno.py 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru'
+    uv run --no-sync python scripts/run_bruno.py 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru' 'TQ DATA/fetch_trading_calendar/main.bru'
 
 # 手动发送 Telegram 消息，需要服务端已配置 telegram
 bru-telegram-send:

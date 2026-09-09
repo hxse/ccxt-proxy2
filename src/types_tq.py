@@ -1,7 +1,8 @@
+from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.router.query_validation import reject_unknown_query_params
 
@@ -72,6 +73,29 @@ class TqUnderlyingSymbolRequest(BaseModel):
     @property
     def symbol_list(self) -> list[str]:
         return self.symbol if isinstance(self.symbol, list) else [self.symbol]
+
+
+class TqTradingCalendarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date = Field(
+        description=(
+            "起始中国期货日历日（Asia/Shanghai），包含当天；"
+            "仅为 YYYY-MM-DD date，不是 UTC 时间戳，不做时区换算。"
+        )
+    )
+    end_date: date = Field(
+        description=(
+            "结束中国期货日历日（Asia/Shanghai），包含当天；"
+            "仅为 YYYY-MM-DD date，不是 UTC 时间戳，不做时区换算。"
+        )
+    )
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TqTradingCalendarRequest":
+        if self.start_date > self.end_date:
+            raise ValueError("TQ_INVALID_DATE_RANGE")
+        return self
 
 
 def _normalize_symbol_input(symbol: str | list[str]) -> str | list[str]:
@@ -153,6 +177,11 @@ def _validate_n(n: int | None) -> int | None:
     if n is not None and n <= 0:
         raise _http_validation_error("TQ_INVALID_DATA_LENGTH")
     return n
+
+
+def _validate_calendar_range(start_date: date, end_date: date) -> None:
+    if start_date > end_date:
+        raise _http_validation_error("TQ_INVALID_DATE_RANGE")
 
 
 def tq_ohlcv_request(
@@ -299,3 +328,35 @@ def tq_underlying_symbol_request(
         symbol=request_symbol,
         n=_validate_n(n),
     )
+
+
+def tq_trading_calendar_request(
+    request: Request,
+    start_date: Annotated[
+        date,
+        Query(
+            title="起始日期",
+            description=(
+                "中国期货日历的起始自然日（Asia/Shanghai），"
+                "ISO 8601 YYYY-MM-DD，结果包含该日。"
+                "该值不是 UTC 毫秒时间戳，不做时区换算。"
+            ),
+            examples=["2026-09-01"],
+        ),
+    ],
+    end_date: Annotated[
+        date,
+        Query(
+            title="结束日期",
+            description=(
+                "中国期货日历的结束自然日（Asia/Shanghai），"
+                "ISO 8601 YYYY-MM-DD，结果包含该日。"
+                "该值不是 UTC 毫秒时间戳，不做时区换算。"
+            ),
+            examples=["2026-09-30"],
+        ),
+    ],
+) -> TqTradingCalendarRequest:
+    reject_unknown_query_params(request, {"start_date", "end_date"})
+    _validate_calendar_range(start_date, end_date)
+    return TqTradingCalendarRequest(start_date=start_date, end_date=end_date)

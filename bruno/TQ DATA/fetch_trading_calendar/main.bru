@@ -1,0 +1,20 @@
+meta {
+  name: main
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tq/fetch_trading_calendar?start_date=2021-02-01&end_date=2021-02-03
+  body: none
+  auth: inherit
+}
+
+params:query {
+  start_date: 2021-02-01
+  end_date: 2021-02-03
+}
+
+assert {
+  res.status: eq 200
+}

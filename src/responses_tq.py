@@ -1,8 +1,19 @@
+from datetime import date as Date
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 TqRecord = dict[str, Any]
+
+
+class TqTradingCalendarItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{"date": "2026-09-11", "trading": True}]},
+    )
+
+    date: Date = Field(description="北京时间自然日")
+    trading: bool = Field(description="该日期是否为中国期货交易日")
 
 
 class TqUnderlyingItem(BaseModel):
