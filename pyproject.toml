@@ -21,10 +21,18 @@ dependencies = [
     "pandas>=3.0.5",
 ]
 
+[project.optional-dependencies]
+ctp = ["ctpwrapper==6.7.13+ccxtproxy.1"]
+
+[tool.uv.sources]
+ctpwrapper = { path = "vendor/ctpwrapper/ctpwrapper-6.7.13+ccxtproxy.1.tar.gz" }
+
 
 [dependency-groups]
 dev = [
     "pytest",
+    "python-dotenv>=1.2,<2",
+    "tomli-w>=1.2,<2",
 ]
 
 [tool.pytest.ini_options]

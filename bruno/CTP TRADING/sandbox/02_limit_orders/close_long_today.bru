@@ -1,0 +1,65 @@
+meta {
+  name: 限价平多今仓 [STATEFUL]
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/ctp/create_limit_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "exchange_id": "SHFE",
+    "instrument_id": "rb2610",
+    "side": "sell",
+    "offset": "close_today",
+    "volume": 1,
+    "price": 3500,
+    "time_in_force": "GFD",
+    "hedge_flag": "speculation"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.mode: eq sandbox
+}
+
+tests {
+  test("成功响应属于模拟盘，并包含 CTP 请求号与交易日", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(body.mode).to.equal("sandbox");
+    expect(Number.isInteger(body.request_id)).to.equal(true);
+    expect(body.trading_day).to.match(/^\d{8}$/);
+  });
+
+  test("订单快照包含原生字段，买卖和开平标志符合本用例", function () {
+    const order = res.getBody().order;
+    expect(order).to.be.an("object");
+    ["OrderRef", "OrderSysID", "OrderStatus", "OrderSubmitStatus", "StatusMsg", "InstrumentID", "ExchangeID"].forEach(function (name) {
+      expect(order[name]).to.be.a("string");
+    });
+    ["FrontID", "SessionID", "VolumeTotalOriginal", "VolumeTraded", "VolumeTotal"].forEach(function (name) {
+      expect(Number.isInteger(order[name]), name + " 应为整数").to.equal(true);
+    });
+    expect(order.Direction).to.equal("1");
+    expect(order.CombOffsetFlag).to.equal("3");
+    expect(order.OrderPriceType).to.equal("2");
+    expect(order.LimitPrice).to.be.a("number").and.to.be.above(0);
+    expect(order.TimeCondition).to.equal("3");
+    expect(order.VolumeCondition).to.equal("1");
+  });
+}
+
+docs {
+  限价平多今仓：side=sell，offset=close_today，volume=1 手，mode=sandbox。
+  执行前替换有效合约和自己选定的 price；3500 只是格式示例。
+  先确认模拟账户有对应方向及今/昨仓的可平持仓；不自动拆单。
+  GFD：当日有效，未成交部分可以继续挂单。
+  预期 200 返回详细订单快照，不要求一定成交。提交后状态未知时先查询订单与成交。
+}

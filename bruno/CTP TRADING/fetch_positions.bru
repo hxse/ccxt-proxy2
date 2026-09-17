@@ -1,0 +1,19 @@
+meta {
+  name: fetch_positions sandbox
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_positions?mode=sandbox
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+}
+
+assert {
+  res.status: eq 200
+}

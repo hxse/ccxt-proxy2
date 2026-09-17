@@ -1,5 +1,3 @@
-import json
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,12 +10,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-from pydantic import ValidationError
 
 from src.domain_errors import DomainError
 from src.router.logging_utils import INTERNAL_SERVER_ERROR_DETAIL
 from src.tools.ccxt_errors import map_ccxt_exception
-from src.tools.config_types import AppConfig
+from src.tools.config_loader import ConfigError, load_config, resolve_config_path
 from src.tools.exchange_manager import exchange_manager
 from src.tools.logging_config import setup_logging
 
@@ -57,10 +54,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         app.state.exchange_registry_ready = False
+        from src.tools.ctp_manager import ctp_manager
         from src.tools.telegram_manager import telegram_manager
         from src.tools.tq_manager import tq_manager
 
         resources = (
+            ("ctp", ctp_manager.close),
             ("telegram", telegram_manager.close),
             ("tq", tq_manager.close),
             ("ccxt", exchange_manager.close),
@@ -78,6 +77,10 @@ OPENAPI_TAGS = [
     {"name": "General", "description": "服务首页与基础访问入口。"},
     {"name": "Health", "description": "区分进程存活与 Provider registry 就绪状态。"},
     {"name": "Auth", "description": "OAuth2 Password Grant 与 Bearer JWT。"},
+    {
+        "name": "CTP TRADING",
+        "description": "ctpwrapper 中国期货交易薄转发；支持 sandbox 模拟盘和 live 实盘，行情继续使用 TQ。",
+    },
     {
         "name": "CCXT PROXY",
         "description": "Binance/Kraken 行情、账户、订单与 OHLCV 代理。",
@@ -98,7 +101,7 @@ app = FastAPI(
     title="ccxt-proxy2",
     version="1.0.0",
     description=(
-        "带 Bearer 鉴权的 CCXT、TQ 和 Telegram 代理。"
+        "带 Bearer 鉴权的 CCXT、CTP、TQ 和 Telegram 代理。"
         "交易/设置类 POST 路由具有真实外部副作用。"
     ),
     openapi_tags=OPENAPI_TAGS,
@@ -218,32 +221,14 @@ async def handle_unexpected_exception(request: Request, exc: Exception):
 
 
 STRATEGY_DIR = Path("./data/strategy")
-STRATEGY_DIR.mkdir(exist_ok=True)
+STRATEGY_DIR.mkdir(parents=True, exist_ok=True)
 
 
-config_path = Path(os.getenv("CCXT_PROXY_CONFIG_PATH", "./data/config.json"))
-config: AppConfig
 try:
-    with config_path.open("r", encoding="utf-8") as file:
-        config = AppConfig.model_validate(json.load(file))
-except FileNotFoundError:
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w", encoding="utf-8") as file:
-        json.dump({}, file, ensure_ascii=False, indent=4)
-    logger.error(
-        "config.json not found, created empty placeholder file at {}", config_path
-    )
-    raise RuntimeError("config.json not found")
-except json.JSONDecodeError:
-    logger.error("config.json is invalid JSON")
-    raise RuntimeError("config.json is invalid JSON")
-except ValidationError as exc:
-    logger.bind(
-        validation_errors=exc.errors(include_url=False, include_input=False)
-    ).error("config validation failed")
-    raise RuntimeError("config validation failed") from exc
-except Exception:
-    logger.exception("unexpected error while loading config")
+    config_path = resolve_config_path()
+    config = load_config(config_path)
+except ConfigError as exc:
+    logger.error("{}", exc)
     raise
 
 

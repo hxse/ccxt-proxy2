@@ -20,6 +20,7 @@ from src.responses_system import (  # noqa: E402
     ReadyResponse,
 )
 from src.router.auth_handler import auth_router  # noqa: E402
+from src.router.ctp_router import ctp_router  # noqa: E402
 from src.router.file_handler import file_router  # noqa: E402
 from src.router.telegram_router import telegram_router  # noqa: E402
 from src.router.tq_router import tq_router  # noqa: E402
@@ -28,6 +29,7 @@ from src.tools.shared import app  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(ccxt_router)
+app.include_router(ctp_router)
 app.include_router(file_router)
 app.include_router(tq_router)
 app.include_router(telegram_router)

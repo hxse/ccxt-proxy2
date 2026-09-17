@@ -1,0 +1,54 @@
+meta {
+  name: 查询指定合约持仓
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_positions?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+  exchange_id: SHFE
+  instrument_id: rb2610
+}
+
+assert {
+  res.status: eq 200
+  res.body.mode: eq sandbox
+}
+
+tests {
+  test("成功响应属于模拟盘，并包含 CTP 请求号与交易日", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(body.mode).to.equal("sandbox");
+    expect(Number.isInteger(body.request_id)).to.equal(true);
+    expect(body.trading_day).to.match(/^\d{8}$/);
+  });
+
+  test("positions 为数组，逐项保留详细 CTP 字段；允许空数组", function () {
+    const rows = res.getBody().positions;
+    expect(rows).to.be.an("array");
+    rows.forEach(function (row) {
+      expect(row.InstrumentID).to.be.a("string");
+      expect(row.PosiDirection).to.be.a("string");
+      expect(row.PositionDate).to.be.a("string");
+      expect(row.HedgeFlag).to.be.a("string");
+      expect(Number.isInteger(row.Position), "Position 应为整数").to.equal(true);
+      expect(Number.isInteger(row.TodayPosition), "TodayPosition 应为整数").to.equal(true);
+      expect(Number.isInteger(row.YdPosition), "YdPosition 应为整数").to.equal(true);
+      expect(Number.isInteger(row.LongFrozen), "LongFrozen 应为整数").to.equal(true);
+      expect(Number.isInteger(row.ShortFrozen), "ShortFrozen 应为整数").to.equal(true);
+    });
+  });
+}
+
+docs {
+  默认 mode=sandbox，读取服务端 ctp.test，沿用集合 Bearer 鉴权。
+  平仓前观察今昨仓和冻结数量，按交易所规则选择平今或平昨。
+  无记录时返回空数组是合法结果。首次连接会认证、登录并确认结算。
+}

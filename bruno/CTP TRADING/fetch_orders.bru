@@ -1,0 +1,21 @@
+meta {
+  name: fetch_orders sandbox
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_orders?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+  exchange_id: SHFE
+  instrument_id: rb2610
+}
+
+assert {
+  res.status: eq 200
+}

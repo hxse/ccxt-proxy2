@@ -175,7 +175,7 @@ def test_every_bru_path_referenced_by_justfile_exists():
 
 
 def test_offline_tests_and_bruno_credentials_use_separate_config_paths():
-    expected = PROJECT_ROOT / "Test/fixtures/config.json"
+    expected = PROJECT_ROOT / "Test/fixtures/config.toml"
     justfile = (PROJECT_ROOT / "justfile").read_text()
 
     assert config_path.resolve() == expected.resolve()
@@ -183,7 +183,7 @@ def test_offline_tests_and_bruno_credentials_use_separate_config_paths():
     assert "bru_password :=" not in justfile
     assert "export BRU_" not in justfile
     assert "scripts/run_bruno.py" in justfile
-    assert "CCXT_PROXY_CONFIG_PATH=./data/config.json" in justfile
+    assert "CCXT_PROXY_CONFIG_PATH=./config.toml" in justfile
 
 
 def test_mutating_bruno_requests_are_visibly_marked_stateful():

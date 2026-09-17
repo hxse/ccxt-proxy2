@@ -1,6 +1,10 @@
 bruno
 test_database
 data
+.env
+.env.*
+config.toml
+config.toml.*
 
 .venv
 **/modules

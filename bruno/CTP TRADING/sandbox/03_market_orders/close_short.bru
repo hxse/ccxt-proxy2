@@ -1,0 +1,63 @@
+meta {
+  name: 市价平空 [STATEFUL]
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/ctp/create_market_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "exchange_id": "DCE",
+    "instrument_id": "m2701",
+    "side": "buy",
+    "offset": "close",
+    "volume": 1,
+    "hedge_flag": "speculation"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.mode: eq sandbox
+}
+
+tests {
+  test("成功响应属于模拟盘，并包含 CTP 请求号与交易日", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(body.mode).to.equal("sandbox");
+    expect(Number.isInteger(body.request_id)).to.equal(true);
+    expect(body.trading_day).to.match(/^\d{8}$/);
+  });
+
+  test("订单快照包含原生字段，买卖和开平标志符合本用例", function () {
+    const order = res.getBody().order;
+    expect(order).to.be.an("object");
+    ["OrderRef", "OrderSysID", "OrderStatus", "OrderSubmitStatus", "StatusMsg", "InstrumentID", "ExchangeID"].forEach(function (name) {
+      expect(order[name]).to.be.a("string");
+    });
+    ["FrontID", "SessionID", "VolumeTotalOriginal", "VolumeTraded", "VolumeTotal"].forEach(function (name) {
+      expect(Number.isInteger(order[name]), name + " 应为整数").to.equal(true);
+    });
+    expect(order.Direction).to.equal("0");
+    expect(order.CombOffsetFlag).to.equal("1");
+    expect(order.OrderPriceType).to.equal("1");
+    expect(order.LimitPrice).to.equal(0);
+    expect(order.TimeCondition).to.equal("1");
+    expect(order.VolumeCondition).to.equal("1");
+  });
+}
+
+docs {
+  市价平空：side=buy，offset=close，volume=1 手，mode=sandbox。没有 price 参数。
+  示例使用 DCE.m2701；执行前换成可交易且支持原生 AnyPrice 市价的合约。
+  先确认模拟账户有对应方向的可平仓位；其他交易所可能要求显式平今或平昨。
+  预期 200 校验成功订单。品种/前置不支持原生市价时应返回上游拒绝，不能把拒绝视为测试成功。
+  不查询行情合成市价；不自动重试。
+}

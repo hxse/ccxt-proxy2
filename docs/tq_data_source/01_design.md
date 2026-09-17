@@ -165,15 +165,12 @@ Application lifespan shutdown 调用幂等 `TqManager.close()`，在持有同一
 
 ## 11. Config/auth
 
-TQ config 只用于服务连接 TqSdk，不是 HTTP 入口鉴权：
+`config.toml` 中的 TQ 配置只用于服务连接 TqSdk，不是 HTTP 入口鉴权：
 
-```json
-{
-  "tq": {
-    "username": "...",
-    "password": ""
-  }
-}
+```toml
+[tq]
+username = "..."
+password = ""
 ```
 
 `tq` 可选；未配置时首次访问返回 `TQ_NOT_CONFIGURED`，不影响其他路由启动。未登录的 `/tq/*` 仍由项目统一认证层返回 401。

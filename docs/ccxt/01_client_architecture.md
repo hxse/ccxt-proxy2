@@ -177,7 +177,7 @@ provider / mode / market / symbol / timeframe / variant
 
 `bruno/environments/ccxt-proxy2.bru` 只保存 collection 共享配置：`baseUrl` 以及 secret `user`、`password`。Provider、mode、market、symbol、OHLCV defaults 等请求专用样例值属于各自 request，不得放入 environment。所有写请求名称标记 `[STATEFUL]`；示例 write mode 是 sandbox，Kraken write identity 未启用时应返回 503，禁止为了让示例成功而默认切到 live。
 
-Justfile 不在全局解析阶段读取 Bruno credential。只有 `just bru-*` 会调用 `scripts/run_bruno.py`，从真实 `data/config.json` 读取一个登录用户并传给 Bruno；offline test/lint/type-check 与该流程隔离。
+Justfile 不在全局解析阶段读取 Bruno credential。只有 `just bru-*` 会调用 `scripts/run_bruno.py`，通过统一配置加载器从 `config.toml` 的 `[users.<username>]` 读取一个登录用户并传给 Bruno；offline test/lint/type-check 与该流程隔离。
 
 只读基础入口是 `just bru-readonly-basic`；本地校验 inverse/unknown-symbol 的稳定错误使用 `just bru-error-contract`。订单 ID、价格、amount、leverage 和 margin mode 直接保存在对应 request body 中，运行 stateful request 前必须人工核对。
 

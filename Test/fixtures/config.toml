@@ -1,0 +1,2 @@
+# 离线测试专用：无真实账户、无交易所白名单。
+SECRET = "offline-test-only-secret"

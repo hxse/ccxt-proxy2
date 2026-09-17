@@ -80,19 +80,16 @@ POST /bot{bot_token}/sendMessage
 
 ## 配置设计
 
-配置模型新增 `telegram`：
+在 `config.toml` 中配置 `telegram`：
 
-```json
-{
-  "telegram": {
-    "bot_token": "...",
-    "chats": {
-      "scanner": "-1001111111111",
-      "ops": "-1002222222222",
-      "debug": "123456789"
-    }
-  }
-}
+```toml
+[telegram]
+bot_token = "..."
+
+[telegram.chats]
+scanner = "-1001111111111"
+ops = "-1002222222222"
+debug = "123456789"
 ```
 
 字段说明：
@@ -400,7 +397,7 @@ just debug-telegram-stateful
 
 手动探针前置条件：
 
-- `data/config.json` 中配置真实 `telegram.bot_token`。
+- `config.toml` 的 `[telegram]` 分组中配置真实 `bot_token`。
 - `telegram.chats` 中存在测试 chat alias。
 - 执行命令显式传入或使用环境变量指定测试 alias。
 

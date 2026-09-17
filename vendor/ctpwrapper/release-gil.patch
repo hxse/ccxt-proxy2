@@ -1,0 +1,38 @@
+--- a/ctpwrapper/TraderApi.pyx
++++ b/ctpwrapper/TraderApi.pyx
+@@ -54,4 +54,4 @@
+-
+-        if self._api is not NULL:
+-            self._api.RegisterSpi(NULL)
+-            self._api.Release()
++        cdef CTraderApi *api = self._api
++        cdef CTraderSpi *spi = self._spi
++        if api is not NULL:
++            # Detach while holding the GIL so reentrant Release is harmless.
+@@ -59,0 +60,6 @@
++            # Native shutdown waits for callbacks which also need the GIL.
++            with nogil:
++                api.RegisterSpi(NULL)
++                api.Release()
++            if spi is not NULL:
++                del spi
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -9 +9 @@
+-version = "6.7.13"
++version = "6.7.13+ccxtproxy.1"
+--- a/ctpwrapper/__init__.py
++++ b/ctpwrapper/__init__.py
+@@ -19 +19 @@
+-__version__ = "6.7.13"
++__version__ = "6.7.13+ccxtproxy.1"
+--- a/PKG-INFO
++++ b/PKG-INFO
+@@ -3 +3 @@
+-Version: 6.7.13
++Version: 6.7.13+ccxtproxy.1
+--- a/ctpwrapper.egg-info/PKG-INFO
++++ b/ctpwrapper.egg-info/PKG-INFO
+@@ -3 +3 @@
+-Version: 6.7.13
++Version: 6.7.13+ccxtproxy.1

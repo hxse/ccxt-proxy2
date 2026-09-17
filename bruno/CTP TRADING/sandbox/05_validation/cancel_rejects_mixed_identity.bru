@@ -1,0 +1,43 @@
+meta {
+  name: 撤单混用定位字段 → 422 [STATEFUL]
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/ctp/cancel_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "by": "exchange_order",
+    "exchange_id": "SHFE",
+    "instrument_id": "rb2610",
+    "order_sys_id": "       12345",
+    "front_id": 1
+  }
+}
+
+assert {
+  res.status: eq 422
+}
+
+tests {
+  test("在参数校验阶段拒绝 front_id，返回字段错误列表", function () {
+    expect(res.getStatus()).to.equal(422);
+    const issues = res.getBody().detail;
+    expect(issues).to.be.an("array").and.not.to.be.empty;
+    expect(issues.some(function (issue) {
+      return Array.isArray(issue.loc) && issue.loc.includes("front_id");
+    })).to.equal(true);
+  });
+}
+
+docs {
+  mode=sandbox。此用例故意包含非法参数，预期 HTTP 422，detail 为字段校验错误数组。
+  正确实现会在调用 CTP 之前拒绝，不需要 CTP 已登录；仍需本项目 Bearer token。
+  保留非法字段用于测试，不要为获得 200 而修正本用例。
+}

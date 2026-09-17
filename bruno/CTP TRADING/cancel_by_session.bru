@@ -1,0 +1,27 @@
+meta {
+  name: cancel_by_session sandbox [STATEFUL]
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/ctp/cancel_order
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "by": "session_order",
+    "exchange_id": "SHFE",
+    "instrument_id": "rb2610",
+    "front_id": 1,
+    "session_id": 123,
+    "order_ref": "1"
+  }
+}
+
+docs {
+  按需手动执行。先替换合约、价格或原订单标识；不要在状态未知时直接重试。完整说明见 /docs 的 CTP TRADING。
+}

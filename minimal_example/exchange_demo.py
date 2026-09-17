@@ -1,11 +1,14 @@
 import sys
-import ccxt
-import json
+from pathlib import Path
 from typing import List
+
+import ccxt
 from adjust_amount import adjust_amount_from_usd, adjust_price_to_precision, get_symbol
 
-with open("./data/config.json", "r", encoding="utf-8") as file:
-    config = json.load(file)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.tools.config_loader import load_config  # noqa: E402
+
+config = load_config().model_dump(mode="python")
 
 
 exchange_name = "binance"

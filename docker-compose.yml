@@ -7,3 +7,9 @@ services:
       - "5123:8000"
     volumes:
       - ./data:/app/data
+      - type: bind
+        source: ./config.toml
+        target: /app/config.toml
+        read_only: true
+        bind:
+          create_host_path: false

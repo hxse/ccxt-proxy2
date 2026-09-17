@@ -1,6 +1,13 @@
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from src.base_types import ExchangeName, MarketType, ModeType
 
@@ -55,6 +62,48 @@ class TqConfig(BaseModel):
 
     username: str | None = None
     password: str = ""
+
+
+class CtpAccountConfig(BaseModel):
+    """一个 CTP 前置/账户；test 可使用 SimNow，live 使用期货公司实盘信息。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trader_front: str = Field(pattern=r"^tcp://[^\s/:]+:[0-9]{1,5}$")
+    broker_id: str = Field(min_length=1, max_length=10, pattern=r"^[!-~]+$")
+    investor_id: str = Field(min_length=1, max_length=12, pattern=r"^[!-~]+$")
+    user_id: str | None = Field(None, min_length=1, max_length=15, pattern=r"^[!-~]+$")
+    password: SecretStr = Field(min_length=1, max_length=40)
+    app_id: str | None = Field(None, min_length=1, max_length=32, pattern=r"^[!-~]+$")
+    auth_code: SecretStr | None = Field(None, min_length=1, max_length=16)
+    # SDK 采集库使用的生产/评测密钥模式，与模拟盘/实盘选择是不同的配置。
+    production_mode: bool = True
+
+    @model_validator(mode="after")
+    def validate_ctp_fields(self) -> "CtpAccountConfig":
+        if (self.app_id is None) != (self.auth_code is None):
+            raise ValueError("ctp app_id and auth_code must be configured together")
+        if not 1 <= int(self.trader_front.rsplit(":", 1)[1]) <= 65535:
+            raise ValueError("ctp trader_front port must be in 1..65535")
+        for value, capacity in ((self.password, 40), (self.auth_code, 16)):
+            if value is not None:
+                raw = value.get_secret_value()
+                if "\x00" in raw or len(raw.encode("utf-8")) > capacity:
+                    raise ValueError(
+                        "ctp credential exceeds native field capacity or contains NUL"
+                    )
+        return self
+
+
+class CtpConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    test: CtpAccountConfig | None = None
+    live: CtpAccountConfig | None = None
+    flow_path: str = Field("./data/ctp", min_length=1)
+    connect_timeout_seconds: float = Field(10, gt=0, le=60, allow_inf_nan=False)
+    request_timeout_seconds: float = Field(10, gt=0, le=60, allow_inf_nan=False)
+    query_interval_seconds: float = Field(1.1, ge=1, le=60, allow_inf_nan=False)
 
 
 class OhlcvCacheConfig(BaseModel):
@@ -116,6 +165,7 @@ class AppConfig(BaseModel):
     binance: ExchangeConfig | None = None
     kraken: ExchangeConfig | None = None
     tq: TqConfig | None = None
+    ctp: CtpConfig | None = None
     ohlcv_cache: OhlcvCacheConfig = Field(default_factory=OhlcvCacheConfig)
     telegram: TelegramConfig | None = None
     exchange_whitelist: list[ExchangeWhitelistItemConfig] = Field(default_factory=list)

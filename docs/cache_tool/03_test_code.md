@@ -149,7 +149,7 @@
 ## 12. Test entry boundaries
 
 - 裸 `pytest` 和 `just test` 都只运行 `Test/` 中的 offline tests，并忽略 `Test/online`。
-- Offline pytest 在 collection 前将 `CCXT_PROXY_CONFIG_PATH` 指向 `Test/fixtures/config.json`，不得读取真实 `data/config.json` 或 Bruno 用户密码；Bruno credential 只由 `scripts/run_bruno.py` 在 `just bru-*` 内按需读取。
+- Offline pytest 在 collection 前将 `CCXT_PROXY_CONFIG_PATH` 指向 `Test/fixtures/config.toml`，不得读取真实 `config.toml` 或 Bruno 用户密码；Bruno credential 只由 `scripts/run_bruno.py` 在 `just bru-*` 内按需读取。
 - `just test-online` 是只读 live online 聚合入口，仅执行 CCXT 与 TQ 查询；按 Provider 可使用 `just test-ccxt-online`、`just test-tq-online`。Sandbox 只属于 `just debug*` 调试入口。
 - Telegram send 不属于 online test；真实发送只能通过 `just debug-telegram-stateful` 显式执行。
 - `debug/route_tests` 会撤单/下单或修改 sandbox settings，标记为 `stateful`，不属于默认或普通 online suite。即使显式传给 pytest，也必须先设置 `CCXT_STATEFUL_DEBUG=1` 才会创建应用 Client；只应通过 `just debug-route-test(s)` 等明确入口运行。

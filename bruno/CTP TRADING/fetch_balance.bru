@@ -1,0 +1,20 @@
+meta {
+  name: fetch_balance sandbox
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_balance?mode=sandbox&currency_id=CNY
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+  currency_id: CNY
+}
+
+assert {
+  res.status: eq 200
+}

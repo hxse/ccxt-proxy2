@@ -30,6 +30,10 @@ run path:
 serve host="127.0.0.1" port="5123":
     uv run uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
 
+# 安装并启用可选 CTP 原生依赖；账户从 config.toml 读取
+serve-ctp host="127.0.0.1" port="5123":
+    uv run --extra ctp uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
+
 # 1. 通过 CcxtClient 清理已启用的 Binance/Kraken Futures sandbox
 cleanup:
     just debug cleanup
@@ -210,7 +214,7 @@ test *args:
 
 # 聚合运行 public live market-data tests；不会检查私有账户或初始化 sandbox
 test-online *args:
-    CCXT_PROXY_CONFIG_PATH=./data/config.json CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
+    CCXT_PROXY_CONFIG_PATH=./config.toml CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
 
 test-file path *args:
     uv run --no-sync pytest "{{path}}" {{args}}
@@ -219,14 +223,22 @@ test-tq-offline:
     uv run --no-sync pytest -v -ra Test/test_tq_*.py
 
 test-tq-online:
-    CCXT_PROXY_CONFIG_PATH=./data/config.json TQ_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_tq_online.py
+    CCXT_PROXY_CONFIG_PATH=./config.toml TQ_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_tq_online.py
 
 # 只测试 whitelist 中已启用的 Futures live public market data
 test-ccxt-online:
-    CCXT_PROXY_CONFIG_PATH=./data/config.json CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
+    CCXT_PROXY_CONFIG_PATH=./config.toml CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
 
 test-telegram-offline:
     uv run --no-sync pytest -v -ra Test/test_telegram_*.py
+
+# 不连接交易服务；ctp extra 安装后增加原生 SDK 与本机假 TCP 前置的生命周期检查
+test-ctp-offline:
+    uv run --no-sync pytest -v -ra Test/test_ctp_*.py
+
+# 只读 CTP 查询，默认使用 sandbox；首次连接会认证、登录、确认结算
+bru-ctp-readonly:
+    uv run --no-sync python scripts/run_bruno.py 'CTP TRADING/fetch_orders.bru' 'CTP TRADING/fetch_trades.bru' 'CTP TRADING/fetch_positions.bru' 'CTP TRADING/fetch_balance.bru'
 
 # Telegram 会真实发送消息，只能通过 stateful debug 入口显式执行
 debug-telegram-stateful:

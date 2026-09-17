@@ -1,0 +1,97 @@
+# 复制为项目根目录 config.toml，填写实际配置后重启服务。
+# config.toml 不提交 Git、不进入 Docker 构建上下文。
+# 字符串用引号包裹；密码里的 $ / ${...} 原样保留，不展开环境变量。
+# TOML 没有 null：未配置的可选字段/分组直接省略或保持注释。
+
+# JWT 签名密钥，替换为自己生成的随机值；根字段需写在分组之前。
+SECRET = "replace-with-a-random-secret"
+
+# 本服务的登录用户，供 /auth/token 和 Bruno 使用。
+[users.admin]
+password = "replace-with-your-password"
+
+# 多个用户分别增加分组；用户名含点时用引号，例如 [users."alice.dev"]。
+# [users.alice]
+# password = "replace-with-another-password"
+
+# 可选代理。
+# [proxy]
+# http = "http://127.0.0.1:7890"
+
+# Binance；test 对应 sandbox，live 对应实盘。
+# [binance]
+# enable_proxy = false
+# [binance.test]
+# api_key = ""
+# secret = ""
+# [binance.live]
+# api_key = ""
+# secret = ""
+
+# Kraken。
+# [kraken]
+# enable_proxy = false
+# [kraken.test]
+# api_key = ""
+# secret = ""
+# [kraken.live]
+# api_key = ""
+# secret = ""
+
+# TQ 行情。
+# [tq]
+# username = ""
+# password = ""
+
+# CTP 模拟盘（SimNow 等）；按实际环境填写整组后取消注释。
+# [ctp.test]
+# trader_front = "tcp://simnow-trade-front.example:12345"
+# broker_id = "9999"
+# investor_id = ""
+# password = ""
+# app_id = ""
+# auth_code = ""
+# production_mode = true
+# user_id 可省略，默认使用 investor_id；如需指定，填写非空字符串。
+
+# CTP 实盘；与模拟盘使用独立账户信息。
+# [ctp.live]
+# trader_front = "tcp://broker-trade-front.example:12345"
+# broker_id = ""
+# investor_id = ""
+# password = ""
+# app_id = ""
+# auth_code = ""
+# production_mode = true
+
+# 可选连接设置；test/live 分别使用 flow_path 下的 sandbox/live 子目录。
+# [ctp]
+# flow_path = "./data/ctp"
+# connect_timeout_seconds = 10
+# request_timeout_seconds = 10
+# query_interval_seconds = 1.1
+
+# Telegram：每个 chat alias 单独一行，chat_id 保持字符串。
+# [telegram]
+# bot_token = ""
+# [telegram.chats]
+# scanner = "-100123456"
+# ops = "-100654321"
+
+# 本地 OHLCV 缓存，省略时使用相同默认值。
+[ohlcv_cache]
+database_path = "./data/cache/ohlcv.duckdb"
+max_rows_per_series = 2000000
+max_rows_total = 20000000
+
+# CCXT 白名单：每个身份一个 [[exchange_whitelist]] 分组。
+# 先填写对应的 API key/secret，再取消需要的白名单分组注释。
+# [[exchange_whitelist]]
+# exchange = "binance"
+# market = "future"
+# mode = "sandbox"
+
+# [[exchange_whitelist]]
+# exchange = "kraken"
+# market = "future"
+# mode = "live"
