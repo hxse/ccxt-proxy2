@@ -25,14 +25,14 @@ def live_future_clients(tmp_path_factory):
     cache_path = tmp_path_factory.mktemp("ccxt-online") / "ohlcv.duckdb"
     live_futures = [
         item
-        for item in config.exchange_whitelist
-        if item.market == "future" and item.mode == "live"
+        for item in config.service_whitelist
+        if item.service == "ccxt" and item.market == "future" and item.mode == "live"
     ]
     if not live_futures:
         pytest.skip("no live futures provider is enabled")
     online_config = config.model_copy(
         update={
-            "exchange_whitelist": live_futures,
+            "service_whitelist": live_futures,
             "ohlcv_cache": config.ohlcv_cache.model_copy(
                 update={"database_path": str(cache_path)}
             ),

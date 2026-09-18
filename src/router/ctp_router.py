@@ -10,6 +10,7 @@ from src.responses_ctp import (
     CtpOrdersResponse,
     CtpPositionsResponse,
     CtpTradesResponse,
+    CtpTradingStatusResponse,
 )
 from src.router.auth_handler import manager
 from src.router.ctp_docs import (
@@ -17,6 +18,8 @@ from src.router.ctp_docs import (
     CTP_LIMIT_DESCRIPTION,
     CTP_MARKET_DESCRIPTION,
     CTP_READ_RESPONSES,
+    CTP_STATUS_DESCRIPTION,
+    CTP_STATUS_RESPONSES,
     CTP_WRITE_RESPONSES,
     QUERY_DESCRIPTION,
 )
@@ -31,6 +34,7 @@ from src.types_ctp import (
     CtpOrderQuery,
     CtpPositionQuery,
     CtpTradeQuery,
+    CtpTradingStatusQuery,
 )
 
 ctp_router = APIRouter(
@@ -139,3 +143,18 @@ def fetch_positions(
 def fetch_balance(params: Annotated[CtpAccountQuery, Query()]) -> CtpAccountsResponse:
     """ReqQryTradingAccount：完整资金账户行，金额按 CurrencyID 计价。"""
     return ctp_manager.get_client(params.mode).fetch_balance(params)
+
+
+@ctp_router.get(
+    "/fetch_trading_status",
+    response_model=CtpTradingStatusResponse,
+    summary="查询 CTP 品种当前交易状态（支持模拟盘）",
+    description=CTP_STATUS_DESCRIPTION,
+    response_description="mode/exchange_id/product_id、is_open（boolean/null）、raw_status、reason 及完整原生通知 data。",
+    responses=CTP_STATUS_RESPONSES,
+)
+async def fetch_trading_status(
+    params: Annotated[CtpTradingStatusQuery, Query()],
+) -> CtpTradingStatusResponse:
+    """按模式读取 OnRtnInstrumentStatus 最新品种通知；断线失效，未知为 null。"""
+    return ctp_manager.fetch_trading_status(params)

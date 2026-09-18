@@ -4,13 +4,16 @@ from datetime import date
 
 import pytest
 
-from src.tools.tq_manager import tq_manager
+from src.tools.shared import config
+from src.tools.tq_manager import TqManager
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
     TqTradingCalendarRequest,
     TqUnderlyingSymbolRequest,
 )
+
+tq_manager = TqManager(config.tq)
 
 pytestmark = [
     pytest.mark.online,
@@ -19,6 +22,17 @@ pytestmark = [
         reason="TQ online tests require TQ_ONLINE=1 and configured TQ credentials",
     ),
 ]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def initialized_tq():
+    if not any(item.service == "tq" for item in config.service_whitelist):
+        pytest.skip("tq is not enabled in service_whitelist")
+    try:
+        tq_manager.initialize()
+        yield
+    finally:
+        tq_manager.close()
 
 
 def test_tq_online_fetch_ohlcv_smoke():

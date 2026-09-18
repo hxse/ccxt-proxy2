@@ -12,8 +12,8 @@ def test_health_response_has_a_stable_schema():
 
 
 def test_not_ready_response_never_exposes_startup_exception(monkeypatch):
-    monkeypatch.setattr(app.state, "exchange_registry_ready", False)
-    monkeypatch.setattr(app.state, "exchange_registry_initialized", [])
+    monkeypatch.setattr(app.state.service_runtime, "ready", False)
+    monkeypatch.setattr(app.state.service_runtime, "initialized", [])
 
     response = readyz()
 

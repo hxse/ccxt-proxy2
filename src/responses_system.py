@@ -3,6 +3,21 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ServiceErrorDetail(BaseModel):
+    code: Literal["SERVICE_NOT_ENABLED", "SERVICE_NOT_READY"] = Field(
+        description="未列入启动白名单，或服务尚未完成启动/已关闭。"
+    )
+    service: str = Field(
+        description="服务身份，如 tq、ctp/sandbox、ccxt/binance/future/sandbox。"
+    )
+
+
+class ServiceUnavailableResponse(BaseModel):
+    detail: ServiceErrorDetail | str = Field(
+        description="白名单/就绪错误，或 SDK 工作线程未就绪的错误码。"
+    )
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -12,9 +27,11 @@ class HealthResponse(BaseModel):
 class ReadyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["ready"] = Field(description="Exchange registry 已初始化")
+    status: Literal["ready"] = Field(
+        description="服务白名单中的全部实例已完成启动初始化"
+    )
     initialized: list[str] = Field(
-        description="已初始化的 exchange/market/mode identity"
+        description="已初始化实例，例如 ccxt/binance/future/sandbox、tq、ctp/sandbox，顺序与白名单一致。"
     )
 
 

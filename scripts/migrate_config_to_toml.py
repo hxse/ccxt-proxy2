@@ -9,12 +9,13 @@ from typing import Any
 
 import tomli_w
 from dotenv.parser import parse_stream
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.tools.config_loader import ConfigError, load_config  # noqa: E402
+from src.tools.config_migration import migrate_whitelist_payload  # noqa: E402
 from src.tools.config_types import AppConfig  # noqa: E402
 
 ENV_PREFIX = "CCXT_PROXY_"
@@ -59,12 +60,12 @@ def read_legacy_config(source: Path) -> AppConfig:
             payload = json.loads(source.read_text(encoding="utf-8"))
         else:
             payload = _read_legacy_env(source)
-        return AppConfig.model_validate(payload)
+        return AppConfig.model_validate(migrate_whitelist_payload(payload))
     except (OSError, UnicodeError):
         raise ConfigError(
             "Cannot read legacy config; check path and permissions"
         ) from None
-    except (json.JSONDecodeError, ValidationError):
+    except (ValueError, TypeError, AttributeError):
         raise ConfigError("Invalid legacy configuration; values hidden") from None
 
 
@@ -81,14 +82,14 @@ def _plain(value: Any) -> Any:
 def render_toml(config: AppConfig) -> str:
     # TOML 无 null；缺省字段仍由原有 AppConfig 提供相同默认值。
     payload = _plain(config.model_dump(mode="python", exclude_none=True, by_alias=True))
-    whitelist = payload.pop("exchange_whitelist")
+    whitelist = payload.pop("service_whitelist")
     content = (
         "# 本地实际配置，请勿提交；字段说明见 config.example.toml。\n"
         "# 修改后重启服务。未配置的可选字段/分组直接省略。\n\n" + tomli_w.dumps(payload)
     )
     # 显式使用数组表，避免把白名单挤成内联对象；值的转义仍交给 TOML writer。
     for item in whitelist:
-        content += "\n[[exchange_whitelist]]\n" + tomli_w.dumps(item)
+        content += "\n[[service_whitelist]]\n" + tomli_w.dumps(item)
     return content
 
 

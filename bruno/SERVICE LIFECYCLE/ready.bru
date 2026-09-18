@@ -1,0 +1,32 @@
+meta {
+  name: 全部白名单实例已完成初始化
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/readyz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq ready
+}
+
+tests {
+  test("初始化结果使用统一服务身份，允许空白名单", function () {
+    const initialized = res.getBody().initialized;
+    expect(initialized).to.be.an("array");
+    expect(new Set(initialized).size).to.equal(initialized.length);
+    initialized.forEach(function (identity) {
+      expect(identity).to.match(/^(tq|ctp\/(sandbox|live)|ccxt\/(binance|kraken)\/(spot|future)\/(sandbox|live))$/);
+    });
+  });
+}
+
+docs {
+  HTTP 200 表示白名单中的实例已全部完成启动初始化，不会在此请求中创建连接。
+  这是启动就绪检查，不发送上游实时探测。使用本目录 disabled.example.toml 时 initialized 应为 []。
+}

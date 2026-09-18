@@ -1,0 +1,65 @@
+meta {
+  name: 查询品种交易状态 sandbox
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+  exchange_id: SHFE
+  product_id: rb
+}
+
+assert {
+  res.status: eq 200
+  res.body.mode: eq sandbox
+}
+
+tests {
+  test("返回模拟盘状态；未知不能当成休市", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(body.mode).to.equal("sandbox");
+    expect(body.exchange_id).to.equal("SHFE");
+    expect(body.product_id).to.equal("rb");
+    expect([true, false, null]).to.include(body.is_open);
+    if (body.is_open === null) {
+      expect(["not_received", "disconnected", "unavailable", "unrecognized_status"]).to.include(body.reason);
+      if (body.reason !== "unrecognized_status") {
+        expect(body.raw_status).to.equal(null);
+        expect(body.data).to.equal(null);
+      }
+    } else {
+      expect(body.reason).to.equal(null);
+      expect(["0", "1", "2", "3", "4", "5", "6", "7"]).to.include(body.raw_status);
+      expect(body.is_open).to.equal(body.raw_status === "2");
+    }
+  });
+
+  test("有通知时保留完整的原生交易状态字段", function () {
+    const body = res.getBody();
+    if (body.data === null) return;
+    expect(body.data.ExchangeID).to.equal(body.exchange_id);
+    expect(body.data.InstrumentID).to.equal(body.product_id);
+    expect(body.data.InstrumentStatus || null).to.equal(body.raw_status);
+    expect(body.data.ExchangeInstID).to.be.a("string");
+    expect(body.data.SettlementGroupID).to.be.a("string");
+    expect(body.data.EnterTime).to.be.a("string");
+    expect(body.data.EnterReason).to.be.a("string");
+    expect(Number.isInteger(body.data.TradingSegmentSN)).to.equal(true);
+  });
+}
+
+docs {
+  默认 mode=sandbox，使用服务端 ctp.test，可接 SimNow；只代表对应模拟前置的状态。
+  product_id 填品种 rb，不填合约 rb2610；修改查询参数时同步修改测试断言。
+  白名单内的模式已在启动阶段认证、登录、确认结算。HTTP 直接读最新快照，不等账户队列、不重登、不查询订单、不下单。
+  true 仅表示连续交易；false 包含集合竞价等其他阶段；null 表示尚未收到、断线或连接实例不可用。
+  状态可能长期不变，因此 EnterTime 不是响应时间或过期时间；不根据时间推算休市。
+}

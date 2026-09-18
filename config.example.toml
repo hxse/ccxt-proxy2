@@ -84,14 +84,32 @@ database_path = "./data/cache/ohlcv.duckdb"
 max_rows_per_series = 2000000
 max_rows_total = 20000000
 
-# CCXT 白名单：每个身份一个 [[exchange_whitelist]] 分组。
-# 先填写对应的 API key/secret，再取消需要的白名单分组注释。
-# [[exchange_whitelist]]
+# 统一服务白名单：只有这里列出的实例会在启动时初始化。
+# 账号配置本身不会启用服务；缺省为空白名单，不加载 CCXT/TQ/CTP。
+# 配置只在进程启动时读取，运行中修改无效；重启后生效。
+# 任一启用实例初始化失败，服务清理资源并退出。
+# 每个 CCXT 身份必须明确 exchange/market/mode，不允许重复。
+# [[service_whitelist]]
+# service = "ccxt"
 # exchange = "binance"
 # market = "future"
 # mode = "sandbox"
 
-# [[exchange_whitelist]]
+# [[service_whitelist]]
+# service = "ccxt"
 # exchange = "kraken"
 # market = "future"
+# mode = "live"
+
+# TQ 使用 [tq] 账号，不接受 exchange/market/mode。
+# [[service_whitelist]]
+# service = "tq"
+
+# CTP 每个模式独立启用；sandbox 使用 [ctp.test]，live 使用 [ctp.live]。
+# [[service_whitelist]]
+# service = "ctp"
+# mode = "sandbox"
+
+# [[service_whitelist]]
+# service = "ctp"
 # mode = "live"

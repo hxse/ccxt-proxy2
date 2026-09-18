@@ -11,6 +11,7 @@ from scripts.migrate_config_to_toml import (
     render_toml,
 )
 from src.tools.config_loader import ConfigError, load_config, resolve_config_path
+from src.tools.config_migration import migrate_whitelist_payload
 from src.tools.config_types import AppConfig
 
 
@@ -39,7 +40,8 @@ secret = 'secret'
 bot_token = 'test-token'
 [telegram.chats]
 MixedCase = '-123'
-[[exchange_whitelist]]
+[[service_whitelist]]
+service = 'ccxt'
 exchange = 'binance'
 market = 'future'
 mode = 'sandbox'
@@ -55,7 +57,8 @@ mode = 'sandbox'
     assert config.telegram is not None and config.telegram.chats == {
         "MixedCase": "-123"
     }
-    assert config.exchange_whitelist[0].mode == "sandbox"
+    item = config.service_whitelist[0]
+    assert item.service == "ccxt" and item.mode == "sandbox"
     assert config.ctp is None
 
 
@@ -76,7 +79,7 @@ def test_config_path_selector_uses_project_root_and_supports_absolute_paths(
     monkeypatch.chdir(tmp_path)
     path = resolve_config_path({"CCXT_PROXY_CONFIG_PATH": "Test/fixtures/config.toml"})
     assert path.is_file()
-    assert load_config(path, environ={}).exchange_whitelist == []
+    assert load_config(path, environ={}).service_whitelist == []
     selected = write_toml(tmp_path, "SECRET = 'selected'")
     assert (
         load_config(environ={"CCXT_PROXY_CONFIG_PATH": str(selected)}).SECRET
@@ -148,7 +151,7 @@ def test_json_migration_roundtrips_credentials_and_keeps_private_backup(tmp_path
     source = tmp_path / "config.json"
     source.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     target = tmp_path / "config.toml"
-    expected = AppConfig.model_validate(raw)
+    expected = AppConfig.model_validate(migrate_whitelist_payload(raw))
     backup = migrate_config(source, target)
     assert not source.exists()
     assert json.loads(backup.read_text()) == raw
@@ -157,7 +160,7 @@ def test_json_migration_roundtrips_credentials_and_keeps_private_backup(tmp_path
     assert list(actual.users) == list(expected.users)
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
-    assert target.read_text().count("[[exchange_whitelist]]") == 2
+    assert target.read_text().count("[[service_whitelist]]") == 5
 
 
 def test_dotenv_migration_preserves_nested_fields_and_json_collections(
@@ -245,7 +248,7 @@ def test_example_has_only_placeholder_credentials_and_valid_defaults():
     config = load_config(example, environ={})
     assert config.SECRET == "replace-with-a-random-secret"
     assert config.users["admin"].password == "replace-with-your-password"
-    assert config.exchange_whitelist == []
+    assert config.service_whitelist == []
     assert all(
         getattr(config, provider) is None
         for provider in ("binance", "kraken", "tq", "ctp", "telegram")

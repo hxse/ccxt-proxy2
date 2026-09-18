@@ -1,12 +1,15 @@
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Event
 from time import perf_counter
 from typing import Any, cast
 from uuid import uuid4
 
 import ccxt
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -17,65 +20,62 @@ from src.tools.ccxt_errors import map_ccxt_exception
 from src.tools.config_loader import ConfigError, load_config, resolve_config_path
 from src.tools.exchange_manager import exchange_manager
 from src.tools.logging_config import setup_logging
+from src.tools.service_runtime import ServiceRuntime
 
 setup_logging()
 
 
+async def _finish_lifespan(
+    startup: asyncio.Task[None], close_telegram: Callable[[], None]
+) -> None:
+    # 等线程中的初始化退出后再清理，避免 close 之后又创建新的连接。
+    # 启动异常由 lifespan 的首次 await 传播；取消时也必须取回任务结果。
+    await asyncio.gather(startup, return_exceptions=True)
+    try:
+        await run_in_threadpool(service_runtime.close)
+    finally:
+        close_telegram()
+
+
+async def _wait_for_cleanup(cleanup: asyncio.Task[None]) -> None:
+    cancelled = False
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            # 重复取消也不能让初始化/关闭线程脱离生命周期。
+            cancelled = True
+    cleanup.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    start = perf_counter()
-    app.state.exchange_registry_ready = False
-    app.state.exchange_registry_initialized = []
-    logger.info(
-        "initializing exchange registry for {} whitelist entries",
-        len(config.exchange_whitelist),
+    app.state.service_runtime = service_runtime
+    from src.tools.ctp_manager import ctp_manager
+    from src.tools.telegram_manager import telegram_manager
+    from src.tools.tq_manager import tq_manager
+
+    stop = Event()
+    # shield 保留初始化任务，HTTP 生命周期被取消时仍能等待底层线程结束。
+    startup = asyncio.create_task(
+        run_in_threadpool(
+            service_runtime.start, exchange_manager, tq_manager, ctp_manager, stop=stop
+        )
     )
     try:
-        exchange_manager.init_from_config(config)
-    except Exception:
-        duration_ms = (perf_counter() - start) * 1000
-        logger.bind(duration_ms=round(duration_ms, 2)).exception(
-            "exchange registry initialization failed"
-        )
-        raise
-
-    duration_ms = (perf_counter() - start) * 1000
-    initialized = [
-        f"{item.exchange}/{item.market}/{item.mode}"
-        for item in config.exchange_whitelist
-    ]
-    app.state.exchange_registry_ready = True
-    app.state.exchange_registry_initialized = initialized
-    logger.bind(
-        duration_ms=round(duration_ms, 2),
-        initialized=initialized,
-    ).info("exchange registry initialization completed")
-    try:
+        await asyncio.shield(startup)
         yield
     finally:
-        app.state.exchange_registry_ready = False
-        from src.tools.ctp_manager import ctp_manager
-        from src.tools.telegram_manager import telegram_manager
-        from src.tools.tq_manager import tq_manager
-
-        resources = (
-            ("ctp", ctp_manager.close),
-            ("telegram", telegram_manager.close),
-            ("tq", tq_manager.close),
-            ("ccxt", exchange_manager.close),
-        )
-        for resource, close in resources:
-            try:
-                close()
-            except Exception:
-                logger.bind(resource=resource).exception(
-                    "application resource shutdown failed"
-                )
+        stop.set()
+        cleanup = asyncio.create_task(_finish_lifespan(startup, telegram_manager.close))
+        await _wait_for_cleanup(cleanup)
 
 
 OPENAPI_TAGS = [
     {"name": "General", "description": "服务首页与基础访问入口。"},
-    {"name": "Health", "description": "区分进程存活与 Provider registry 就绪状态。"},
+    {"name": "Health", "description": "区分进程存活与统一服务白名单初始化状态。"},
     {"name": "Auth", "description": "OAuth2 Password Grant 与 Bearer JWT。"},
     {
         "name": "CTP TRADING",
@@ -236,5 +236,5 @@ except ConfigError as exc:
 CACHE_DIR = "./data/cache"
 STATIC_DIR = "./data/static"
 
-app.state.exchange_registry_ready = False
-app.state.exchange_registry_initialized = []
+service_runtime = ServiceRuntime(config)
+app.state.service_runtime = service_runtime

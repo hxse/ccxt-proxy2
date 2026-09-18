@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.tools.config_types import TqConfig
+from src.tools.tq_client import TqClient
 from src.tools.tq_data_source import (
     TqDataFrameError,
     clean_tq_serial_records,
@@ -13,7 +14,6 @@ from src.tools.tq_data_source import (
     normalize_tq_serial_frame,
     trading_calendar_frame_to_records,
 )
-from src.tools.tq_manager import TqManager
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
@@ -208,7 +208,7 @@ def test_history_wide_frame_converts_to_long_records():
 
 def test_fetch_ohlcv_and_tick_advance_tq_message_loop(temp_dir):
     fake_api = FakeTqApi()
-    manager = TqManager(
+    manager = TqClient(
         TqConfig(),
         lock_path=temp_dir / "tq.lock",
         update_timeout_seconds=0.0,
@@ -230,7 +230,7 @@ def test_fetch_ohlcv_and_tick_advance_tq_message_loop(temp_dir):
 
 def test_fetch_trading_calendar_returns_complete_inclusive_daily_records(temp_dir):
     fake_api = FakeTqApi()
-    manager = TqManager(TqConfig(), lock_path=temp_dir / "tq.lock")
+    manager = TqClient(TqConfig(), lock_path=temp_dir / "tq.lock")
     manager._api = fake_api
 
     records = manager.fetch_trading_calendar(
@@ -267,7 +267,7 @@ def test_trading_calendar_rejects_invalid_or_incomplete_provider_data(
         "get_trading_calendar",
         lambda start, end: pd.DataFrame({"date": [start], "trading": [True]}),
     )
-    manager = TqManager(TqConfig(), lock_path=temp_dir / "tq.lock")
+    manager = TqClient(TqConfig(), lock_path=temp_dir / "tq.lock")
     manager._api = fake_api
     request = TqTradingCalendarRequest(
         start_date=date(2026, 9, 11),
@@ -282,7 +282,7 @@ def test_trading_calendar_rejects_invalid_or_incomplete_provider_data(
 
 
 def test_underlying_items_require_cont_symbol(temp_dir):
-    manager = TqManager(None, lock_path=temp_dir / "tq.lock")
+    manager = TqClient(None, lock_path=temp_dir / "tq.lock")
     item = manager._underlying_item_from_row(
         "DCE.i2509",
         {
@@ -301,7 +301,7 @@ def test_underlying_items_require_cont_symbol(temp_dir):
 
 
 def test_tq_exception_mapping_prefers_adj_type_over_generic_param_error(temp_dir):
-    manager = TqManager(None, lock_path=temp_dir / "tq.lock")
+    manager = TqClient(None, lock_path=temp_dir / "tq.lock")
 
     exc = manager._map_tq_exception(Exception("参数错误，多合约 K 线序列不支持复权。"))
 

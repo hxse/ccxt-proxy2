@@ -36,7 +36,8 @@ manager = LoginManager(SECRET, token_url="/auth/token")
 
 # 定义一个本地函数来获取用户，用于登录路由
 @manager.user_loader()
-def get_user(username: str) -> UserConfig | None:
+async def get_user(username: str) -> UserConfig | None:
+    # 只读内存配置；避免鉴权排在占满同步线程池的行情/交易请求后面。
     return config.users.get(username)
 
 

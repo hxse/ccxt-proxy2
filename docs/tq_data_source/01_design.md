@@ -1,6 +1,6 @@
 # TQ 行情转发、Route 与 Lifecycle
 
-> **Status: Implemented.** TQ realtime Route 保持 thin-forward，并公开独立的中国期货交易日历查询。
+> **Status: Implemented.** TQ realtime Route 保持 thin-forward，并公开中国期货交易日历和合约交易状态查询。
 
 ## 1. 边界
 
@@ -23,13 +23,14 @@ GET /tq/fetch_ohlcv
 GET /tq/fetch_tick
 GET /tq/fetch_underlying_symbol
 GET /tq/fetch_trading_calendar
+GET /tq/fetch_trading_status
 ```
 
-四个 Route 都复用项目已有 `/auth/token` Bearer authentication，不增加 TQ 专用 HTTP token、query token 或 Basic Auth。
+所有 Route 都复用项目已有 `/auth/token` Bearer authentication，不增加 TQ 专用 HTTP token、query token 或 Basic Auth。
 
 ## 3. TqSdk 能力
 
-第一版只使用 realtime/free-account 能力：
+现有行情、主连和日历能力：
 
 ```python
 api.get_kline_serial(symbol, duration_seconds, data_length, adj_type=None)
@@ -155,9 +156,9 @@ History 原始 Pandas 宽表必须转为长表，不将 symbol 作为动态 JSON
 
 ## 10. `TqManager` lifecycle 与 lock
 
-一个 process 使用一个 singleton `TqManager`，惰性持有一个 `TqApi`。每次创建新 API 会丢失 serial reuse，因此禁止 per-request initialization。
+只有 `service_whitelist` 中包含 `service="tq"` 时，启动协调器才调用 `TqManager.initialize()`。它等待专用 SDK 线程创建 `TqApi` 并完成初始化，然后开始提供 HTTP 服务。请求始终复用实例，不触发初始化。
 
-Application lifespan shutdown 调用幂等 `TqManager.close()`，在持有同一 FileLock 时关闭并清空 `TqApi`；不只依赖进程退出回收状态客户端。
+专用线程串行执行 TQ SDK 调用，空闲时持续调用 `wait_update()` 处理网络消息；每个业务任务结束后，也以立即到期的 deadline 推进一次订阅和消息处理，避免持续排队的查询阻塞状态更新，且不额外等待网络。单个正在执行的 SDK 调用仍需完成后才能处理下一轮消息。关闭时停止接收新任务，等待在途调用完成，拒绝排队任务，并在同一线程关闭 `TqApi`。数据转换仍由 TqClient 薄转发。
 
 `TqApi` 是状态客户端，所有访问继续通过 TQ 自己的 `FileLock`。这是独立于 CCXT `threading.Lock` 和 DuckDB write lock 的锁域。
 
@@ -173,7 +174,7 @@ username = "..."
 password = ""
 ```
 
-`tq` 可选；未配置时首次访问返回 `TQ_NOT_CONFIGURED`，不影响其他路由启动。未登录的 `/tq/*` 仍由项目统一认证层返回 401。
+`tq` 可选；未列入白名单时不创建 SDK/连接，请求返回 503 `SERVICE_NOT_ENABLED`；列入白名单但缺配置则启动失败。配置只在启动时读取，中途修改文件无效。未登录的 `/tq/*` 仍由项目统一认证层返回 401。
 
 ## 12. Dependencies
 
@@ -188,3 +189,23 @@ password = ""
 Pandas 是项目 direct dependency；TQ 数据路径不再 import Polars。
 
 数据处理、错误码和测试见 [TQ Pandas 数据规范](02_data_processing_and_tests.md)。
+
+## 13. `/tq/fetch_trading_status`
+
+`GET /tq/fetch_trading_status?symbol=SHFE.rb2610` 读取后台订阅的最新状态快照，输入单个完整 TQ 合约代码，复用既有实例和合约订阅。
+
+```json
+{"symbol":"SHFE.rb2610","is_open":true,"raw_status":"CONTINOUS","reason":null}
+```
+
+`is_open=true` 只表示连续交易；`AUCTIONORDERING`（集合竞价报单）和 `NOTRADING`（非交易）返回 false。编码沿用 [TQ 官方 TradingStatus 定义](https://doc.shinnytech.com/tqsdk/latest/reference/tqsdk.objs.html#tqsdk.objs.TradingStatus)，包括 `CONTINOUS` 的原始拼写。
+
+启动时保存账户的 `tq_trading_status` 权限状态，未开通时直接返回 HTTP 403 `TQ_TRADING_STATUS_PERMISSION_DENIED`。其余行情和日历接口不增加此权限要求。
+
+无法确认时 HTTP 200，`is_open=null`；`reason` 为 `not_received`（尚未收到）、`disconnected`（状态连接断线）、`unavailable`（连接/服务不可用）、`unrecognized_status`（未知编码）。未知编码保留 raw_status，其余未知结果不携带旧状态。未配置 TQ 仍返回原有配置错误。
+
+TQ 交易状态使用独立的 `ts` 连接。服务只保存这个连接收到的最新状态，收到连接切换通知就清除旧状态，重连后等待新状态。由于 SDK 会去掉值未变化的 diff，`TradingStatusTqApi` 在 `_fetch_msg` 合并去重前观察通知；不改 SDK 订阅、缓存和重连策略。离线测试直接运行已安装 SDK 的消息循环验证这一兼容点。
+
+连接初始化等待发生在启动阶段。HTTP 读取不调用 SDK、不经过行情操作队列，也不等待网络；使用独立短锁读取快照。首次查询只登记一次订阅意向，立即返回 null/not_received；SDK 线程在业务任务之间或空闲时通过协程发起订阅，避开同步 get_trading_status 的 30 秒等待分支。订阅完成前的重复查询不重复登记，收到推送后查询返回新状态。后台订阅错误在后续查询中明确返回。没有新状态变化不代表休市，也不设置状态年龄阈值。节假日或断网时仅报告未知，不推算交易日/品种时段，不保证固定 HTTP 响应时限。TQ SDK 尚未检测到的网络故障也无法提前识别。
+
+状态路由使用异步 HTTP 入口；内存鉴权及参数校验也不占用同步线程池，因此不会排在耗时行情查询后。订单、持仓、资金及其他行情查询仍走各自原有 SDK 队列。

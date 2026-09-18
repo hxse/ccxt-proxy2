@@ -3,6 +3,39 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.responses_trading_status import TradingStatusResponse
+
+
+class TqTradingStatusResponse(TradingStatusResponse):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "symbol": "SHFE.rb2610",
+                    "is_open": True,
+                    "raw_status": "CONTINOUS",
+                    "reason": None,
+                },
+                {
+                    "symbol": "SHFE.rb2610",
+                    "is_open": None,
+                    "raw_status": None,
+                    "reason": "not_received",
+                },
+            ]
+        }
+    )
+
+    symbol: str = Field(
+        description="本次查询的完整 TQ 合约代码。", examples=["SHFE.rb2610"]
+    )
+    raw_status: str | None = Field(
+        None,
+        description="TQ trade_status：CONTINOUS=连续交易（沿用上游拼写），AUCTIONORDERING=集合竞价报单，NOTRADING=非交易；未知编码原样保留。",
+        examples=["CONTINOUS", "AUCTIONORDERING", "NOTRADING", None],
+    )
+
+
 TqRecord = dict[str, Any]
 
 

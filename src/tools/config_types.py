@@ -1,4 +1,5 @@
 import re
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -148,12 +149,44 @@ class TelegramConfig(BaseModel):
         return normalized
 
 
-class ExchangeWhitelistItemConfig(BaseModel):
+class CcxtServiceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    service: Literal["ccxt"]
     exchange: ExchangeName
     market: MarketType
     mode: ModeType
+
+    @property
+    def identity(self) -> str:
+        return f"ccxt/{self.exchange}/{self.market}/{self.mode}"
+
+
+class TqServiceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: Literal["tq"]
+
+    @property
+    def identity(self) -> str:
+        return "tq"
+
+
+class CtpServiceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: Literal["ctp"]
+    mode: ModeType
+
+    @property
+    def identity(self) -> str:
+        return f"ctp/{self.mode}"
+
+
+ServiceWhitelistItem = Annotated[
+    CcxtServiceConfig | TqServiceConfig | CtpServiceConfig,
+    Field(discriminator="service"),
+]
 
 
 class AppConfig(BaseModel):
@@ -168,18 +201,33 @@ class AppConfig(BaseModel):
     ctp: CtpConfig | None = None
     ohlcv_cache: OhlcvCacheConfig = Field(default_factory=OhlcvCacheConfig)
     telegram: TelegramConfig | None = None
-    exchange_whitelist: list[ExchangeWhitelistItemConfig] = Field(default_factory=list)
+    service_whitelist: list[ServiceWhitelistItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_exchange_whitelist_dependencies(self) -> "AppConfig":
-        seen_identities: set[tuple[ExchangeName, MarketType, ModeType]] = set()
-        for item in self.exchange_whitelist:
-            identity = (item.exchange, item.market, item.mode)
+    def validate_service_whitelist_dependencies(self) -> "AppConfig":
+        seen_identities: set[str] = set()
+        for item in self.service_whitelist:
+            identity = item.identity
             if identity in seen_identities:
-                raise ValueError(
-                    "duplicate exchange_whitelist identity: " + "/".join(identity)
-                )
+                raise ValueError("duplicate service_whitelist identity: " + identity)
             seen_identities.add(identity)
+            if item.service == "tq":
+                if self.tq is None:
+                    raise ValueError(
+                        "missing tq config referenced by service_whitelist"
+                    )
+                continue
+            if item.service == "ctp":
+                account = (
+                    None
+                    if self.ctp is None
+                    else (self.ctp.test if item.mode == "sandbox" else self.ctp.live)
+                )
+                if account is None:
+                    raise ValueError(
+                        f"missing {item.mode} ctp config referenced by service_whitelist"
+                    )
+                continue
             if (
                 item.exchange == "kraken"
                 and item.market == "spot"
@@ -189,7 +237,7 @@ class AppConfig(BaseModel):
             exchange_config = getattr(self, item.exchange)
             if exchange_config is None:
                 raise ValueError(
-                    f"missing config for exchange '{item.exchange}' referenced by exchange_whitelist"
+                    f"missing config for exchange '{item.exchange}' referenced by service_whitelist"
                 )
 
             credentials = (

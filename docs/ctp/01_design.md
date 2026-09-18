@@ -36,13 +36,13 @@ production_mode = true
 
 - `mode=sandbox`（默认）使用 `ctp.test`，可以接入 SimNow 或期货公司仿真前置。
 - `mode=live` 使用 `ctp.live`，结构与 test 相同，填写期货公司实盘前置、账户及认证信息。
-- 缺少所选模式的配置返回 503 `CTP_NOT_CONFIGURED`，不切换到另一模式。
+- 只有 `service_whitelist` 中列出的 ctp/模式会启用；未启用时 HTTP 503 `SERVICE_NOT_ENABLED`。白名单引用缺失的账号配置会导致启动失败，不切换模式。
 - `user_id` 可选，默认使用 `investor_id`。`app_id/auth_code` 必须同时配置或同时省略；只有前置不要求客户端认证时才能省略。
 - `production_mode` 是底层 SDK 生产/评测密钥模式，不是模拟/实盘开关；按前置要求设置。SimNow 前置也可能使用生产密钥。
 - 密码及 AuthCode 使用 SecretStr；错误文本会脱敏。HTTP 请求不接受账户、密码、AuthCode 或交易前置地址。
 - sandbox/live 分别使用 `flow_path/sandbox` 和 `flow_path/live`，各自复用一个长期连接。沿用项目单 Uvicorn process 部署方式。
-- 客户端按需初始化；首次请求及断线重连后的首次请求完成认证、登录、结算确认后再发送业务请求。首次查询也会进行这些连接准备动作。
-- `/readyz` 沿用现有 exchange registry 语义，不表示 CTP 已登录。未配置 CTP 不影响其他接口；读取 OpenAPI 不会加载原生 SDK 或建立连接。
+- 白名单内的模式在启动阶段完成认证、登录和结算确认，然后再接受 HTTP 请求。断线恢复使用启动时的配置快照；运行中修改配置无效。
+- `/readyz` 包含统一白名单的全部初始化结果，例如 ctp/sandbox。任一启用实例初始化失败，应用清理资源并退出；没有启用的模式不连接。OpenAPI 保留所有接口。
 
 SimNow 的账户、服务说明和当前前置信息以 [SimNow 官网](https://www.simnow.com.cn/)及[产品与服务](https://www.simnow.com.cn/product.action)为准。常规仿真与专用 API 测试环境的交易时段、行情和结算服务可能不同，配合 TQ 实时行情测试时应选择对应环境。模拟账户使用虚拟资金。
 
@@ -59,8 +59,9 @@ SimNow 的账户、服务说明和当前前置信息以 [SimNow 官网](https://
 | GET | `/ctp/fetch_trades` | ReqQryTrade | `trades: list[CtpTrade]` |
 | GET | `/ctp/fetch_positions` | ReqQryInvestorPosition | `positions: list[CtpPosition]` |
 | GET | `/ctp/fetch_balance` | ReqQryTradingAccount | `accounts: list[CtpTradingAccount]` |
+| GET | `/ctp/fetch_trading_status` | OnRtnInstrumentStatus | `is_open/raw_status/reason/data` |
 
-所有成功响应还包含 `mode`、`request_id`（CTP nRequestID）、`trading_day`（登录回报的 YYYYMMDD 交易日）。`request_id` 与 HTTP `X-Request-ID` 不同，只在对应 CTP 连接内关联请求。
+下单、撤单和 ReqQry* 查询的成功响应还包含 `mode`、`request_id`（CTP nRequestID）、`trading_day`（登录回报的 YYYYMMDD 交易日）。`request_id` 与 HTTP `X-Request-ID` 不同，只在对应 CTP 连接内关联请求。交易状态来自主动通知，不包含 request_id/trading_day。
 
 返回模型逐字段定义原生结构体的有效业务字段，包括订单系统编号、会话标识、提交/成交状态、冻结持仓、保证金、盈亏等。只省略 SDK 标记为无效的 reserve* 字段。
 
@@ -69,6 +70,43 @@ SimNow 的账户、服务说明和当前前置信息以 [SimNow 官网](https://
 - 数量为整数手数；资金金额按账户行的 `CurrencyID` 计价。
 - 无效 double（DBL_MAX、NaN、Infinity）转为 JSON null。
 - 查询无记录时返回空数组；不同持仓方向、今昨仓和套保标志的记录不合并。
+
+## 当前交易状态
+
+```text
+GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
+```
+
+默认 `mode=sandbox`，状态仅代表对应的 SimNow/仿真前置；判断实盘环境应显式传 `mode=live` 并配置 `[ctp.live]`。
+
+CTP 的 [上游手册](https://github.com/nooperpudd/ctpwrapper/blob/master/doc/ctp/6.7.0.chm)说明状态按品种推送，所以请求用 `product_id=rb`，直接匹配通知的 InstrumentID。区分大小写，不把 rb2610 自动转换为 rb，也不回退其他交易所或模式。未推送的品种返回未知。
+
+```json
+{
+  "mode": "sandbox",
+  "exchange_id": "SHFE",
+  "product_id": "rb",
+  "is_open": true,
+  "raw_status": "2",
+  "reason": null,
+  "data": {
+    "ExchangeID": "SHFE",
+    "InstrumentID": "rb",
+    "ExchangeInstID": "rb",
+    "SettlementGroupID": "",
+    "InstrumentStatus": "2",
+    "TradingSegmentSN": 1,
+    "EnterTime": "09:00:00",
+    "EnterReason": "1"
+  }
+}
+```
+
+仅 `"2"` 连续交易返回 `is_open=true`。`"0"` 开盘前、`"1"` 非交易、`"3"` 集合竞价报单、`"4"` 集合竞价价格平衡、`"5"` 集合竞价撮合、`"6"` 收盘、`"7"` 交易处理中返回 false。未知编码保留 raw_status/data，但 is_open=null、reason=unrecognized_status。
+
+启动时按配置超时完成认证、登录、结算确认。HTTP 状态请求只读取独立短锁保护的最新通知，不获取账户操作锁、业务回调关联锁或等待 SDK，不会创建连接或触发重登。尚未收到时 reason=not_received，已断线为 disconnected，无连接实例或关闭后为 unavailable，均返回 HTTP 200、is_open=null、raw_status=null、data=null。未启用/未完成应用启动仍返回 503，异常通知结构返回 502。其余订单/持仓/资金查询和交易操作继续串行处理。
+
+每个连接只保留各交易所/品种的最新通知，断线和关闭后清空，重连后重新等待通知。EnterTime 没有日期，不用来计算有效期；没有状态变化可以长时间没有新通知。不根据日历或超时推算休市，也不把交易状态当成下单一定成功的保证。
 
 ## 开仓与平仓
 
@@ -166,7 +204,7 @@ just bru-ctp-readonly
 
 默认测试使用假前置，检查参数映射、隔离、回调关联、错误、超时、重连、释放及 OpenAPI。安装 CTP extra 后另在子进程验证原生 Init/Release、结构体字段覆盖，并使用本机临时 TCP 假前置重现断线回调与释放并发。子进程带硬超时，不连接模拟盘/实盘、不发送交易请求。
 
-Bruno 的 `CTP TRADING` 文件夹提供请求样例。下单和撤单标记为 `[STATEFUL]`，需手动选择执行；只读 recipe 不包含交易写操作，但首次连接仍会登录及确认结算。
+Bruno 的 `CTP TRADING` 文件夹提供请求样例。下单和撤单标记为 `[STATEFUL]`，需手动选择执行；只读 recipe 不包含交易写操作，服务启动时已经登录及确认结算。
 
 尚需使用实际 SimNow 账户完成登录、下单、撤单与查询验收；离线替身通过不代表真实前置已连通。实盘前置的账号权限及认证信息由期货公司提供。
 

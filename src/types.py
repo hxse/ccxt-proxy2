@@ -1,6 +1,6 @@
 from typing import Literal, get_args
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from src.base_types import (
     CCXT_TIMESTAMP_MS_MAX,
@@ -8,20 +8,10 @@ from src.base_types import (
     VALID_PERIODS,
     BaseExchangeRequest,
     BaseSymbolRequest,
-    ExchangeName,
-    MarketType,
-    ModeType,
     NonEmptyString,
     PositionSide,
     SideType,
 )
-
-
-class ExchangeWhitelistItem(BaseModel):
-    exchange: ExchangeName
-    market: MarketType
-    mode: ModeType
-
 
 OhlcvVariant = Literal["default", "mark", "index", "premiumIndex"]
 TimeInForce = Literal["GTC", "IOC", "FOK"]

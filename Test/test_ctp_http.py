@@ -225,7 +225,15 @@ def test_docs_have_explicit_parameters_native_types_and_cancel_variants():
             "schema"
         ]["$ref"]
         response_model = schema["components"]["schemas"][response_ref.rsplit("/", 1)[1]]
-        assert {"mode", "request_id", "trading_day"} <= set(response_model["required"])
+        if path == "/ctp/fetch_trading_status":
+            assert {"mode", "exchange_id", "product_id"} <= set(
+                response_model["required"]
+            )
+            assert "request_id" not in response_model["properties"]
+        else:
+            assert {"mode", "request_id", "trading_day"} <= set(
+                response_model["required"]
+            )
     models = schema["components"]["schemas"]
     assert "price" in models["CtpLimitOrderRequest"]["required"]
     assert "price" not in models["CtpMarketOrderRequest"]["properties"]

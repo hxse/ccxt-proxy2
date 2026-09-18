@@ -2,8 +2,11 @@ import argparse
 import json
 from typing import Any
 
-from src.tools.tq_manager import tq_manager
+from src.tools.shared import config
+from src.tools.tq_manager import TqManager
 from src.types_tq import TqOhlcvRequest, TqTickRequest, TqUnderlyingSymbolRequest
+
+tq_manager = TqManager(config.tq)
 
 
 def _print_json(value: Any) -> None:
@@ -30,6 +33,16 @@ def main() -> None:
     underlying.add_argument("--n", default=None)
 
     args = parser.parse_args()
+    if not any(item.service == "tq" for item in config.service_whitelist):
+        parser.error("tq is not enabled in service_whitelist")
+    try:
+        tq_manager.initialize()
+        _query(args)
+    finally:
+        tq_manager.close()
+
+
+def _query(args):
 
     if args.command == "ohlcv":
         result = tq_manager.fetch_ohlcv(

@@ -1,0 +1,28 @@
+meta {
+  name: 未启用 ctp/sandbox 时拒绝请求
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
+  body: none
+  auth: inherit
+}
+
+params:query {
+  mode: sandbox
+  exchange_id: SHFE
+  product_id: rb
+}
+
+assert {
+  res.status: eq 503
+  res.body.detail.code: eq SERVICE_NOT_ENABLED
+  res.body.detail.service: eq ctp/sandbox
+}
+
+docs {
+  前提：当前进程启动时的 service_whitelist 没有 ctp/sandbox。建议使用本目录 disabled.example.toml。
+  请求必须返回禁用错误，不会临时初始化 SDK 或建立连接；不会下单。
+}

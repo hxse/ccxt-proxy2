@@ -1,0 +1,44 @@
+meta {
+  name: 查询合约当前交易状态
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tq/fetch_trading_status?symbol=SHFE.rb2610
+  body: none
+  auth: inherit
+}
+
+params:query {
+  symbol: SHFE.rb2610
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("区分连续交易、其他阶段和未知，不要求当前一定开市", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(body.symbol).to.equal("SHFE.rb2610");
+    expect([true, false, null]).to.include(body.is_open);
+    if (body.is_open === null) {
+      expect(["not_received", "disconnected", "timeout", "unavailable", "unrecognized_status"]).to.include(body.reason);
+      if (body.reason !== "unrecognized_status") expect(body.raw_status).to.equal(null);
+    } else {
+      expect(body.reason).to.equal(null);
+      expect(["CONTINOUS", "AUCTIONORDERING", "NOTRADING"]).to.include(body.raw_status);
+      expect(body.is_open).to.equal(body.raw_status === "CONTINOUS");
+    }
+  });
+}
+
+docs {
+  沿用集合 Bearer 鉴权；服务端使用 config.toml 的 tq 账户，不在请求中传密码。
+  需要 TQ 交易状态权限；没有权限会明确返回 403 TQ_TRADING_STATUS_PERMISSION_DENIED，此时成功断言失败是预期提示。
+  修改 symbol 时同步修改测试中的 symbol 断言。
+  true 仅表示连续交易；false 含集合竞价和非交易；null 是未知，不能按 false 使用。
+  连接在启动阶段准备；HTTP 只读快照，不等待网络或行情队列。首次未订阅合约先返回 null/not_received，后台处理后再次查询可取得状态；不下单，不推算节假日时段。
+}

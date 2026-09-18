@@ -38,6 +38,8 @@ CTP 使用可选依赖：`uv sync --locked --extra ctp`，启动时使用 `uv ru
 
 CTP extra 固定安装项目内的 `ctpwrapper==6.7.13+ccxtproxy.1` 源码包，包含原生释放时的 GIL 死锁修复；本地与 Docker 使用相同依赖。补丁和重建方式见 [依赖补丁说明](vendor/ctpwrapper/README.md)。
 
+当前交易状态可查询 `GET /tq/fetch_trading_status?symbol=SHFE.rb2610`（需要 TQ 交易状态权限）或 `GET /ctp/fetch_trading_status?exchange_id=SHFE&product_id=rb`（默认模拟盘 `sandbox`）。两条状态路由直接读取最新快照，不等待网络或其他 SDK 查询；TQ 新合约首次登记后台订阅并先返回未知。两者均返回 `is_open/raw_status/reason`：仅连续交易为 true，明确的其他阶段为 false，断线、超时或未收到状态为 null；CTP 还返回完整原生通知。参数及类型见 `/docs`，Bruno 已提供对应示例。
+
 可选的 DuckDB cache 配置（省略时使用以下默认值）：
 
 ```toml
@@ -49,7 +51,32 @@ max_rows_total = 20000000
 
 ## 配置
 
-配置使用 TOML 原生分组表达层级，例如 `[tq]`、`[ctp.test]`、`[users.admin]`；白名单用 `[[exchange_whitelist]]` 数组表。完整字段和注释见 [config.example.toml](config.example.toml)。未启用的功能省略整组或保持注释；不要只填部分必填字段。
+配置使用 TOML 原生分组表达层级，例如 `[tq]`、`[ctp.test]`、`[users.admin]`；CCXT/TQ/CTP 统一由 `[[service_whitelist]]` 数组表启用。填写账号不会自动启用服务。完整字段和注释见 [config.example.toml](config.example.toml)。
+
+```toml
+[[service_whitelist]]
+service = "ccxt"
+exchange = "binance"
+market = "future"
+mode = "sandbox"
+
+[[service_whitelist]]
+service = "tq"
+
+[[service_whitelist]]
+service = "ctp"
+mode = "sandbox"
+```
+
+启动时按白名单顺序初始化：CCXT 加载 markets，TQ 建立连接并启动持续消息循环，CTP 完成认证、登录、结算确认。全部完成后才接受 HTTP 请求；任一失败则释放资源并退出。未列入白名单的实例不初始化，请求返回 `503 SERVICE_NOT_ENABLED`。空白名单可以正常运行鉴权、文档和健康检查。
+
+启动被取消时，停止初始化后续服务，等待正在执行的 SDK 初始化结束后统一释放资源；取消不会强行中断 SDK 调用。
+
+配置只在进程启动时读取一次，包括白名单和账号密码；请求和重连都复用内存快照，中途修改文件不会生效。`/readyz` 返回初始化结果，如 `ccxt/binance/future/sandbox`、`tq`、`ctp/sandbox`。这是启动就绪检查，不发起实时网络探测。具体合约的首次订阅仍然按需进行。
+
+现有 TOML 白名单一次性迁移：`uv run --no-sync python scripts/migrate_service_whitelist.py`。迁移保留原 CCXT 身份，并将原来已配置的 TQ/CTP 模式显式列入白名单；核对所有配置后生成 `config.toml.before-service-whitelist.bak` 备份，原配置和备份均为 `0600`。新旧白名单不能混用，迁移后重启服务。
+
+Bruno 的启动就绪和禁用服务检查见 [SERVICE LIFECYCLE](bruno/SERVICE%20LIFECYCLE/README.md)，其中提供没有外部账号的测试配置。
 
 `SECRET` 是根字段，必须放在所有分组之前；用户名含点时用 `[users."alice.dev"]`。字符串使用 TOML 引号与转义规则；密码中的 `$`、`${...}` 原样保留，不展开环境变量。TOML 没有 `null`，可选字段不填时直接省略。
 

@@ -20,7 +20,7 @@ CTP_READ_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     503: {
         "model": CtpErrorResponse,
-        "description": "CTP_NOT_CONFIGURED / CTP_SDK_UNAVAILABLE / CTP_CONNECT_TIMEOUT / CTP_DISCONNECTED / CTP_CLIENT_CLOSED / CTP_SEND_FAILED：所选模式未配置或连接不可用。",
+        "description": "SERVICE_NOT_ENABLED / SERVICE_NOT_READY：所选 ctp/模式未列入 service_whitelist 或未就绪。其他 CTP_* 错误表示连接不可用；请求不启用白名单外实例。",
     },
     504: {
         "model": CtpErrorResponse,
@@ -44,12 +44,48 @@ CTP_WRITE_RESPONSES = {
     },
 }
 
+CTP_STATUS_RESPONSES = {
+    code: response
+    for code, response in CTP_READ_RESPONSES.items()
+    if code not in {429, 504}
+}
+CTP_STATUS_RESPONSES[503] = {
+    "model": CtpErrorResponse,
+    "description": "SERVICE_NOT_ENABLED / SERVICE_NOT_READY：所选 ctp/模式未启用或未完成应用启动；运行中缺少可用连接快照时以 200、is_open=null 返回。",
+}
+CTP_STATUS_RESPONSES[502] = {
+    "model": CtpErrorResponse,
+    "description": "CTP_INVALID_RESPONSE：收到的原生状态通知结构异常。",
+}
+
+CTP_STATUS_DESCRIPTION = """
+读取当前连接最新的 `OnRtnInstrumentStatus` 公共流通知；CTP 没有对应的主动查询 API。
+按品种精确匹配，例如 `exchange_id=SHFE&product_id=rb`，不传 rb2610，也不自动解析合约。
+
+- `mode=sandbox`（默认）读取 `[ctp.test]`，可接 SimNow；`mode=live` 读取 `[ctp.live]`。
+  模拟盘只代表对应模拟前置的状态，不能当成实盘交易所状态；缺少所选配置时明确报错。
+- `is_open=true`：InstrumentStatus="2"，连续交易。
+- `is_open=false`："0"/"1"/"3"/"4"/"5"/"6"/"7"，开盘前、非交易、集合竞价、收盘等阶段。
+- `is_open=null`：尚未收到该品种状态、断线、连接实例不可用或未知编码，具体见 reason。
+
+`raw_status` 保留字符串编码；`data` 返回完整有效原生通知字段，包括 EnterTime、EnterReason。
+EnterTime 是状态进入时间，不是查询时间；状态仅在变化时推送，不因通知较旧而判定失效。
+断线后清除旧通知，重连后等待新通知；缺少通知不能推断品种不存在或市场休市。
+列入 service_whitelist 的模式在启动阶段完成认证、登录、结算确认。
+HTTP 只读取独立短锁保护的快照，不进入账户操作队列或业务回调锁，也不等待网络。
+状态请求不创建连接、不触发登录/重登、不发送 ReqQry*、不额外等待推送，不产生订单或撤单。
+连接恢复沿用既有机制；尚未重新登录或收到新通知时，本接口持续返回未知。
+断线时直接返回 null/disconnected，重连后没有新通知时为 null/not_received；没有可用连接实例时为 null/unavailable。
+状态通知没有 nRequestID 和交易日，本响应不包含 request_id/trading_day。
+"""
+
 SESSION_DESCRIPTION = """
 
 账户与模式：`mode=sandbox`（默认）读取 config.toml 的 `[ctp.test]`，可接 SimNow；
 `mode=live` 读取 `[ctp.live]`，两者连接及 flow 目录独立，不相互回退。
 请求不能传密码、认证码或前置地址；使用本项目 Bearer token。
-首次使用及重连后的首次请求按需执行客户端认证、登录、结算确认，再发送业务请求。
+只有列入 service_whitelist 的模式会在程序启动时完成客户端认证、登录、结算确认。
+请求复用已初始化实例；断线恢复仍使用启动时的配置快照，中途修改文件不生效。
 
 返回：保留 CTP 原生字段名、字符串状态编码及订单编号前导空格；字段类型/含义见 response schema。
 金额/价格的无效 double（DBL_MAX、NaN、Infinity）序列化为 null，省略 reserve* 无效字段。

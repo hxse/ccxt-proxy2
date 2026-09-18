@@ -224,3 +224,14 @@ class CtpAccountQuery(CtpRequest):
         pattern=r"^[A-Z]{3}$",
         description="CurrencyID，默认 CNY；响应金额按各行 CurrencyID 计价。",
     )
+
+
+class CtpTradingStatusQuery(CtpRequest):
+    exchange_id: CtpExchange = Field(
+        description="CTP ExchangeID，必须与品种所属交易所一致。", examples=["SHFE"]
+    )
+    product_id: str = Field(
+        pattern=r"^[A-Za-z][A-Za-z0-9_]{0,79}$",
+        description="状态通知中的品种代码 InstrumentID，区分大小写，如 rb；不是 rb2610 或 SHFE.rb2610。不做合约到品种映射；不存在或未推送的品种返回未知。",
+        examples=["rb", "m_o"],
+    )

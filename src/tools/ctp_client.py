@@ -8,10 +8,12 @@ from pydantic import BaseModel, ValidationError
 from src.base_types import ModeType
 from src.responses_ctp import (
     CtpAccountsResponse,
+    CtpInstrumentStatus,
     CtpOrderResponse,
     CtpOrdersResponse,
     CtpPositionsResponse,
     CtpTradesResponse,
+    CtpTradingStatusResponse,
 )
 from src.tools.config_types import CtpAccountConfig, CtpConfig
 from src.tools.ctp_callbacks import CtpError
@@ -26,6 +28,7 @@ from src.types_ctp import (
     CtpOrderQuery,
     CtpPositionQuery,
     CtpTradeQuery,
+    CtpTradingStatusQuery,
 )
 
 QUERY_FIELDS = {
@@ -59,6 +62,10 @@ class CtpClient:
         self._lock = threading.Lock()
         self._session: CtpSession | None = None
         self._closed = False
+
+    def initialize(self) -> None:
+        with self._lock:
+            self._get_session()
 
     def _get_session(self) -> CtpSession:
         if self._closed:
@@ -241,6 +248,41 @@ class CtpClient:
             CtpAccountsResponse,
             "accounts",
         )
+
+    def fetch_trading_status(
+        self, request: CtpTradingStatusQuery
+    ) -> CtpTradingStatusResponse:
+        """读取当前连接的品种状态通知；不发送 ReqQry*，不等待状态变化。"""
+        result = CtpTradingStatusResponse(
+            mode=self.mode,
+            exchange_id=request.exchange_id,
+            product_id=request.product_id,
+        )
+        # 获取当前连接引用，不拿账户操作锁、不建立连接、不触发重登。
+        session = self._session
+        if self._closed or session is None:
+            result.reason = "unavailable"
+            return result
+        connected, data = session.callbacks.status_snapshot.read(
+            request.exchange_id, request.product_id
+        )
+        if connected is False:
+            result.reason = "disconnected"
+        elif data is None:
+            result.reason = "not_received"
+        else:
+            try:
+                result.data = CtpInstrumentStatus.model_validate(data)
+            except ValidationError as exc:
+                raise CtpError(
+                    502, "CTP_INVALID_RESPONSE", "CTP 交易状态通知结构异常。", self.mode
+                ) from exc
+            result.raw_status = result.data.InstrumentStatus or None
+            if result.raw_status in {"0", "1", "2", "3", "4", "5", "6", "7"}:
+                result.is_open = result.raw_status == "2"
+            else:
+                result.reason = "unrecognized_status"
+        return result
 
     def close(self) -> None:
         with self._lock:

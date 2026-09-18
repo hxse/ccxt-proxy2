@@ -5,6 +5,80 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.base_types import ModeType
 from src.ctp_records_account import CtpPosition, CtpTradingAccount
 from src.ctp_records_trading import CtpOrder, CtpTrade
+from src.responses_system import ServiceErrorDetail
+from src.responses_trading_status import TradingStatusResponse
+
+
+class CtpInstrumentStatus(BaseModel):
+    """OnRtnInstrumentStatus 的完整有效字段，状态按品种推送。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ExchangeID: str = Field(description="交易所代码。")
+    InstrumentID: str = Field(description="状态推送中的品种代码，对应请求 product_id。")
+    ExchangeInstID: str = Field(description="交易所原始合约/品种代码。")
+    SettlementGroupID: str = Field(description="结算组代码，可能为空。")
+    InstrumentStatus: str = Field(
+        description="0=开盘前，1=非交易，2=连续交易，3=集合竞价报单，4=集合竞价价格平衡，5=集合竞价撮合，6=收盘，7=交易处理中；未知编码原样保留。"
+    )
+    TradingSegmentSN: int = Field(description="上游交易阶段编号。")
+    EnterTime: str = Field(
+        description="进入该状态的上游时间 HH:MM:SS，无日期；不是 HTTP 查询时间，也不用于超时失效判断。"
+    )
+    EnterReason: str = Field(
+        description="进入原因：1=自动切换，2=手动切换，3=熔断；保留原始编码。"
+    )
+
+
+class CtpTradingStatusResponse(TradingStatusResponse):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "mode": "sandbox",
+                    "exchange_id": "SHFE",
+                    "product_id": "rb",
+                    "is_open": True,
+                    "raw_status": "2",
+                    "reason": None,
+                    "data": {
+                        "ExchangeID": "SHFE",
+                        "InstrumentID": "rb",
+                        "ExchangeInstID": "rb",
+                        "SettlementGroupID": "",
+                        "InstrumentStatus": "2",
+                        "TradingSegmentSN": 1,
+                        "EnterTime": "09:00:00",
+                        "EnterReason": "1",
+                    },
+                },
+                {
+                    "mode": "sandbox",
+                    "exchange_id": "SHFE",
+                    "product_id": "rb",
+                    "is_open": None,
+                    "raw_status": None,
+                    "reason": "not_received",
+                    "data": None,
+                },
+            ]
+        }
+    )
+
+    mode: ModeType = Field(
+        description="实际使用的 sandbox/live；模拟状态仅代表对应模拟前置。"
+    )
+    exchange_id: str = Field(description="本次查询的交易所代码。", examples=["SHFE"])
+    product_id: str = Field(description="本次查询的品种代码。", examples=["rb"])
+    raw_status: str | None = Field(
+        None,
+        description="有效通知中的 InstrumentStatus：仅 2 表示连续交易，0/1/3/4/5/6/7 为其他阶段；未知编码保留并返回 is_open=null。",
+        examples=["2", "6", None],
+    )
+    data: CtpInstrumentStatus | None = Field(
+        None,
+        description="当前连接最新的 OnRtnInstrumentStatus 快照；断线或未收到时为 null。状态推送没有 nRequestID，不伪造请求号或交易日。",
+    )
 
 
 class CtpResponse(BaseModel):
@@ -88,7 +162,7 @@ class CtpErrorDetail(BaseModel):
 
 
 class CtpErrorResponse(BaseModel):
-    detail: CtpErrorDetail = Field(
+    detail: CtpErrorDetail | ServiceErrorDetail = Field(
         description="CTP 业务/连接错误；HTTP 参数校验另用 FastAPI HTTPValidationError。"
     )
 

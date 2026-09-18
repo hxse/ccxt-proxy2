@@ -51,5 +51,5 @@ tests {
 docs {
   默认 mode=sandbox，读取服务端 ctp.test，沿用集合 Bearer 鉴权。
   在 Params 中替换 exchange_id/instrument_id。此接口查询当前可查询交易日，不是任意历史订单库。
-  无记录时返回空数组是合法结果。首次连接会认证、登录并确认结算。
+  无记录时返回空数组是合法结果。白名单内的模式已在启动阶段认证、登录并确认结算。
 }

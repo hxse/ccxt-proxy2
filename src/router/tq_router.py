@@ -1,10 +1,12 @@
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
+from src.responses_system import ServiceUnavailableResponse
 from src.responses_tq import (
     TqRecord,
     TqTradingCalendarItem,
+    TqTradingStatusResponse,
     TqUnderlyingSymbolResponse,
 )
 from src.router.auth_handler import manager
@@ -13,6 +15,7 @@ from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
     TqTradingCalendarRequest,
+    TqTradingStatusRequest,
     TqUnderlyingSymbolRequest,
     tq_ohlcv_request,
     tq_tick_request,
@@ -46,6 +49,10 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
         )
     },
     500: {"description": "服务端未配置 TQ，detail 为 TQ_NOT_CONFIGURED。"},
+    503: {
+        "model": ServiceUnavailableResponse,
+        "description": "SERVICE_NOT_ENABLED：tq 未列入 service_whitelist；SERVICE_NOT_READY / TQ_NOT_READY：尚未就绪或已关闭。请求不会触发初始化。",
+    },
     502: {
         "description": (
             "TQ 网络、登录或上游服务不可用；日历未完整覆盖请求的每日区间时 "
@@ -205,3 +212,43 @@ def fetch_trading_calendar(
 ):
     """薄转发 TQ get_trading_calendar。"""
     return tq_manager.fetch_trading_calendar(params)
+
+
+@tq_router.get(
+    "/fetch_trading_status",
+    response_model=TqTradingStatusResponse,
+    summary="查询 TQ 合约当前交易状态",
+    description="""
+读取后台通过 `get_trading_status(symbol)` 订阅得到的最新状态快照。
+输入单个完整合约代码，例如 `symbol=SHFE.rb2610`。
+
+- `is_open=true`：CONTINOUS（上游原始拼写），处于连续交易。
+- `is_open=false`：AUCTIONORDERING（集合竞价报单）或 NOTRADING（非交易）。
+- `is_open=null`：尚未收到、状态连接断线、服务不可用或未知编码，具体见 reason。
+- 断线后旧状态失效，重连后必须收到新状态；长期没有状态变化不等于休市。
+
+需要 TQ 账户开通交易状态权限；没有权限返回 **403 TQ_TRADING_STATUS_PERMISSION_DENIED**。
+HTTP 不调用 SDK、不等待网络，也不进入行情请求队列；只读取独立短锁保护的快照。
+首次查询新合约只登记一次后台订阅意向，先返回 null/not_received；SDK 线程处理订阅、收到数据后，后续查询返回新状态。
+TqApi 在启动阶段初始化。后台订阅失败在后续查询中返回对应 HTTP 错误；无权限无需等待订阅，直接返回 403。
+节假日前置停机或网络故障只能返回未知，不根据本机时间、旧 K 线或交易日历推算休市。
+只查询状态，不下单，也不代表账户当前能够成功成交。
+""",
+    response_description="symbol、is_open（boolean/null）、raw_status（string/null）和 reason（未知原因/null）。",
+    responses={
+        **TQ_COMMON_RESPONSES,
+        400: {"description": "TQ_INVALID_SYMBOL：上游拒绝合约参数。"},
+        403: {
+            "description": "TQ_TRADING_STATUS_PERMISSION_DENIED：TQ 账户未开通交易状态权限。"
+        },
+        422: {"description": "缺少 symbol、空白 symbol，或包含未声明的 query 参数。"},
+        502: {
+            "description": "后台订阅记录的 TQ SDK/上游错误；未收到数据和连接不可用以 200、is_open=null 返回。"
+        },
+    },
+)
+async def fetch_trading_status(
+    params: Annotated[TqTradingStatusRequest, Query()],
+) -> TqTradingStatusResponse:
+    """只读最新快照；首次合约登记后台订阅，HTTP 不调用 SDK 或等待网络。"""
+    return tq_manager.fetch_trading_status(params)

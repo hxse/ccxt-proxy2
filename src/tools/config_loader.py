@@ -49,6 +49,10 @@ def load_config(
             "Cannot read TOML config; check file path and permissions"
         ) from None
     try:
+        if "exchange_whitelist" in payload:
+            raise ConfigError(
+                "exchange_whitelist was replaced by service_whitelist; run scripts/migrate_service_whitelist.py"
+            )
         return AppConfig.model_validate(payload)
     except ValidationError as exc:
         # 不输出原始值、用户名、validator 上下文或异常链。

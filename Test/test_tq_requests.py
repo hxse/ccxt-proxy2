@@ -10,7 +10,8 @@ from starlette.requests import Request
 
 from src.router.auth_handler import manager as auth_manager
 from src.router.tq_router import tq_router
-from src.tools.tq_manager import TqManager, tq_manager
+from src.tools.tq_client import TqClient
+from src.tools.tq_manager import tq_manager
 from src.types_tq import (
     MAX_TQ_DATA_LENGTH,
     TQ_ADJ_TYPE_QUERY_ENUM,
@@ -215,7 +216,7 @@ def test_trading_calendar_request_validates_range_and_unknown_query():
 
 
 def test_calendar_coverage_error_maps_to_stable_code(temp_dir):
-    manager = TqManager(None, lock_path=temp_dir / "tq.lock")
+    manager = TqClient(None, lock_path=temp_dir / "tq.lock")
     error = manager._map_tq_exception(
         Exception("交易日历可以处理的范围为 2010-01-01 ～ 2026-12-31，请修改参数")
     )

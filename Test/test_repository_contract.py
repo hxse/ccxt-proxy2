@@ -333,6 +333,6 @@ def test_ccxt_online_suite_targets_live_identities_only():
     }
 
     assert 'item.mode == "live"' in source
-    assert '"exchange_whitelist": live_futures' in source
+    assert '"service_whitelist": live_futures' in source
     assert "sandbox" not in source
     assert used.isdisjoint(private_reads)

@@ -98,6 +98,21 @@ class TqTradingCalendarRequest(BaseModel):
         return self
 
 
+class TqTradingStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(
+        min_length=1,
+        description="单个完整 TQ 合约代码，如 SHFE.rb2610。按原样交给 get_trading_status，不拆分交易所/品种，不自动解析主连。",
+        examples=["SHFE.rb2610"],
+    )
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, symbol: str) -> str:
+        return _normalize_symbol(symbol)
+
+
 def _normalize_symbol_input(symbol: str | list[str]) -> str | list[str]:
     if isinstance(symbol, list):
         return _normalize_symbols(symbol)

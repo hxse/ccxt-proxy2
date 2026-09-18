@@ -1,0 +1,6 @@
+# 本地测试专用占位凭证；不连接 CCXT、TQ 或 CTP，请勿用于部署。
+SECRET = "bruno-local-test-only-secret"
+service_whitelist = []
+
+[users.bruno]
+password = "bruno-local-test-only-password"

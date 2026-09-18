@@ -84,9 +84,19 @@ def test_registry_initialization_failure_closes_every_partial_resource(
             "SECRET": "secret",
             "binance": {"test": {"api_key": "key", "secret": "secret"}},
             "kraken": {"test": {"api_key": "key", "secret": "secret"}},
-            "exchange_whitelist": [
-                {"exchange": "binance", "market": "future", "mode": "sandbox"},
-                {"exchange": "kraken", "market": "future", "mode": "sandbox"},
+            "service_whitelist": [
+                {
+                    "service": "ccxt",
+                    "exchange": "binance",
+                    "market": "future",
+                    "mode": "sandbox",
+                },
+                {
+                    "service": "ccxt",
+                    "exchange": "kraken",
+                    "market": "future",
+                    "mode": "sandbox",
+                },
             ],
             "ohlcv_cache": {
                 "database_path": str(temp_dir / "cache.duckdb"),

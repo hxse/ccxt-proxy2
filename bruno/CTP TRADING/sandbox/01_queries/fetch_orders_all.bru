@@ -49,5 +49,5 @@ tests {
 docs {
   默认 mode=sandbox，读取服务端 ctp.test，沿用集合 Bearer 鉴权。
   包含挂单、已成交和已撤订单；观察 OrderStatus/OrderSubmitStatus，撤单标识从这里复制。
-  无记录时返回空数组是合法结果。首次连接会认证、登录并确认结算。
+  无记录时返回空数组是合法结果。白名单内的模式已在启动阶段认证、登录并确认结算。
 }

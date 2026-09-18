@@ -6,9 +6,8 @@ from loguru import logger
 from src.base_types import ExchangeName, MarketType, ModeType
 from src.cache_tool import DuckDbOhlcvCache
 from src.tools.ccxt_client import CcxtClient
-from src.tools.config_types import AppConfig
+from src.tools.config_types import AppConfig, CcxtServiceConfig
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
-from src.types import ExchangeWhitelistItem
 
 
 class ExchangeManager:
@@ -25,45 +24,44 @@ class ExchangeManager:
             return
         self._initialized = True
         self._registry: dict[tuple[ExchangeName, MarketType, ModeType], CcxtClient] = {}
-        self._whitelist: list[ExchangeWhitelistItem] = []
+        self._whitelist: list[CcxtServiceConfig] = []
         self._cache: DuckDbOhlcvCache | None = None
 
     def init_from_config(self, config: AppConfig) -> None:
         self.close()
-        self._whitelist = [
-            ExchangeWhitelistItem(**item.model_dump())
-            for item in config.exchange_whitelist
-        ]
-        cache_config = config.ohlcv_cache
-        self._cache = DuckDbOhlcvCache(
-            cache_config.database_path,
-            cache_config.max_rows_per_series,
-            cache_config.max_rows_total,
-        )
-        if not self._whitelist:
-            logger.warning("exchange whitelist is empty")
-            return
-
         try:
-            for item in self._whitelist:
-                key = (item.exchange, item.market, item.mode)
-                bound = logger.bind(
-                    exchange=item.exchange, market=item.market, mode=item.mode
+            for item in config.service_whitelist:
+                if item.service == "ccxt":
+                    self.initialize(config, item)
+        except BaseException:
+            self.close()
+            raise
+
+    def initialize(self, config: AppConfig, item: CcxtServiceConfig) -> None:
+        key = (item.exchange, item.market, item.mode)
+        if item not in config.service_whitelist:
+            raise HTTPException(
+                503, detail={"code": "SERVICE_NOT_ENABLED", "service": item.identity}
+            )
+        if key in self._registry:
+            return
+        try:
+            if self._cache is None:
+                cache = config.ohlcv_cache
+                self._cache = DuckDbOhlcvCache(
+                    cache.database_path, cache.max_rows_per_series, cache.max_rows_total
                 )
-                bound.info("initializing CcxtClient")
-                if item.exchange == "binance":
-                    exchange = get_binance_exchange(config, item.market, item.mode)
-                elif item.exchange == "kraken":
-                    exchange = get_kraken_exchange(config, item.market, item.mode)
-                else:
-                    raise ValueError(f"unsupported exchange: {item.exchange}")
-                client = CcxtClient(
-                    exchange, item.exchange, item.market, item.mode, self._cache
-                )
-                self._registry[key] = client
-                client.load_markets()
-                bound.info("CcxtClient initialized")
-        except Exception:
+            if item.exchange == "binance":
+                exchange = get_binance_exchange(config, item.market, item.mode)
+            else:
+                exchange = get_kraken_exchange(config, item.market, item.mode)
+            client = CcxtClient(
+                exchange, item.exchange, item.market, item.mode, self._cache
+            )
+            self._registry[key] = client
+            client.load_markets()
+            self._whitelist.append(item)
+        except BaseException:
             self.close()
             raise
 
@@ -98,10 +96,10 @@ class ExchangeManager:
         if client is None:
             raise HTTPException(
                 status_code=503,
-                detail=(
-                    "交易所实例未启用: "
-                    f"{exchange_name}/{market}/{mode}，请在 exchange_whitelist 中添加"
-                ),
+                detail={
+                    "code": "SERVICE_NOT_ENABLED",
+                    "service": f"ccxt/{exchange_name}/{market}/{mode}",
+                },
             )
         return client
 

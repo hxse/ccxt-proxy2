@@ -11,6 +11,7 @@ import pytest
 
 from src.ctp_records_account import CtpPosition, CtpTradingAccount
 from src.ctp_records_trading import CtpOrder, CtpTrade
+from src.responses_ctp import CtpInstrumentStatus
 from src.tools.ctp_callbacks import CtpCallbacks, CtpError, snapshot
 from src.tools.ctp_spi import create_api
 from Test.ctp_fakes import ctp_config
@@ -63,12 +64,41 @@ def test_documented_records_cover_all_native_fields():
         ("TradeField", CtpTrade),
         ("InvestorPositionField", CtpPosition),
         ("TradingAccountField", CtpTradingAccount),
+        ("InstrumentStatusField", CtpInstrumentStatus),
     ]:
         native_type = getattr(ApiStructure, native_name)
         native = native_type.from_buffer_copy(bytes(ctypes.sizeof(native_type)))
         data = snapshot(native)
         assert set(model.model_fields) == set(data)
         model.model_validate(data)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("ctpwrapper") is None,
+    reason="optional ctp extra is not installed",
+)
+def test_status_spi_copies_real_native_record_and_invalidates_on_disconnect(tmp_path):
+    config = ctp_config(tmp_path)
+    assert config.test is not None
+    callbacks = CtpCallbacks(config.test, "sandbox")
+    # 仅构造 Python SPI，不调用 Create/Init，不建立原生连接。
+    api, structs = create_api(callbacks)
+    api.OnFrontConnected()
+    native = structs.InstrumentStatusField(
+        ExchangeID="SHFE",
+        InstrumentID="rb",
+        InstrumentStatus="2",
+        EnterTime="09:00:00",
+        EnterReason="1",
+    )
+    api.OnRtnInstrumentStatus(native)
+    native.InstrumentStatus = b"6"
+    connected, record = callbacks.status_snapshot.read("SHFE", "rb")
+    assert (
+        connected is True and record is not None and record["InstrumentStatus"] == "2"
+    )
+    api.OnFrontDisconnected(0)
+    assert callbacks.status_snapshot.read("SHFE", "rb") == (False, None)
 
 
 @pytest.mark.skipif(

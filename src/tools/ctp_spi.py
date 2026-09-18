@@ -90,6 +90,9 @@ def create_api(callbacks: CtpCallbacks) -> tuple[Any, Any]:
         def OnRtnOrder(self, pOrder) -> None:
             callbacks.on_order(pOrder)
 
+        def OnRtnInstrumentStatus(self, pInstrumentStatus) -> None:
+            callbacks.on_instrument_status(pInstrumentStatus)
+
         def OnErrRtnOrderInsert(self, pInputOrder, pRspInfo) -> None:
             callbacks.on_error_return("ReqOrderInsert", pInputOrder, pRspInfo)
 

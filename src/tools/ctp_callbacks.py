@@ -1,4 +1,4 @@
-"""最小的 CTP 回调桥接：每个连接只有一个在途 HTTP 操作。"""
+"""CTP 回调桥接：每个连接只有一个在途 Req*，状态快照独立读取。"""
 
 import math
 import threading
@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from src.base_types import ModeType
 from src.responses_ctp import CtpErrorDetail
 from src.tools.config_types import CtpAccountConfig
+from src.tools.ctp_status_snapshot import CtpStatusSnapshot
 
 
 class CtpError(HTTPException):
@@ -72,6 +73,7 @@ class CtpCallbacks:
         self.generation = 0
         self.closed = False
         self.pending: Pending | None = None
+        self.status_snapshot = CtpStatusSnapshot()
         self._account_identity = (account.broker_id, account.investor_id)
         self._secrets = [account.password.get_secret_value()]
         if account.auth_code:
@@ -92,11 +94,16 @@ class CtpCallbacks:
         with self.lock:
             if not self.closed:
                 self.connected.set()
+                self.status_snapshot.connect()
 
     def on_disconnected(self) -> None:
+        # 先使快照失效，即使业务回调锁正在被 Req* 占用，状态读取也不等它。
+        self.status_snapshot.disconnect()
         with self.lock:
             self.connected.clear()
             self.generation += 1
+            # 与并发的连接回调最终保持同一顺序；前一次失效保证 HTTP 不等待此锁。
+            self.status_snapshot.disconnect()
             if self.pending is not None:
                 write = self.pending.write
                 self.pending.fail(
@@ -106,6 +113,11 @@ class CtpCallbacks:
                         "CTP 连接中断；已发送的写操作可能已生效，请先查询订单与成交。",
                     )
                 )
+
+    def on_instrument_status(self, data: Any) -> None:
+        """公共流按品种推送；复制原生内存，仅保留当前连接的最新通知。"""
+        if data is not None:
+            self.status_snapshot.update(snapshot(data))
 
     def _reject(self, pending: Pending, info: dict[str, Any]) -> None:
         code = {
@@ -252,6 +264,7 @@ class CtpCallbacks:
                     self._reject(pending, error)
 
     def close(self) -> None:
+        self.status_snapshot.disconnect(closed=True)
         with self.lock:
             self.closed = True
             self.on_disconnected()

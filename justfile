@@ -238,7 +238,11 @@ test-ctp-offline:
 
 # 只读 CTP 查询，默认使用 sandbox；首次连接会认证、登录、确认结算
 bru-ctp-readonly:
-    uv run --no-sync python scripts/run_bruno.py 'CTP TRADING/fetch_orders.bru' 'CTP TRADING/fetch_trades.bru' 'CTP TRADING/fetch_positions.bru' 'CTP TRADING/fetch_balance.bru'
+    uv run --no-sync python scripts/run_bruno.py 'CTP TRADING/fetch_orders.bru' 'CTP TRADING/fetch_trades.bru' 'CTP TRADING/fetch_positions.bru' 'CTP TRADING/fetch_balance.bru' 'CTP TRADING/fetch_trading_status.bru'
+
+# 先使用 SERVICE LIFECYCLE/disabled.example.toml 启动服务；仅 GET，不连接交易服务
+bru-service-disabled:
+    CCXT_PROXY_CONFIG_PATH='bruno/SERVICE LIFECYCLE/disabled.example.toml' uv run --no-sync python scripts/run_bruno.py 'SERVICE LIFECYCLE/ready.bru' 'SERVICE LIFECYCLE/tq_disabled.bru' 'SERVICE LIFECYCLE/ctp_sandbox_disabled.bru' 'SERVICE LIFECYCLE/ccxt_sandbox_disabled.bru'
 
 # Telegram 会真实发送消息，只能通过 stateful debug 入口显式执行
 debug-telegram-stateful:

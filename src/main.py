@@ -77,11 +77,11 @@ def healthz():
     tags=["Health"],
     summary="服务就绪检查",
     description=(
-        "检查 ExchangeManager registry 是否已经完成初始化。关键配置或 Provider "
-        "初始化失败时应用采用 fail-fast，进程启动失败并交由容器重启，不以 degraded "
-        "状态继续服务。"
+        "检查 service_whitelist 中的 CCXT、TQ、CTP 实例是否全部完成启动初始化。"
+        "任一实例初始化失败则释放资源并退出；配置只在进程启动时读取。"
+        "这是启动就绪检查，不会发起实时网络探测。"
     ),
-    response_description="当前就绪状态和已初始化的 exchange identities。",
+    response_description="当前启动就绪状态，以及 ccxt/交易所/市场/模式、tq、ctp/模式形式的实例列表。",
     responses={
         503: {
             "model": NotReadyResponse,
@@ -93,19 +93,20 @@ def readyz():
     """
     就绪检查。
 
-    只有配置加载成功且交易所白名单初始化完成后，才返回 200。
+    只有配置加载成功且服务白名单全部初始化完成后，才返回 200。
     """
-    if app.state.exchange_registry_ready:
+    runtime = app.state.service_runtime
+    if runtime.ready:
         return {
             "status": "ready",
-            "initialized": app.state.exchange_registry_initialized,
+            "initialized": runtime.initialized,
         }
 
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={
             "status": "not_ready",
-            "initialized": app.state.exchange_registry_initialized,
+            "initialized": runtime.initialized,
         },
     )
 

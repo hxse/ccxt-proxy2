@@ -21,6 +21,6 @@ def reject_unknown_query_params(request: Request, allowed: Collection[str]) -> N
     )
 
 
-def reject_query_params_on_non_get(request: Request) -> None:
+async def reject_query_params_on_non_get(request: Request) -> None:
     if request.method not in {"GET", "HEAD"}:
         reject_unknown_query_params(request, set())
