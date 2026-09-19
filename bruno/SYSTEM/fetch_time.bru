@@ -1,0 +1,34 @@
+meta {
+  name: 获取公共时间（币安）
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/system/fetch_time
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("返回上游 Unix 毫秒时间戳，禁止缓存", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(Number.isSafeInteger(body.serverTime)).to.equal(true);
+    expect(body.serverTime).to.be.at.least(0);
+    expect(res.getHeader("cache-control")).to.equal("no-store");
+  });
+}
+
+docs {
+  无 query 参数；沿用集合 Bearer 鉴权，不需要币安 API key 或交易服务白名单。
+  每次调用币安 https://api.binance.com/api/v3/time，原样返回 serverTime，单位 Unix 毫秒。
+  上游请求等待限时 5 秒；超时返回 504，网络/上游 HTTP/数据错误返回 502。
+  不缓存、不后台校时、不回退到本机时间，也不补偿网络延迟。
+  不将结果与运行 Bruno 的机器时间比较，因为本机时钟可能不准。
+  容器需要能够访问币安 HTTPS 接口；限流或访问限制可查看 detail.upstream_status。
+}

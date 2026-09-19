@@ -40,6 +40,8 @@ CTP extra 固定安装项目内的 `ctpwrapper==6.7.13+ccxtproxy.1` 源码包，
 
 当前交易状态可查询 `GET /tq/fetch_trading_status?symbol=SHFE.rb2610`（需要 TQ 交易状态权限）或 `GET /ctp/fetch_trading_status?exchange_id=SHFE&product_id=rb`（默认模拟盘 `sandbox`）。两条状态路由直接读取最新快照，不等待网络或其他 SDK 查询；TQ 新合约首次登记后台订阅并先返回未知。两者均返回 `is_open/raw_status/reason`：仅连续交易为 true，明确的其他阶段为 false，断线、超时或未收到状态为 null；CTP 还返回完整原生通知。参数及类型见 `/docs`，Bruno 已提供对应示例。
 
+公共时间可查询 `GET /system/fetch_time`：沿用 Bearer 鉴权，无参数，每次直接请求[币安公共时间接口](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/general#time)，返回原始 `{"serverTime": 1789689600123}`（Unix 毫秒）。不需要币安账号或交易服务白名单，容器只需能访问 `https://api.binance.com/api/v3/time`。上游请求等待限时 5 秒，无重试、时间缓存或本机时间回退；超时返回 504，网络、上游 HTTP 或数据错误返回 502。该值对应上游生成响应的时刻，没有补偿网络延迟，也不会修改系统时间。Bruno 示例见 [SYSTEM/fetch_time.bru](bruno/SYSTEM/fetch_time.bru)。
+
 可选的 DuckDB cache 配置（省略时使用以下默认值）：
 
 ```toml

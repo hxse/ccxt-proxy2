@@ -199,6 +199,10 @@ bru-readonly-basic:
 bru-error-contract:
     uv run --no-sync python scripts/run_bruno.py 'CCXT PROXY/error_contract'
 
+# 公共时间薄转发，需要项目登录账号，不需要交易所账号
+bru-public-time:
+    uv run --no-sync python scripts/run_bruno.py 'SYSTEM/fetch_time.bru'
+
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:
     uv run --no-sync python scripts/run_bruno.py 'TQ DATA/fetch_ohlcv/main-cont.bru' 'TQ DATA/fetch_tick/main-cont.bru' 'TQ DATA/fetch_underlying_symbol/main-cont.bru' 'TQ DATA/fetch_trading_calendar/main.bru'
