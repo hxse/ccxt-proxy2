@@ -89,7 +89,7 @@ def assert_unrelated_error_is_ignored(service, operation, change):
 
     def setup(api):
         def respond(data, rid):
-            values = data.to_dict()
+            values = data.copy()
             api.callbacks.on_error_return(
                 method,
                 Record(**(values | change)),
@@ -139,7 +139,7 @@ def test_matching_error_preserves_upstream_details(
 
     def setup(api):
         def respond(data, rid):
-            values = data.to_dict()
+            values = data.copy()
             if not request_id_present:
                 values["RequestID"] = 0
             api.callbacks.on_error_return(
@@ -168,7 +168,7 @@ def test_repeated_cancel_uses_a_new_memo_and_ignores_late_rejection(service):
 
     def setup(api):
         def respond(data, rid):
-            values = data.to_dict()
+            values = data.copy()
             if previous:
                 # 模拟旧回报甚至与当前请求号相同；旧 memo 仍必须被拒绝。
                 stale = previous[-1] | {"RequestID": rid, "OrderActionRef": rid}
@@ -208,7 +208,7 @@ def test_missing_error_memo_leaves_status_unknown_instead_of_claiming_rejection(
 
     def setup(api):
         def respond(data, rid):
-            values = data.to_dict() | {"OrderMemo": ""}
+            values = data.copy() | {"OrderMemo": ""}
             api.callbacks.on_error_return(
                 "ReqOrderInsert",
                 Record(**values),
@@ -241,7 +241,7 @@ def test_same_account_sessions_with_identical_request_and_order_refs_do_not_cros
         api.session_id = 10 + len(factory.apis)
 
         def respond(data, rid):
-            values = data.to_dict()
+            values = data.copy()
             if previous:
                 other = previous[-1]
                 assert values["RequestID"] == other["RequestID"]

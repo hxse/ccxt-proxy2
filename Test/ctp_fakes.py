@@ -1,18 +1,10 @@
 """无网络的 CTP 前置替身，驱动真实 client/session/callback 路径。"""
 
-from types import SimpleNamespace
-
 from src.ctp_records_account import CtpPosition, CtpTradingAccount
 from src.ctp_records_trading import CtpOrder, CtpTrade
 from src.tools.config_types import CtpConfig
 
-
-class Record:
-    def __init__(self, **values):
-        self.values = values
-
-    def to_dict(self):
-        return self.values.copy()
+Record = dict
 
 
 def record(model, **values):
@@ -59,32 +51,34 @@ class FakeApi:
         self.flow = None
         self.session_id = 9
 
-    def Create(self, path, production_mode):
+    def createFtdcTraderApi(self, path, production_mode):
         self.flow, self.production_mode = path, production_mode
 
-    def RegisterFront(self, front):
+    def registerFront(self, front):
         self.front = front
 
-    def SubscribePrivateTopic(self, resume, sequence):
-        assert (resume, sequence) == (2, 0)
-
-    def SubscribePublicTopic(self, resume):
+    def subscribePrivateTopic(self, resume):
         assert resume == 2
 
-    def Init(self):
+    def subscribePublicTopic(self, resume):
+        assert resume == 2
+
+    def init(self):
         self.initialized = True
         self.callbacks.on_connected()
 
-    def Release(self):
+    def exit(self):
         assert self.initialized
         self.released += 1
 
     def __getattr__(self, method):
-        if not method.startswith("Req"):
+        if not method.startswith("req"):
             raise AttributeError(method)
 
+        method = method[0].upper() + method[1:]
+
         def send(data, request_id):
-            self.requests.append((method, data.to_dict(), request_id))
+            self.requests.append((method, data.copy(), request_id))
             if method in self.hooks:
                 return self.hooks[method](data, request_id)
             if method == "ReqUserLogin":
@@ -97,9 +91,7 @@ class FakeApi:
                 self.callbacks.on_response(method, reply, None, request_id, True)
             elif method in {"ReqOrderInsert", "ReqOrderAction"}:
                 fields = {
-                    k: v
-                    for k, v in data.to_dict().items()
-                    if k in CtpOrder.model_fields
+                    k: v for k, v in data.copy().items() if k in CtpOrder.model_fields
                 }
                 order = record(
                     CtpOrder,
@@ -121,7 +113,7 @@ class FakeApi:
             else:
                 for row in self.queries.get(method, []):
                     self.callbacks.on_response(method, row, None, request_id, False)
-                self.callbacks.on_response(method, None, None, request_id, True)
+                self.callbacks.on_response(method, {}, {}, request_id, True)
             return 0
 
         return send
@@ -136,18 +128,7 @@ class FakeFactory:
         api = FakeApi(callbacks)
         self.apis.append(api)
         self.setup(api)
-        names = (
-            "ReqAuthenticateField",
-            "ReqUserLoginField",
-            "SettlementInfoConfirmField",
-            "InputOrderField",
-            "InputOrderActionField",
-            "QryOrderField",
-            "QryTradeField",
-            "QryInvestorPositionField",
-            "QryTradingAccountField",
-        )
-        return api, SimpleNamespace(**dict.fromkeys(names, Record))
+        return api
 
 
 QUERY_CASES = [

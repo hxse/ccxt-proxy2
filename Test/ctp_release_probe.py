@@ -32,7 +32,7 @@ def run_probe(scenario: str) -> None:
         server.start()
 
         def factory(callbacks):
-            api, structs = create_api(callbacks)
+            api = create_api(callbacks)
 
             def on_disconnect(reason):
                 callbacks.on_disconnected()
@@ -42,8 +42,8 @@ def run_probe(scenario: str) -> None:
                     time.sleep(0.2)
                 returned.set()
 
-            api.OnFrontDisconnected = on_disconnect
-            return api, structs
+            api.onFrontDisconnected = on_disconnect
+            return api
 
         account = CtpAccountConfig(
             trader_front=f"tcp://127.0.0.1:{listener.getsockname()[1]}",
@@ -52,7 +52,6 @@ def run_probe(scenario: str) -> None:
             password="test-password",
         )
         session = CtpSession(account, CtpConfig(flow_path=path), "sandbox", factory)
-        api = session.api
         connection = accepted.get(timeout=5)
         server.join(timeout=1)
         old_interval = sys.getswitchinterval()
@@ -68,9 +67,10 @@ def run_probe(scenario: str) -> None:
                 connection.close()
                 assert entered.wait(5), "native disconnect callback did not arrive"
             session.close()
-            assert returned.is_set(), "Release must let the native callback finish"
+            if scenario == "callback_in_progress":
+                assert returned.is_set(), "exit must let the native callback finish"
             session.close()
-            api.Release()  # 原生层重复释放也必须安全。
+            session.close()  # 会话重复关闭不能再次调用原生 exit。
         finally:
             sys.setswitchinterval(old_interval)
             connection.close()

@@ -22,15 +22,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ctp = ["ctpwrapper==6.7.13+ccxtproxy.1"]
+ctp = ["vnpy_ctp==6.7.11.4+ccxtproxy.2"]
+
+[tool.uv]
+exclude-dependencies = ["vnpy"]
 
 [tool.uv.sources]
-ctpwrapper = { path = "vendor/ctpwrapper/ctpwrapper-6.7.13+ccxtproxy.1.tar.gz" }
+vnpy_ctp = { path = "vendor/vnpy_ctp/vnpy_ctp-6.7.11.4+ccxtproxy.2.tar.gz" }
 
 
 [dependency-groups]
 dev = [
     "pytest",
+    "pybind11>=3.0.1",
     "python-dotenv>=1.2,<2",
     "tomli-w>=1.2,<2",
 ]

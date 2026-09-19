@@ -150,9 +150,7 @@ class CtpClient:
                 "IsAutoSuspend": 0,
                 "UserForceClose": 0,
             }
-            request_id, rows = session.request(
-                "ReqOrderInsert", "InputOrderField", fields, identity
-            )
+            request_id, rows = session.request("ReqOrderInsert", fields, identity)
             return self._result(
                 session,
                 CtpOrderResponse,
@@ -193,9 +191,7 @@ class CtpClient:
                     session_id=request.session_id,
                     order_ref=request.order_ref,
                 )
-            request_id, rows = session.request(
-                "ReqOrderAction", "InputOrderActionField", fields, identity
-            )
+            request_id, rows = session.request("ReqOrderAction", fields, identity)
             return self._result(
                 session,
                 CtpOrderResponse,
@@ -206,7 +202,7 @@ class CtpClient:
             )
 
     def _query[T: BaseModel](
-        self, request: BaseModel, method: str, structure: str, model: type[T], key: str
+        self, request: BaseModel, method: str, model: type[T], key: str
     ) -> T:
         fields = {
             QUERY_FIELDS[name]: value if value is not None else ""
@@ -217,25 +213,20 @@ class CtpClient:
         with self._lock:
             session = self._get_session()
             request_id, rows = session.request(
-                method, structure, {**session.credentials, **fields}
+                method, {**session.credentials, **fields}
             )
             return self._result(session, model, request_id, key, rows)
 
     def fetch_orders(self, request: CtpOrderQuery) -> CtpOrdersResponse:
-        return self._query(
-            request, "ReqQryOrder", "QryOrderField", CtpOrdersResponse, "orders"
-        )
+        return self._query(request, "ReqQryOrder", CtpOrdersResponse, "orders")
 
     def fetch_trades(self, request: CtpTradeQuery) -> CtpTradesResponse:
-        return self._query(
-            request, "ReqQryTrade", "QryTradeField", CtpTradesResponse, "trades"
-        )
+        return self._query(request, "ReqQryTrade", CtpTradesResponse, "trades")
 
     def fetch_positions(self, request: CtpPositionQuery) -> CtpPositionsResponse:
         return self._query(
             request,
             "ReqQryInvestorPosition",
-            "QryInvestorPositionField",
             CtpPositionsResponse,
             "positions",
         )
@@ -244,7 +235,6 @@ class CtpClient:
         return self._query(
             request,
             "ReqQryTradingAccount",
-            "QryTradingAccountField",
             CtpAccountsResponse,
             "accounts",
         )

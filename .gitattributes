@@ -1,0 +1,2 @@
+# Unified diffs preserve upstream tabs and blank context lines.
+vendor/vnpy_ctp/*.patch -whitespace

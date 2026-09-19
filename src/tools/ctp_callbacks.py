@@ -28,9 +28,9 @@ class CtpError(HTTPException):
 
 
 def snapshot(record: Any) -> dict[str, Any]:
-    """回调结构体指向临时原生内存，回调返回前复制；只做 JSON 所需转换。"""
+    """复制 VeighNa 回调字典，只做 JSON 所需转换；不保存可变的上游对象。"""
     result = {}
-    for key, value in record.to_dict().items():
+    for key, value in record.items():
         if key.startswith("reserve"):
             continue
         if isinstance(value, bytes):
@@ -115,8 +115,8 @@ class CtpCallbacks:
                 )
 
     def on_instrument_status(self, data: Any) -> None:
-        """公共流按品种推送；复制原生内存，仅保留当前连接的最新通知。"""
-        if data is not None:
+        """公共流按品种推送；复制回调字典，仅保留当前连接的最新通知。"""
+        if data:
             self.status_snapshot.update(snapshot(data))
 
     def _reject(self, pending: Pending, info: dict[str, Any]) -> None:
@@ -159,7 +159,8 @@ class CtpCallbacks:
             # OnRspOrder* 无错误不代表交易所确认，仍等待 OnRtnOrder。
             if pending.write or method == "OnRspError":
                 return
-            if data is not None:
+            # VeighNa 用空字典表示 CTP 空指针，查询末包不能产生空记录。
+            if data:
                 pending.rows.append(snapshot(data))
             if last:
                 pending.event.set()

@@ -36,7 +36,11 @@ OpenAPI     http://127.0.0.1:5123/openapi.json
 
 CTP 使用可选依赖：`uv sync --locked --extra ctp`，启动时使用 `uv run --no-sync uvicorn src.main:app --host 127.0.0.1 --port 5123`（或 `just serve-ctp`）。在 `config.toml` 中填写 `[ctp.test]`（SimNow 等模拟盘）和/或 `[ctp.live]`（实盘），通过 `mode=sandbox/live` 选择。Docker 镜像默认安装 CTP。市价与限价路由分开，查询返回详细 CTP 原生字段；配置、返回语义和示例见 [CTP 交易薄转发](docs/ctp/01_design.md)。
 
-CTP extra 固定安装项目内的 `ctpwrapper==6.7.13+ccxtproxy.1` 源码包，包含原生释放时的 GIL 死锁修复；本地与 Docker 使用相同依赖。补丁和重建方式见 [依赖补丁说明](vendor/ctpwrapper/README.md)。
+CTP extra 使用 VeighNa 官方 `vnpy_ctp` 源码构建的固定补丁版本，只编译、安装和加载交易扩展，不安装 `vnpy`、Qt 或 CTP 行情二进制。账户配置继续使用原来的 `[ctp.test]`、`[ctp.live]` 和服务白名单。补丁修复退出线程等待、积压回调内存释放和中文回报解码；原生交易库保持上游原样。本地与 Docker 使用相同依赖，来源和重建方式见 [依赖说明](vendor/vnpy_ctp/README.md)。
+
+执行 `just update-ctp` 可跟随 VeighNa 官方最新稳定版升级，也可用 `just update-ctp 6.7.11.4` 指定版本：校验官方源码、应用补丁、核对 HTTP 回报字段、更新锁文件、安装并运行离线回归。上游结构或字段变化时会停止并要求适配。升级通过后再构建新镜像；后台进程使用镜像中锁定的版本。
+
+期货公司穿透式采集联调使用 [script/ctp_assessment.py](script/ctp_assessment.py)：`just ctp-assessment`。直接复用项目默认配置 `config.toml`（或 `CCXT_PROXY_CONFIG_PATH` 指定的文件），默认读取其中的 `ctp.test`；传 `--mode live` 则读取 `ctp.live`。仅连接、认证和登录，生成脱敏报告供期货公司核对；评测的 `production_mode=false` 与 SimNow 的 `true` 要区分。最新 VeighNa 方式、配置示例和 Podman 用法见 [采集联调说明](docs/ctp/02_assessment.md)。
 
 当前交易状态可查询 `GET /tq/fetch_trading_status?symbol=SHFE.rb2610`（需要 TQ 交易状态权限）或 `GET /ctp/fetch_trading_status?exchange_id=SHFE&product_id=rb`（默认模拟盘 `sandbox`）。两条状态路由直接读取最新快照，不等待网络或其他 SDK 查询；TQ 新合约首次登记后台订阅并先返回未知。两者均返回 `is_open/raw_status/reason`：仅连续交易为 true，明确的其他阶段为 false，断线、超时或未收到状态为 null；CTP 还返回完整原生通知。参数及类型见 `/docs`，Bruno 已提供对应示例。
 

@@ -80,7 +80,7 @@ OPENAPI_TAGS = [
     {"name": "Auth", "description": "OAuth2 Password Grant 与 Bearer JWT。"},
     {
         "name": "CTP TRADING",
-        "description": "ctpwrapper 中国期货交易薄转发；支持 sandbox 模拟盘和 live 实盘，行情继续使用 TQ。",
+        "description": "VeighNa CTP 中国期货交易薄转发；支持 sandbox 模拟盘和 live 实盘，行情继续使用 TQ。",
     },
     {
         "name": "CCXT PROXY",

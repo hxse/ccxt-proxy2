@@ -1,12 +1,12 @@
 # CTP 交易薄转发
 
-> **Status: Implemented.** 使用 ctpwrapper `6.7.13+ccxtproxy.1` 释放补丁版本；行情和价格继续由 TQ 提供，CCXT 路径独立。
+> **Status: Implemented.** 使用 VeighNa `vnpy_ctp 6.7.11.4+ccxtproxy.2` 的交易扩展；行情和价格继续由 TQ 提供，CCXT 路径独立。
 
 ## 安装与配置
 
-CTP 是可选原生依赖，支持上游提供的 Linux/Windows x86-64 平台。Linux 从源码构建需要 C++ 编译器，运行需要 libstdc++。项目 Docker 镜像已包含构建工具、运行库和 CTP extra。
+CTP 是可选原生依赖，使用上游提供的 Linux/Windows x86-64 SDK。源码构建需要 C++ 编译器，Linux 运行需要 libstdc++。项目 Docker 的构建阶段安装编译工具，运行镜像只保留依赖和应用代码。项目仅构建、安装和加载交易扩展，不安装 vnpy 框架、Qt 或行情扩展。
 
-依赖固定到项目内的补丁源码包，修复上游 Release 持有 GIL 等待回调线程导致的死锁。本地和 Docker 使用相同版本；安装旧版时 CTP 接口返回 `CTP_SDK_UNAVAILABLE` 并提示同步依赖。补丁、来源校验及重建说明见 [vendor/ctpwrapper](../../vendor/ctpwrapper/README.md)。
+依赖固定到项目内的补丁源码包，修复退出时持有 GIL 等待回调线程导致的死锁、积压回调的内存泄漏，以及精简系统上的中文解码。本地和 Docker 使用相同版本；安装未包含这些修复的版本时 CTP 接口返回 `CTP_SDK_UNAVAILABLE` 并提示同步依赖。补丁、来源校验及重建说明见 [vendor/vnpy_ctp](../../vendor/vnpy_ctp/README.md)。
 
 ```bash
 uv sync --locked --extra ctp
@@ -79,7 +79,7 @@ GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
 
 默认 `mode=sandbox`，状态仅代表对应的 SimNow/仿真前置；判断实盘环境应显式传 `mode=live` 并配置 `[ctp.live]`。
 
-CTP 的 [上游手册](https://github.com/nooperpudd/ctpwrapper/blob/master/doc/ctp/6.7.0.chm)说明状态按品种推送，所以请求用 `product_id=rb`，直接匹配通知的 InstrumentID。区分大小写，不把 rb2610 自动转换为 rb，也不回退其他交易所或模式。未推送的品种返回未知。
+状态按品种查询：请求用 `product_id=rb`，直接匹配通知的 InstrumentID。区分大小写，不把 rb2610 自动转换为 rb，也不回退其他交易所或模式。未推送的品种返回未知。原生回调字段见当前依赖源码中的 `CThostFtdcInstrumentStatusField`。
 
 ```json
 {
@@ -202,10 +202,10 @@ just test-ctp-offline
 just bru-ctp-readonly
 ```
 
-默认测试使用假前置，检查参数映射、隔离、回调关联、错误、超时、重连、释放及 OpenAPI。安装 CTP extra 后另在子进程验证原生 Init/Release、结构体字段覆盖，并使用本机临时 TCP 假前置重现断线回调与释放并发。子进程带硬超时，不连接模拟盘/实盘、不发送交易请求。
+默认测试使用假前置，检查参数映射、隔离、回调关联、错误、超时、重连、释放及 OpenAPI。安装 CTP extra 后另在子进程验证原生 init/exit，并使用本机临时 TCP 假前置重现断线回调与释放并发。源码检查覆盖结构体字段、中文解码和回调队列的内存释放。子进程带硬超时，不连接模拟盘/实盘、不发送交易请求。
 
 Bruno 的 `CTP TRADING` 文件夹提供请求样例。下单和撤单标记为 `[STATEFUL]`，需手动选择执行；只读 recipe 不包含交易写操作，服务启动时已经登录及确认结算。
 
 尚需使用实际 SimNow 账户完成登录、下单、撤单与查询验收；离线替身通过不代表真实前置已连通。实盘前置的账号权限及认证信息由期货公司提供。
 
-上游 6.7.13 的 `SubscribePrivateTopic` Python 签名要求两个参数，示例中的单参数写法不适用。原生对象必须经过 Init 后再 Release，退出时不得持有回调锁；固定补丁在 Cython 层释放 GIL 后才等待原生线程结束，并安全处理重复释放。这些 SDK 细节封装在私有 session/SPI 中，路由不感知。
+VeighNa 的 `subscribePrivateTopic` 接收单个重传模式参数，项目使用 QUICK（2）。原生对象经过 init 后再 exit；退出时不得持有回调锁，补丁在 pybind11 调用边界释放 GIL，并清理队列内尚未处理的数据。session 保证重复关闭不会再次调用原生 exit。这些 SDK 细节封装在私有 session/SPI 中，路由不感知。

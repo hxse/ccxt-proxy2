@@ -39,7 +39,7 @@ with TestClient(app) as client:
     assert client.get("/readyz").json() == {"status": "ready", "initialized": []}
     assert client.post("/auth/token", data={"username":"bruno", "password":"before"}).status_code == 200
     assert client.post("/auth/token", data={"username":"bruno", "password":"after"}).status_code == 401
-    assert "tqsdk" not in sys.modules and "ctpwrapper" not in sys.modules
+    assert "tqsdk" not in sys.modules and "vnpy_ctp" not in sys.modules and "_ccxt_proxy_ctp.vnctptd" not in sys.modules
 print("startup snapshot and disabled HTTP verified")
 """,
         ],

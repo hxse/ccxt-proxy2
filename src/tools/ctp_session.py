@@ -12,7 +12,7 @@ from src.tools.config_types import CtpAccountConfig, CtpConfig
 from src.tools.ctp_callbacks import CtpCallbacks, CtpError, Pending
 from src.tools.ctp_spi import create_api
 
-ApiFactory = Callable[[CtpCallbacks], tuple[Any, Any]]
+ApiFactory = Callable[[CtpCallbacks], Any]
 SESSION_METHODS = {"ReqAuthenticate", "ReqUserLogin", "ReqSettlementInfoConfirm"}
 
 
@@ -33,7 +33,6 @@ class CtpSession:
         self._order_ref = 0
         self._next_query_at = 0.0
         self.api: Any = None
-        self.structs: Any = None
         self._created = False
         self._init_called = False
         try:
@@ -42,15 +41,16 @@ class CtpSession:
             # 原生库无法正常打开 flow 文件时可能退出进程，先检查目录可写。
             with TemporaryFile(dir=path):
                 pass
-            self.api, self.structs = factory(self.callbacks)
-            self.api.Create(str(path.resolve()) + "/", account.production_mode)
+            self.api = factory(self.callbacks)
+            self.api.createFtdcTraderApi(
+                str(path.resolve()) + "/", account.production_mode
+            )
             self._created = True
-            self.api.RegisterFront(account.trader_front)
-            # 6.7.13 Python 层要求 nSeqNo；QUICK 模式传 0。
-            self.api.SubscribePrivateTopic(2, 0)
-            self.api.SubscribePublicTopic(2)
+            self.api.registerFront(account.trader_front)
+            self.api.subscribePrivateTopic(2)  # QUICK 模式。
+            self.api.subscribePublicTopic(2)
             self._init_called = True
-            self.api.Init()
+            self.api.init()
         except Exception as exc:
             self.close()
             if isinstance(exc, CtpError):
@@ -88,7 +88,6 @@ class CtpSession:
             if self.account.app_id and self.account.auth_code:
                 self.request(
                     "ReqAuthenticate",
-                    "ReqAuthenticateField",
                     {
                         **auth,
                         "AppID": self.account.app_id,
@@ -97,7 +96,6 @@ class CtpSession:
                 )
             _, rows = self.request(
                 "ReqUserLogin",
-                "ReqUserLoginField",
                 {**auth, "Password": self.account.password.get_secret_value()},
             )
             if (
@@ -114,7 +112,6 @@ class CtpSession:
             )
             self.request(
                 "ReqSettlementInfoConfirm",
-                "SettlementInfoConfirmField",
                 self.credentials,
             )
             with state.lock:
@@ -138,7 +135,6 @@ class CtpSession:
     def request(
         self,
         method: str,
-        structure: str,
         fields: dict[str, Any],
         identity: dict[str, Any] | None = None,
     ) -> tuple[int, list[dict[str, Any]]]:
@@ -170,11 +166,12 @@ class CtpSession:
                 native_fields["RequestID"] = pending.request_id
                 if method == "ReqOrderAction":
                     native_fields["OrderActionRef"] = pending.request_id
-            native = getattr(self.structs, structure)(**native_fields)
             state.pending = pending
             try:
                 # 回调可能先于 Req* 返回，先登记请求再发送。
-                result = getattr(self.api, method)(native, pending.request_id)
+                result = getattr(self.api, method[0].lower() + method[1:])(
+                    native_fields, pending.request_id
+                )
             except Exception as exc:
                 self.needs_reset = True
                 error = state.error(
@@ -215,10 +212,10 @@ class CtpSession:
     def close(self) -> None:
         self.callbacks.close()
         api, self.api = self.api, None
-        if api is not None:
-            # 原生 API 在 Create 后、Init 前 Release 会崩溃。初始化失败时也需先启动线程再释放。
-            if self._created and not self._init_called:
+        if api is not None and self._created:
+            # CTP 在创建后、init 前释放会崩溃。初始化失败时也需先启动线程再退出。
+            if not self._init_called:
                 self._init_called = True
-                api.Init()
-            # Release 可能等待原生线程结束，不能持有 callback lock。
-            api.Release()
+                api.init()
+            # exit 清理积压回调并等待工作线程结束，不能持有 callback lock。
+            api.exit()

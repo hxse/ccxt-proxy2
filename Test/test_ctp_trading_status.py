@@ -42,7 +42,7 @@ def test_ctp_status_mapping_retains_full_native_notification(status_client, raw)
     api = factory.apis[0]
     native = status_record(raw)
     api.callbacks.on_instrument_status(native)
-    native.values["EnterTime"] = "00:00:00"  # 原生内存生命周期结束后不能影响快照。
+    native["EnterTime"] = "00:00:00"  # 原生内存生命周期结束后不能影响快照。
     result = client.fetch_trading_status(request())
 
     assert result.raw_status == (raw or None)

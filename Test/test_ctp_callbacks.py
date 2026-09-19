@@ -43,7 +43,7 @@ def test_copy_native_memory_ignore_wrong_request_and_wait_for_last(service):
             api.callbacks.on_response("ReqQryTrade", row, None, rid, True)
             api.callbacks.on_response("ReqQryOrder", row, None, rid, False)
             assert not api.callbacks.pending.event.is_set()
-            row.values["LimitPrice"] = 9999
+            row["LimitPrice"] = 9999
             api.callbacks.on_response("ReqQryOrder", None, None, rid, True)
             return 0
 
@@ -92,19 +92,19 @@ def test_all_insert_rejection_channels_are_reported_without_retry(service, chann
                 api.callbacks.on_response("ReqOrderInsert", data, error, rid, True)
             elif channel.startswith("error"):
                 if channel == "error_without_request_id":
-                    data.values["RequestID"] = 0
+                    data["RequestID"] = 0
                 api.callbacks.on_error_return("ReqOrderInsert", data, error)
             elif channel == "generic":
                 api.callbacks.on_response("OnRspError", None, error, rid, True)
             else:
                 api.callbacks.on_order(
                     Record(
-                        BrokerID=data.values["BrokerID"],
-                        InvestorID=data.values["InvestorID"],
+                        BrokerID=data["BrokerID"],
+                        InvestorID=data["InvestorID"],
                         InstrumentID="rb2610",
                         FrontID=7,
                         SessionID=9,
-                        OrderRef=data.values["OrderRef"],
+                        OrderRef=data["OrderRef"],
                         OrderStatus="5",
                         OrderSubmitStatus="4",
                         StatusMsg="拒单",
@@ -202,13 +202,13 @@ def test_unrelated_and_initial_submitted_order_notifications_are_ignored(service
     def setup(api):
         def respond(data, rid):
             fields = {
-                "BrokerID": data.values["BrokerID"],
-                "InvestorID": data.values["InvestorID"],
+                "BrokerID": data["BrokerID"],
+                "InvestorID": data["InvestorID"],
                 "InstrumentID": "rb2610",
                 "ExchangeID": "SHFE",
                 "FrontID": 7,
                 "SessionID": 9,
-                "OrderRef": data.values["OrderRef"],
+                "OrderRef": data["OrderRef"],
             }
             api.callbacks.on_order(
                 record(

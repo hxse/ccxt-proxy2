@@ -1,0 +1,154 @@
+--- a/vnpy_ctp/api/vnctp/vnctptd/vnctptd.cpp
++++ b/vnpy_ctp/api/vnctp/vnctptd/vnctptd.cpp
+@@ -14733,7 +14733,7 @@
+         .def("release", &TdApi::release)
+         .def("init", &TdApi::init)
+         .def("join", &TdApi::join)
+-        .def("exit", &TdApi::exit)
++        .def("exit", &TdApi::exit, call_guard<gil_scoped_release>())
+         .def("getTradingDay", &TdApi::getTradingDay)
+ 		.def("getApiVersion", &TdApi::getApiVersion)
+ 		.def("getFrontInfo", &TdApi::getFrontInfo)
+--- a/vnpy_ctp/api/vnctp/vnctptd/vnctptd.h
++++ b/vnpy_ctp/api/vnctp/vnctptd/vnctptd.h
+@@ -187,7 +187,7 @@
+ 	CThostFtdcTraderApi* api;            //API对象
+     thread task_thread;                    //工作线程指针（向python中推送数据）
+     TaskQueue task_queue;                //任务队列
+-    bool active = false;                //工作状态
++    atomic<bool> active{false};                //工作状态
+ 
+ public:
+     TdApi()
+--- a/vnpy_ctp/api/vnctp/vnctp.h
++++ b/vnpy_ctp/api/vnctp/vnctp.h
+@@ -1,3 +1,5 @@
++#include <atomic>
++#include <memory>
+ #include <string>
+ #include <queue>
+ #include <thread>
+@@ -22,8 +24,8 @@
+ struct Task
+ {
+     int task_name;		//回调函数名称对应的常数
+-    void *task_data;	//任务指针
+-    void *task_error;	//错误指针
++    shared_ptr<void> task_data;	//任务指针
++    shared_ptr<void> task_error;	//错误指针
+     int task_id;		//任务id
+     bool task_last;		//是否为最后返回
+ };
+@@ -46,6 +48,8 @@
+     void push(const Task &task)
+     {
+         unique_lock<mutex > mlock(mutex_);
++        if (_terminate)
++            return;
+         queue_.push(task);					//存入任务后写入队列
+         mlock.unlock();						//释放锁
+         cond_.notify_one();					//通知正在等待的线程
+@@ -67,7 +71,12 @@
+ 
+     void terminate()
+     {
+-        _terminate = true;
++        queue<Task> discarded;
++        {
++            unique_lock<mutex> mlock(mutex_);
++            _terminate = true;
++            discarded.swap(queue_);
++        }
+         cond_.notify_all();					//通知正在等待的线程
+     }
+ };
+@@ -127,29 +136,13 @@
+ #ifndef __APPLE__
+ inline string toUtf(const string &gb2312)
+ {
+-
+-    #ifdef _MSC_VER
+-        const static locale loc("zh-CN");
+-    #else
+-        const static locale loc("zh_CN.GB18030");
+-    #endif
+-
+-        vector<wchar_t> wstr(gb2312.size());
+-        wchar_t* wstrEnd = nullptr;
+-        const char* gbEnd = nullptr;
+-        mbstate_t state = {};
+-        int res = use_facet<codecvt<wchar_t, char, mbstate_t> >
+-            (loc).in(state,
+-                gb2312.data(), gb2312.data() + gb2312.size(), gbEnd,
+-                wstr.data(), wstr.data() + wstr.size(), wstrEnd);
+-
+-        if (codecvt_base::ok == res)
+-        {
+-            wstring_convert<codecvt_utf8<wchar_t>> cutf8;
+-            return cutf8.to_bytes(wstring(wstr.data(), wstrEnd));
+-        }
+-
+-        return string();
++    // Callers hold the GIL. Decode without requiring an OS GB18030 locale.
++    PyObject *decoded = PyUnicode_Decode(
++        gb2312.data(), gb2312.size(), "gb18030", "replace"
++    );
++    if (!decoded)
++        throw error_already_set();
++    return reinterpret_steal<str>(decoded).cast<string>();
+ }
+ #else
+ iconv_t cd = iconv_open("UTF-8", "GB2312");
+--- a/meson.build
++++ b/meson.build
+@@ -140,23 +140,6 @@
+                                        dirs: [lib_dir],
+                                        required: true)
+ endif
+-
+-# 创建MD模块扩展
+-md_module = py.extension_module(
+-  'vnctpmd',
+-  sources: ['vnpy_ctp/api/vnctp/vnctpmd/vnctpmd.cpp'],
+-  include_directories: include_dirs,
+-  dependencies: [py_dep],
+-  cpp_args: extra_cpp_args,
+-  link_args: extra_link_args + [
+-    '-L' + lib_dir,
+-    '-lthostmduserapi_se',
+-    '-Wl,-rpath,$ORIGIN'
+-  ],
+-  install: true,
+-  install_rpath: '$ORIGIN',
+-  subdir: 'vnpy_ctp/api'
+-)
+ 
+ # 创建TD模块扩展
+ td_module = py.extension_module(
+@@ -195,7 +178,6 @@
+ # 安装API动态库文件
+ if host_machine.system() == 'windows'
+   api_libs = [
+-    'vnpy_ctp/api/thostmduserapi_se.dll',
+     'vnpy_ctp/api/thosttraderapi_se.dll',
+   ]
+   
+@@ -205,10 +187,6 @@
+   )
+ elif host_machine.system() == 'darwin'
+   # 安装Mac Framework文件夹
+-  install_subdir(
+-    'vnpy_ctp/api/thostmduserapi_se.framework',
+-    install_dir: py.get_install_dir() / 'vnpy_ctp/api'
+-  )
+   
+   install_subdir(
+     'vnpy_ctp/api/thosttraderapi_se.framework',
+@@ -216,7 +194,6 @@
+   )
+ else  # Linux
+   api_libs = [
+-    'vnpy_ctp/api/libthostmduserapi_se.so',
+     'vnpy_ctp/api/libthosttraderapi_se.so',
+   ]
+   

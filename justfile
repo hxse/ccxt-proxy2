@@ -34,6 +34,21 @@ serve host="127.0.0.1" port="5123":
 serve-ctp host="127.0.0.1" port="5123":
     uv run --extra ctp uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
 
+# 期货公司采集联调；默认 ctp.test，密钥模式沿用 TOML，不发报撤单
+ctp-assessment *args:
+    uv run --no-sync python script/ctp_assessment.py {{args}}
+
+# 跟随 VeighNa 官方稳定版升级交易 API；校验来源、重建补丁、锁定版本并跑离线回归
+update-ctp version="latest":
+    uv run --no-sync python scripts/build_vnpy_ctp_source.py --upgrade "{{version}}"
+    uv lock --upgrade-package vnpy-ctp
+    uv sync --locked --extra ctp
+    CCXT_PROXY_CONFIG_PATH=Test/fixtures/config.toml uv run --no-sync python -m pytest -q
+
+# 从本地官方源码包验证可重复构建，不修改依赖或配置
+verify-ctp-source archive:
+    uv run --no-sync python scripts/build_vnpy_ctp_source.py --source "{{archive}}" --check
+
 # 1. 通过 CcxtClient 清理已启用的 Binance/Kraken Futures sandbox
 cleanup:
     just debug cleanup

@@ -1,7 +1,7 @@
-"""ctpwrapper 6.7.13 原生字段的 HTTP 类型；省略 reserve* 无效字段。
+"""VeighNa CTP 原生字段的 HTTP 类型；省略 reserve* 无效字段。
 
-字段依据上游 ApiStructure.py，价格/金额的 CTP 无效 double 序列化为 null。
-https://github.com/nooperpudd/ctpwrapper/blob/master/ctpwrapper/ApiStructure.py
+字段依据上游 vnctptd.cpp 的字典回报，价格/金额的 CTP 无效 double 序列化为 null。
+https://github.com/vnpy/vnpy_ctp/blob/main/vnpy_ctp/api/vnctp/vnctptd/vnctptd.cpp
 """
 
 from pydantic import BaseModel, ConfigDict, Field

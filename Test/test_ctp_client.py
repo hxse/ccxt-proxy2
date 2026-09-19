@@ -75,6 +75,30 @@ def test_unconfigured_mode_never_falls_back_to_other_account(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("stage", "released"), [("createFtdcTraderApi", 0), ("registerFront", 1)]
+)
+def test_initialization_failure_only_closes_a_created_native_api(
+    tmp_path, stage, released
+):
+    factory = FakeFactory()
+
+    def fail(*args):
+        raise RuntimeError("initialization failed")
+
+    factory.setup = lambda api: setattr(api, stage, fail)
+    manager = CtpManager(ctp_config(tmp_path), factory)
+    try:
+        with pytest.raises(CtpError) as error:
+            manager.get_client("sandbox").initialize()
+        assert error.value.detail["code"] == "CTP_SDK_UNAVAILABLE"
+        assert factory.apis[0].released == released
+        assert factory.apis[0].initialized == bool(released)
+        assert factory.apis[0].requests == []
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize(
     ("side", "offset", "direction", "flag"),
     [
         ("buy", "open", "0", "0"),
