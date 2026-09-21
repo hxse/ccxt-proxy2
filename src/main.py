@@ -20,6 +20,8 @@ from src.responses_system import (  # noqa: E402
     ReadyResponse,
 )
 from src.router.auth_handler import auth_router  # noqa: E402
+from src.router.cfb_docs import install_cfb_openapi  # noqa: E402
+from src.router.cfb_router import cfb_router  # noqa: E402
 from src.router.ctp_router import ctp_router  # noqa: E402
 from src.router.file_handler import file_router  # noqa: E402
 from src.router.system_router import system_router  # noqa: E402
@@ -31,6 +33,7 @@ from src.tools.shared import app  # noqa: E402
 app.include_router(auth_router)
 app.include_router(ccxt_router)
 app.include_router(ctp_router)
+app.include_router(cfb_router)
 app.include_router(file_router)
 app.include_router(tq_router)
 app.include_router(telegram_router)
@@ -79,11 +82,12 @@ def healthz():
     tags=["Health"],
     summary="服务就绪检查",
     description=(
-        "检查 service_whitelist 中的 CCXT、TQ、CTP 实例是否全部完成启动初始化。"
+        "检查 service_whitelist 中的 CCXT、TQ、CTP、CFB 实例是否全部完成启动初始化。"
+        "CFB 初始化仅创建 HTTP 客户端，不代表上游终端已登录或交易就绪。"
         "任一实例初始化失败则释放资源并退出；配置只在进程启动时读取。"
         "这是启动就绪检查，不会发起实时网络探测。"
     ),
-    response_description="当前启动就绪状态，以及 ccxt/交易所/市场/模式、tq、ctp/模式形式的实例列表。",
+    response_description="当前启动就绪状态，以及 ccxt/交易所/市场/模式、tq、ctp/模式、cfb 形式的实例列表。",
     responses={
         503: {
             "model": NotReadyResponse,
@@ -128,3 +132,6 @@ async def scalar_html():
         # Avoid CORS issues (optional)
         # scalar_proxy_url="https://proxy.scalar.com",
     )
+
+
+install_cfb_openapi(app)

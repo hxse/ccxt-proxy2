@@ -1,0 +1,37 @@
+meta {
+  name: cancel_order [STATEFUL]
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/cfb/cancel_order
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  ~Idempotency-Key: replace-with-request-key
+}
+
+body:json {
+  {
+    "mode": "sandbox",
+    "exchange_id": "SHFE",
+    "instrument_id": "rb2610",
+    "by": "exchange_order",
+    "order_sys_id": "REPLACE_ORDER_SYS_ID",
+    "invest_unit_id": ""
+  }
+}
+
+assert {
+  res.status: eq 202
+}
+
+docs {
+  通过 ccxt-proxy2 的 Bearer 鉴权转发到服务端配置的 CFB；默认 mode=sandbox，可按上游配置修改为 live。
+  本请求有交易副作用，请替换合约、价格或订单标识后按需单独执行。可选 Idempotency-Key 默认关闭，启用时由调用方填写。
+  上游能力与当前状态决定是否返回 202；不支持的功能可能返回 501。代理原样返回结果，不自动重试。
+}

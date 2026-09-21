@@ -2,6 +2,7 @@ import re
 from typing import Annotated, Literal
 
 from pydantic import (
+    AnyHttpUrl,
     BaseModel,
     ConfigDict,
     Field,
@@ -107,6 +108,24 @@ class CtpConfig(BaseModel):
     query_interval_seconds: float = Field(1.1, ge=1, le=60, allow_inf_nan=False)
 
 
+class CfbConfig(BaseModel):
+    """CFB HTTP 服务地址；账户及模拟盘/实盘能力由上游维护。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:45173")
+    request_timeout_seconds: float = Field(300, gt=0, allow_inf_nan=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        if value.username or value.password or value.query or value.fragment:
+            raise ValueError(
+                "cfb.base_url must not contain credentials, query or fragment"
+            )
+        return value
+
+
 class OhlcvCacheConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -183,8 +202,18 @@ class CtpServiceConfig(BaseModel):
         return f"ctp/{self.mode}"
 
 
+class CfbServiceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: Literal["cfb"]
+
+    @property
+    def identity(self) -> str:
+        return "cfb"
+
+
 ServiceWhitelistItem = Annotated[
-    CcxtServiceConfig | TqServiceConfig | CtpServiceConfig,
+    CcxtServiceConfig | TqServiceConfig | CtpServiceConfig | CfbServiceConfig,
     Field(discriminator="service"),
 ]
 
@@ -199,6 +228,7 @@ class AppConfig(BaseModel):
     kraken: ExchangeConfig | None = None
     tq: TqConfig | None = None
     ctp: CtpConfig | None = None
+    cfb: CfbConfig | None = None
     ohlcv_cache: OhlcvCacheConfig = Field(default_factory=OhlcvCacheConfig)
     telegram: TelegramConfig | None = None
     service_whitelist: list[ServiceWhitelistItem] = Field(default_factory=list)
@@ -211,6 +241,12 @@ class AppConfig(BaseModel):
             if identity in seen_identities:
                 raise ValueError("duplicate service_whitelist identity: " + identity)
             seen_identities.add(identity)
+            if item.service == "cfb":
+                if self.cfb is None:
+                    raise ValueError(
+                        "missing cfb config referenced by service_whitelist"
+                    )
+                continue
             if item.service == "tq":
                 if self.tq is None:
                     raise ValueError(

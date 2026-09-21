@@ -31,7 +31,13 @@ class ServiceRuntime:
             )
 
     def start(
-        self, ccxt: Any, tq: Any, ctp: Any, *, stop: Event | None = None
+        self,
+        ccxt: Any,
+        tq: Any,
+        ctp: Any,
+        cfb: Any = None,
+        *,
+        stop: Event | None = None,
     ) -> None:
         if self.ready:
             return
@@ -42,6 +48,13 @@ class ServiceRuntime:
                 # 取消不能中断正在运行的 SDK；只停止后续初始化，清理需等待本方法结束。
                 if stop is not None and stop.is_set():
                     return
+                if item.service == "cfb":
+                    # AsyncClient 只在这里创建；异步关闭交给应用 lifespan 的事件循环。
+                    logger.bind(service=item.identity).info("initializing service")
+                    cfb.initialize(self._config.cfb)
+                    self.initialized.append(item.identity)
+                    logger.bind(service=item.identity).info("service initialized")
+                    continue
                 # 先登记清理，即使本次初始化只成功了一部分也必须释放。
                 self._closers.setdefault(item.service, managers[item.service].close)
                 logger.bind(service=item.identity).info("initializing service")

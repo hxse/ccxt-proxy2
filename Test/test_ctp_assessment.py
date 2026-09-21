@@ -1,215 +1,73 @@
-"""联调脚本离线验证：只使用假 API，不连接账户、不调用原生采集。"""
+"""完整 VeighNa 联调入口的离线验证；GUI/网关替身不会连接账户。"""
 
-import io
-import json
+import argparse
 import os
+import shutil
 import stat
 import subprocess
 import sys
-from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from script import ctp_assessment as assessment
+from src.tools.config_loader import ConfigError
 from src.tools.config_types import CtpAccountConfig
 
 PASSWORD = "offline-password"
 AUTH_CODE = "offline-authcode"
 ACCOUNT = "123456789"
-LOGIN = {
-    "FrontID": 1,
-    "SessionID": 2,
-    "TradingDay": "20260918",
-    "LoginTime": "21:01:02",
-}
 
 
-def fake_api(*, failure=None, return_code=0):
-    calls = []
-
-    class Api:
-        onFrontConnected: Callable[[], None]
-        onFrontDisconnected: Callable[[int], None]
-        onRspAuthenticate: Callable[[dict, dict, int, bool], None]
-        onRspUserLogin: Callable[[dict, dict, int, bool], None]
-        onRspError: Callable[[dict, int, bool], None]
-
-        def createFtdcTraderApi(self, path, production_mode):
-            calls.append(("create", path, production_mode))
-
-        def registerFront(self, front):
-            calls.append(("front", front))
-
-        def getApiVersion(self):
-            return "offline-api-version"
-
-        def init(self):
-            calls.append(("init",))
-            if failure != "connect_timeout":
-                self.onFrontConnected()
-
-        def reqAuthenticate(self, fields, request_id):
-            calls.append(("auth", fields, request_id))
-            if failure == "authenticate":
-                self.onRspAuthenticate(
-                    {},
-                    {
-                        "ErrorID": 63,
-                        "ErrorMsg": f"认证失败 {PASSWORD} {AUTH_CODE} {ACCOUNT}",
-                    },
-                    request_id,
-                    True,
-                )
-                self.onFrontConnected()  # 断言脚本不随重连再次认证。
-            elif failure == "disconnect":
-                self.onFrontDisconnected(4097)
-            elif failure != "auth_timeout":
-                # 错误的 request ID 不应完成当前请求，也不应让当前请求失败。
-                self.onRspAuthenticate({}, {"ErrorID": 63}, 999, True)
-                self.onRspError({"ErrorID": 63}, 999, True)
-                self.onRspAuthenticate({}, {}, request_id, False)
-                self.onRspAuthenticate({}, {}, request_id, True)
-            return return_code
-
-        def reqUserLogin(self, fields, request_id):
-            calls.append(("login", fields, request_id))
-            if failure == "login":
-                self.onRspUserLogin(
-                    {}, {"ErrorID": 3, "ErrorMsg": "不合法的登录"}, request_id, True
-                )
-            elif failure == "rsp_error":
-                self.onRspError(
-                    {"ErrorID": 7, "ErrorMsg": "尚未初始化"}, request_id, True
-                )
-            elif failure == "empty_login":
-                self.onRspUserLogin({}, {}, request_id, True)
-            elif failure != "login_timeout":
-                self.onRspUserLogin(
-                    {**LOGIN, "UserID": ACCOUNT, "Password": PASSWORD},
-                    {},
-                    request_id,
-                    True,
-                )
-                if failure == "observe_disconnect":
-                    self.onFrontDisconnected(4097)
-            return 0
-
-        def exit(self):
-            calls.append(("exit",))
-
-    return Api, calls
-
-
-def make_probe():
-    stream = io.StringIO()
-    account = CtpAccountConfig(
+def account(production_mode=False, **fields):
+    return CtpAccountConfig(
         trader_front="tcp://assessment.invalid:12345",
         broker_id="9999",
         investor_id=ACCOUNT,
-        user_id="987654321",
         password=PASSWORD,
         app_id="test-client",
         auth_code=AUTH_CODE,
-        production_mode=False,
+        production_mode=production_mode,
+        **fields,
     )
-    return assessment.Probe(account, stream), stream
 
 
-def records(stream):
-    return [json.loads(line) for line in stream.getvalue().splitlines()]
-
-
-def test_probe_only_authenticates_and_logs_in_with_original_config(tmp_path, capsys):
-    probe, stream = make_probe()
-    api, calls = fake_api()
-    probe.run(api, tmp_path, 0.01, 0.01, 0)
-    assert [call[0] for call in calls] == [
-        "create",
-        "front",
-        "init",
-        "auth",
-        "login",
-        "exit",
-    ]
-    assert calls[0] == ("create", str(tmp_path.resolve()) + "/", False)
-    assert calls[3][1] == {
-        "BrokerID": "9999",
-        "UserID": "987654321",
-        "AppID": "test-client",
-        "AuthCode": AUTH_CODE,
+@pytest.mark.parametrize("production_mode", [False, True])
+def test_maps_toml_to_official_gateway_fields(production_mode):
+    assert assessment.gateway_setting(
+        account(production_mode), "tcp://md.invalid:12346"
+    ) == {
+        "用户名": ACCOUNT,
+        "密码": PASSWORD,
+        "经纪商代码": "9999",
+        "交易服务器": "tcp://assessment.invalid:12345",
+        "行情服务器": "tcp://md.invalid:12346",
+        "产品名称": "test-client",
+        "授权编码": AUTH_CODE,
+        "柜台环境": "实盘" if production_mode else "测试",
     }
-    assert calls[4][1] == {
-        "BrokerID": "9999",
-        "UserID": "987654321",
-        "Password": PASSWORD,
-    }
-    assert probe.login_ok is True
-    assert (
-        next(row for row in records(stream) if row["event"] == "login")["SessionID"]
-        == 2
-    )
-    output = stream.getvalue() + capsys.readouterr().out
-    assert all(
-        secret not in output for secret in (PASSWORD, AUTH_CODE, ACCOUNT, "987654321")
-    )
+
+
+def test_distinct_login_and_investor_ids_are_not_silently_reinterpreted():
+    with pytest.raises(ConfigError, match="user_id 与 investor_id 一致"):
+        assessment.gateway_setting(account(user_id="different-user"))
+    assert assessment.gateway_setting(account(user_id=ACCOUNT))["用户名"] == ACCOUNT
 
 
 @pytest.mark.parametrize(
-    "failure",
-    [
-        "authenticate",
-        "disconnect",
-        "connect_timeout",
-        "auth_timeout",
-        "login_timeout",
-        "login",
-        "rsp_error",
-        "empty_login",
-        "observe_disconnect",
-    ],
+    "value",
+    ["host:123", "tcp://host:0", "tcp://host:65536", "tcp://user:password@host:1"],
 )
-def test_failures_are_bounded_and_cleanup_without_retry(tmp_path, capsys, failure):
-    probe, stream = make_probe()
-    api, calls = fake_api(failure=failure)
-    with pytest.raises(assessment.ProbeError):
-        probe.run(api, tmp_path, 0.005, 0.005, 0)
-    assert calls[-1] == ("exit",)
-    assert sum(call[0] == "auth" for call in calls) <= 1
-    assert sum(call[0] == "login" for call in calls) <= 1
-    if failure in ("authenticate", "disconnect", "connect_timeout", "auth_timeout"):
-        assert not any(call[0] == "login" for call in calls)
-    assert probe.login_ok is (failure == "observe_disconnect")
-    output = stream.getvalue() + capsys.readouterr().out
-    assert all(secret not in output for secret in (PASSWORD, AUTH_CODE, ACCOUNT))
-    if failure == "authenticate":
-        assert "认证失败" in output and '"error_id": 63' in output
-    if failure in ("disconnect", "observe_disconnect"):
-        assert '"reason": 4097' in output
-
-
-def test_immediate_send_failure_is_not_mistaken_for_callback_success(tmp_path):
-    probe, stream = make_probe()
-    api, calls = fake_api(return_code=-2)
-    with pytest.raises(assessment.ProbeError, match="未成功发送"):
-        probe.run(api, tmp_path, 0.01, 0.01, 0)
-    assert not probe.login_ok
-    assert not any(call[0] == "login" for call in calls)
-    assert (
-        next(row for row in records(stream) if row["event"] == "request_sent")[
-            "return_code"
-        ]
-        == -2
-    )
+def test_rejects_invalid_optional_market_front(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        assessment.market_front(value)
 
 
 def write_config(tmp_path):
     path = tmp_path / "private.toml"
     path.write_text(
         f'''SECRET = "offline-assessment-secret"
-[ctp]
-connect_timeout_seconds = 0.01
-request_timeout_seconds = 0.01
 [ctp.test]
 trader_front = "tcp://assessment.invalid:12345"
 broker_id = "9999"
@@ -233,74 +91,210 @@ production_mode = true
 
 
 @pytest.mark.parametrize("mode", ["sandbox", "live"])
-@pytest.mark.parametrize(
-    "failure,exit_code", [(None, 0), ("authenticate", 1), ("observe_disconnect", 1)]
-)
-def test_cli_writes_private_report_with_unknown_collection_verdict(
-    tmp_path, monkeypatch, capsys, mode, failure, exit_code
+def test_default_config_is_loaded_once_and_runtime_is_private(
+    tmp_path, monkeypatch, capsys, mode
 ):
     config_path = write_config(tmp_path)
-    api, calls = fake_api(failure=failure)
-    monkeypatch.setattr(assessment, "load_td_api", lambda: api)
-    monkeypatch.setattr(assessment, "version", lambda name: "offline-vnpy-ctp")
-    output = tmp_path / "reports"
+    monkeypatch.setenv("CCXT_PROXY_CONFIG_PATH", str(config_path))
+    output = tmp_path / "gui-output"
+    previous_directory = Path.cwd()
+    calls = []
+
+    def gui(setting, selected_mode):
+        assert Path.cwd() == output / mode / "vnpy"
+        assert (Path.cwd() / ".vntrader").is_dir()
+        assert selected_mode == mode
+        assert setting["柜台环境"] == ("实盘" if mode == "live" else "测试")
+        assert setting["行情服务器"] == ""
+        assert setting["密码"] == PASSWORD
+        config_path.write_text("invalid TOML after startup")
+        # VeighNa 后续写配置和日志的权限受本进程 umask 限制。
+        report = Path.cwd() / ".vntrader" / "log.txt"
+        report.write_text("no credentials")
+        assert stat.S_IMODE(report.stat().st_mode) == 0o600
+        calls.append(setting)
+        return 0
+
+    monkeypatch.setattr(assessment, "launch_gui", gui)
+    assert assessment.main(["--mode", mode, "--output-dir", str(output)]) == 0
+    assert Path.cwd() == previous_directory
+    assert len(calls) == 1
+    assert stat.S_IMODE((output / mode / "vnpy").stat().st_mode) == 0o700
+    assert not list(output.rglob("connect_*.json"))
+    console = capsys.readouterr()
+    assert PASSWORD not in console.out + console.err
+
+
+def install_gui_fakes(monkeypatch, *, fail=False):
+    state = SimpleNamespace(closed=0, td_calls=[], full_calls=[], connects=[], apps=[])
+
+    class Gateway:
+        def __init__(self):
+            self.td_api = SimpleNamespace(
+                connect=lambda *values: state.td_calls.append(values)
+            )
+
+        def connect(self, setting):
+            state.full_calls.append(setting)
+
+        def init_query(self):
+            state.query_started = True
+
+    class Engine:
+        def __init__(self, event_engine):
+            state.engine = self
+
+        def add_gateway(self, cls):
+            state.gateway = cls()
+
+        def add_app(self, cls):
+            state.apps.append(cls)
+
+        def connect(self, setting, name):
+            state.connects.append((setting, name))
+            state.gateway.connect(setting)
+
+        def write_log(self, message):
+            pass
+
+        def close(self):
+            state.closed += 1
+
+    class Window:
+        def __init__(self, engine, event_engine):
+            state.window = self
+            self.main_engine = engine
+
+        def setWindowTitle(self, text):
+            state.title = text
+
+        def showMaximized(self):
+            assert state.connects == []  # 打开窗口本身不连接交易服务。
+
+    def event_loop():
+        if fail:
+            raise RuntimeError(PASSWORD)
+        state.window.connect_gateway("CTP")  # 模拟用户明确点击连接。
+        state.engine.close()  # 模拟标准 MainWindow 的退出清理。
+        return 0
+
+    settings = SimpleNamespace(
+        Format=SimpleNamespace(IniFormat=1),
+        Scope=SimpleNamespace(UserScope=1),
+        setDefaultFormat=lambda *args: None,
+        setPath=lambda *args: None,
+    )
+    exports = {
+        "vnpy": {},
+        "vnpy.trader": {},
+        "vnpy.event": {"EventEngine": object},
+        "vnpy.trader.engine": {"MainEngine": Engine},
+        "vnpy.trader.ui": {
+            "MainWindow": Window,
+            "QtCore": SimpleNamespace(QSettings=settings),
+            "create_qapp": lambda: SimpleNamespace(exec=event_loop),
+        },
+        "vnpy_ctp": {"CtpGateway": Gateway},
+        "vnpy_riskmanager": {"RiskManagerApp": object},
+    }
+    for name, attributes in exports.items():
+        module = ModuleType(name)
+        module.__dict__.update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+    return state
+
+
+@pytest.mark.parametrize("md_front", ["", "tcp://md.invalid:12346"])
+def test_full_engine_connects_on_click_and_closes_once(monkeypatch, md_front):
+    state = install_gui_fakes(monkeypatch)
+    setting = assessment.gateway_setting(account(), md_front)
+    assert assessment.launch_gui(setting, "sandbox") == 0
+    assert state.closed == 1
+    assert len(state.apps) == 1
+    assert state.connects == [(setting, "CTP")]
+    if md_front:
+        assert state.full_calls == [setting]
+        assert state.td_calls == []
+    else:
+        assert state.full_calls == []
+        assert state.td_calls == [
+            (
+                setting["交易服务器"],
+                ACCOUNT,
+                PASSWORD,
+                "9999",
+                AUTH_CODE,
+                "test-client",
+                False,
+            )
+        ]
+        assert state.query_started
+
+
+def test_gui_failure_closes_engine_and_hides_credentials(tmp_path, monkeypatch, capsys):
+    config = write_config(tmp_path)
+    state = install_gui_fakes(monkeypatch, fail=True)
     assert (
         assessment.main(
-            [
-                "--config",
-                str(config_path),
-                "--mode",
-                mode,
-                "--hold-seconds",
-                "0",
-                "--output-dir",
-                str(output),
-            ]
+            ["--config", str(config), "--output-dir", str(tmp_path / "gui")]
         )
-        == exit_code
+        == 1
     )
-    reports = list(output.glob("*/report.jsonl"))
-    assert len(reports) == 1
-    text = reports[0].read_text()
-    rows = [json.loads(line) for line in text.splitlines()]
-    assert rows[0]["mode"] == mode
-    assert rows[0]["production_mode"] is (mode == "live")
-    assert rows[0]["connect_timeout_seconds"] == 0.01
-    assert rows[-1]["collection_verified"] is None
-    assert rows[-1]["status"] == ("login_ok" if exit_code == 0 else "failed")
-    assert rows[-1]["login_ok"] is (failure != "authenticate")
-    assert stat.S_IMODE(reports[0].stat().st_mode) == 0o600
-    assert stat.S_IMODE(reports[0].parent.stat().st_mode) == 0o700
-    assert Path(calls[0][1]) == reports[0].parent / "flow"
-    console = capsys.readouterr()
-    assert all(
-        secret not in text + console.out + console.err
-        for secret in (PASSWORD, AUTH_CODE, ACCOUNT)
-    )
-
-
-def test_invalid_config_fails_before_loading_native_sdk(tmp_path, monkeypatch, capsys):
-    path = tmp_path / "invalid.toml"
-    path.write_text(f"password = '{PASSWORD}'\n")
-    monkeypatch.setattr(
-        assessment, "load_td_api", lambda: pytest.fail("must not load SDK")
-    )
-    assert assessment.main(["--config", str(path)]) == 2
+    assert state.closed == 1
     assert PASSWORD not in capsys.readouterr().err
 
 
-def test_cli_help_works_without_config_and_does_not_start_application(tmp_path):
-    script = Path(assessment.__file__).resolve()
-    command = "import runpy, sys; sys.argv = [sys.argv[1], '--help']; "
-    command += "\ntry: runpy.run_path(sys.argv[0], run_name='__main__')\nfinally:\n"
-    command += " assert not any(name in sys.modules for name in ('vnpy', 'vnpy_ctp', 'src.main', 'src.tools.shared', 'tqsdk', 'ccxt'))"
+def test_just_isolates_packages_and_preserves_script_arguments(tmp_path):
+    just = shutil.which("just")
+    if just is None or os.name != "posix":
+        pytest.skip("recipe check requires just and a POSIX shell")
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    capture = tmp_path / "arguments"
+    (tools / "nix").write_text("#!/bin/sh\nprintf '%s\\n' /tmp\n")
+    (tools / "uv").write_text(
+        '#!/bin/sh\nprintf \'%s\\0\' "$@" > "$CTP_TEST_CAPTURE"\n'
+    )
+    for path in tools.iterdir():
+        path.chmod(0o700)
     result = subprocess.run(
-        [sys.executable, "-c", command, str(script)],
-        cwd=tmp_path,
-        env={**os.environ, "CCXT_PROXY_CONFIG_PATH": str(tmp_path / "missing.toml")},
+        [just, "ctp-assessment", "--config", "path with spaces.toml", "--mode", "live"],
+        cwd=assessment.PROJECT_ROOT,
+        env={
+            **os.environ,
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+            "CTP_TEST_CAPTURE": str(capture),
+        },
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == 0, result.stderr
-    assert "--mode" in result.stdout and "production_mode" in result.stdout
+    argv = capture.read_bytes().decode().rstrip("\0").split("\0")
+    assert argv[:5] == ["run", "--no-project", "--no-config", "--isolated", "--python"]
+    assert all(
+        package in argv
+        for package in ("vnpy==4.4.0", "vnpy_ctp==6.7.11.4", "vnpy_riskmanager==2.0.0")
+    )
+    assert argv[-4:] == ["--config", "path with spaces.toml", "--mode", "live"]
+
+
+def test_cli_help_does_not_load_gui_or_backend(tmp_path):
+    script = Path(assessment.__file__).resolve()
+    command = """
+import runpy, sys
+sys.argv = [sys.argv[1], '--help']
+try:
+    runpy.run_path(sys.argv[0], run_name='__main__')
+finally:
+    assert not any(name in sys.modules for name in ('vnpy', 'vnpy_ctp', 'src.main', 'src.tools.ctp_native', 'src.tools.shared', 'tqsdk', 'ccxt'))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", command, str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--md-front" in result.stdout

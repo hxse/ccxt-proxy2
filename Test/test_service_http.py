@@ -31,6 +31,7 @@ with TestClient(app) as client:
     for route, params, identity in [
         ("/tq/fetch_trading_status", {"symbol":"SHFE.rb2610"}, "tq"),
         ("/ctp/fetch_trading_status", {"exchange_id":"SHFE", "product_id":"rb"}, "ctp/sandbox"),
+        ("/cfb/fetch_balance", {"mode":"live"}, "cfb"),
         ("/ccxt/fetch_balance", {"exchange_name":"binance", "market":"future", "mode":"sandbox"}, "ccxt/binance/future/sandbox"),
     ]:
         response = client.get(route, params=params, headers=headers)

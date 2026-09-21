@@ -31,6 +31,7 @@
 ## 其他能力
 
 - [CTP 模拟盘/实盘交易薄转发](ctp/01_design.md)
+- [CFB HTTP 薄转发与自动文档同步](cfb/01_proxy.md)
 - [TQ 路由与 lifecycle](tq_data_source/01_design.md)
 - [TQ Pandas 数据处理与测试](tq_data_source/02_data_processing_and_tests.md)
 - [Telegram 消息转发](telegram/01_design.md)

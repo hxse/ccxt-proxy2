@@ -34,9 +34,37 @@ serve host="127.0.0.1" port="5123":
 serve-ctp host="127.0.0.1" port="5123":
     uv run --extra ctp uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
 
-# 期货公司采集联调；默认 ctp.test，密钥模式沿用 TOML，不发报撤单
+# 直接从 CFB 自动文档同步固定八条路由的参数、响应与说明；之后重启代理
+[positional-arguments]
+sync-cfb-docs url="http://127.0.0.1:45173/openapi.json":
+    uv run --no-sync python scripts/sync_cfb_openapi.py "$1"
+
+# 临时安装完整 VeighNa Trader + 官方 CTP + 风控；默认使用 TOML 的 ctp.test
+[positional-arguments]
 ctp-assessment *args:
-    uv run --no-sync python script/ctp_assessment.py {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # pip/uv 无法提供这些系统库；NixOS 仅为本次运行加入缓存中的库和工具。
+    if [[ -e /etc/NIXOS ]]; then
+        ctp_runtime_paths="$(nix build --no-link --no-write-lock-file --print-out-paths \
+            nixpkgs#libglvnd nixpkgs#libxkbcommon nixpkgs#fontconfig.lib nixpkgs#freetype \
+            nixpkgs#glib.out nixpkgs#dbus.lib nixpkgs#zlib nixpkgs#wayland \
+            nixpkgs#libx11 nixpkgs#libxcb nixpkgs#libxcb-cursor \
+            nixpkgs#libxcb-image nixpkgs#libxcb-keysyms \
+            nixpkgs#libxcb-render-util nixpkgs#libxcb-wm \
+            nixpkgs#glibcLocales nixpkgs#dmidecode)"
+        while IFS= read -r ctp_runtime_path; do
+            export LD_LIBRARY_PATH="$ctp_runtime_path/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            export PATH="$ctp_runtime_path/bin:$PATH"
+            if [[ -f "$ctp_runtime_path/lib/locale/locale-archive" ]]; then
+                export LOCALE_ARCHIVE="$ctp_runtime_path/lib/locale/locale-archive"
+            fi
+        done <<< "$ctp_runtime_paths"
+    fi
+    exec uv run --no-project --no-config --isolated --python 3.13 \
+        --with vnpy==4.4.0 --with vnpy_ctp==6.7.11.4 \
+        --with vnpy_riskmanager==2.0.0 --with 'pydantic>=2,<3' \
+        python script/ctp_assessment.py "$@"
 
 # 跟随 VeighNa 官方稳定版升级交易 API；校验来源、重建补丁、锁定版本并跑离线回归
 update-ctp version="latest":
@@ -217,6 +245,10 @@ bru-error-contract:
 # 公共时间薄转发，需要项目登录账号，不需要交易所账号
 bru-public-time:
     uv run --no-sync python scripts/run_bruno.py 'SYSTEM/fetch_time.bru'
+
+# 只跑 CFB 五条 GET，默认 sandbox；上游地址由服务端 TOML 配置
+bru-cfb-readonly:
+    uv run --no-sync python scripts/run_bruno.py 'CFB/fetch_orders.bru' 'CFB/fetch_trades.bru' 'CFB/fetch_positions.bru' 'CFB/fetch_balance.bru' 'CFB/fetch_trading_status.bru'
 
 # 只跑 TQ 只读请求，需要服务端已配置 tq
 bru-tq-readonly:

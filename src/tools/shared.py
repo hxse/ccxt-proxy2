@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event
@@ -26,7 +26,9 @@ setup_logging()
 
 
 async def _finish_lifespan(
-    startup: asyncio.Task[None], close_telegram: Callable[[], None]
+    startup: asyncio.Task[None],
+    close_telegram: Callable[[], None],
+    close_cfb: Callable[[], Awaitable[None]],
 ) -> None:
     # 等线程中的初始化退出后再清理，避免 close 之后又创建新的连接。
     # 启动异常由 lifespan 的首次 await 传播；取消时也必须取回任务结果。
@@ -34,7 +36,10 @@ async def _finish_lifespan(
     try:
         await run_in_threadpool(service_runtime.close)
     finally:
-        close_telegram()
+        try:
+            await close_cfb()
+        finally:
+            close_telegram()
 
 
 async def _wait_for_cleanup(cleanup: asyncio.Task[None]) -> None:
@@ -53,6 +58,7 @@ async def _wait_for_cleanup(cleanup: asyncio.Task[None]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.service_runtime = service_runtime
+    from src.tools.cfb_proxy import cfb_proxy
     from src.tools.ctp_manager import ctp_manager
     from src.tools.telegram_manager import telegram_manager
     from src.tools.tq_manager import tq_manager
@@ -61,7 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # shield 保留初始化任务，HTTP 生命周期被取消时仍能等待底层线程结束。
     startup = asyncio.create_task(
         run_in_threadpool(
-            service_runtime.start, exchange_manager, tq_manager, ctp_manager, stop=stop
+            service_runtime.start,
+            exchange_manager,
+            tq_manager,
+            ctp_manager,
+            cfb_proxy,
+            stop=stop,
         )
     )
     try:
@@ -69,7 +80,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         stop.set()
-        cleanup = asyncio.create_task(_finish_lifespan(startup, telegram_manager.close))
+        cleanup = asyncio.create_task(
+            _finish_lifespan(startup, telegram_manager.close, cfb_proxy.close)
+        )
         await _wait_for_cleanup(cleanup)
 
 
@@ -78,6 +91,12 @@ OPENAPI_TAGS = [
     {"name": "Health", "description": "区分进程存活与统一服务白名单初始化状态。"},
     {"name": "System", "description": "公共时间等基础查询；复用项目 Bearer 鉴权。"},
     {"name": "Auth", "description": "OAuth2 Password Grant 与 Bearer JWT。"},
+    {
+        "name": "CFB",
+        "description": "cn-futures-bridge HTTP 薄转发。参数、响应和业务说明同步自 CFB OpenAPI；"
+        "复用本项目 Bearer 鉴权。sandbox/live 均原样转发，由上游决定支持范围。"
+        "配置只在启动时读取；请求不自动重试。",
+    },
     {
         "name": "CTP TRADING",
         "description": "VeighNa CTP 中国期货交易薄转发；支持 sandbox 模拟盘和 live 实盘，行情继续使用 TQ。",
@@ -102,7 +121,7 @@ app = FastAPI(
     title="ccxt-proxy2",
     version="1.0.0",
     description=(
-        "带 Bearer 鉴权的 CCXT、CTP、TQ 和 Telegram 代理。"
+        "带 Bearer 鉴权的 CCXT、CTP、CFB、TQ 和 Telegram 代理。"
         "交易/设置类 POST 路由具有真实外部副作用。"
     ),
     openapi_tags=OPENAPI_TAGS,
@@ -143,7 +162,7 @@ async def add_request_context(request: Request, call_next):
             duration_ms=round(duration_ms, 2),
         ).log(log_level, "request completed")
 
-        response.headers["X-Request-ID"] = request_id
+        response.headers.setdefault("X-Request-ID", request_id)
         return response
 
 

@@ -71,6 +71,11 @@ password = "replace-with-your-password"
 # request_timeout_seconds = 10
 # query_interval_seconds = 1.1
 
+# CFB HTTP 薄转发；账户在独立 CFB 项目配置，sandbox/live 参数原样转发。
+# [cfb]
+# base_url = "http://127.0.0.1:45173"
+# request_timeout_seconds = 300
+
 # Telegram：每个 chat alias 单独一行，chat_id 保持字符串。
 # [telegram]
 # bot_token = ""
@@ -85,7 +90,7 @@ max_rows_per_series = 2000000
 max_rows_total = 20000000
 
 # 统一服务白名单：只有这里列出的实例会在启动时初始化。
-# 账号配置本身不会启用服务；缺省为空白名单，不加载 CCXT/TQ/CTP。
+# 账号配置本身不会启用服务；缺省为空白名单，不加载 CCXT/TQ/CTP/CFB。
 # 配置只在进程启动时读取，运行中修改无效；重启后生效。
 # 任一启用实例初始化失败，服务清理资源并退出。
 # 每个 CCXT 身份必须明确 exchange/market/mode，不允许重复。
@@ -113,3 +118,7 @@ max_rows_total = 20000000
 # [[service_whitelist]]
 # service = "ctp"
 # mode = "live"
+
+# CFB 启动时创建 HTTP 客户端；不触发上游登录，不按 mode 限制转发。
+# [[service_whitelist]]
+# service = "cfb"
