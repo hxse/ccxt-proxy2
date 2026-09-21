@@ -39,4 +39,4 @@ just bru-run 'CTP TRADING/sandbox/05_validation'
 just bru-run 'CTP TRADING/sandbox/02_limit_orders/open_long.bru'
 ```
 
-本批只生成用例并离线校验，未连接 SimNow 或提交交易。完整接口说明见 [CTP 文档](../../../docs/ctp/01_design.md)。
+本批只生成用例并离线校验，未连接 SimNow 或提交交易。完整接口说明见 [CTP 文档](../../../doc/current_specs/ctp_trading.md)。
