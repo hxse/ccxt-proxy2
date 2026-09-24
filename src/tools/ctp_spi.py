@@ -49,6 +49,20 @@ def create_api(callbacks: CtpCallbacks) -> Any:
         def onRspQryOrder(self, pOrder, pRspInfo, nRequestID, bIsLast) -> None:
             callbacks.on_response("ReqQryOrder", pOrder, pRspInfo, nRequestID, bIsLast)
 
+        def onRspQryInstrument(
+            self, pInstrument, pRspInfo, nRequestID, bIsLast
+        ) -> None:
+            callbacks.on_response(
+                "ReqQryInstrument", pInstrument, pRspInfo, nRequestID, bIsLast
+            )
+
+        def onRspQryDepthMarketData(
+            self, pDepthMarketData, pRspInfo, nRequestID, bIsLast
+        ) -> None:
+            callbacks.on_response(
+                "ReqQryDepthMarketData", pDepthMarketData, pRspInfo, nRequestID, bIsLast
+            )
+
         def onRspQryTrade(self, pTrade, pRspInfo, nRequestID, bIsLast) -> None:
             callbacks.on_response("ReqQryTrade", pTrade, pRspInfo, nRequestID, bIsLast)
 

@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from src.base_types import ModeType
+from src.order_prices import OrderPriceError
 from src.responses_ctp import (
     CtpAccountsResponse,
     CtpInstrumentStatus,
@@ -17,6 +18,7 @@ from src.responses_ctp import (
 )
 from src.tools.config_types import CtpAccountConfig, CtpConfig
 from src.tools.ctp_callbacks import CtpError
+from src.tools.ctp_prices import CtpOrderPrices
 from src.tools.ctp_session import ApiFactory, CtpSession
 from src.tools.ctp_spi import create_api
 from src.types_ctp import (
@@ -62,6 +64,7 @@ class CtpClient:
         self._lock = threading.Lock()
         self._session: CtpSession | None = None
         self._closed = False
+        self._order_prices = CtpOrderPrices()
 
     def initialize(self) -> None:
         with self._lock:
@@ -112,6 +115,17 @@ class CtpClient:
     ) -> CtpOrderResponse:
         with self._lock:
             session = self._get_session()
+            adjustment = None
+            if isinstance(request, CtpLimitOrderRequest):
+                try:
+                    adjustment = self._order_prices.prepare(session, request)
+                except OrderPriceError as exc:
+                    raise session.callbacks.error(
+                        exc.status_code,
+                        exc.code,
+                        exc.message,
+                        price_context=exc.detail.get("price_context"),
+                    ) from exc
             identity = {
                 "exchange_id": request.exchange_id,
                 "instrument_id": request.instrument_id,
@@ -121,7 +135,11 @@ class CtpClient:
             }
             price_type, price, tif = "1", 0.0, "IOC"
             if isinstance(request, CtpLimitOrderRequest):
-                price_type, price, tif = "2", request.price, request.time_in_force
+                price_type, price, tif = (
+                    "2",
+                    float(adjustment.submitted_price),
+                    request.time_in_force,
+                )
             fields = {
                 **session.credentials,
                 "UserID": session.user_id,
@@ -151,7 +169,7 @@ class CtpClient:
                 "UserForceClose": 0,
             }
             request_id, rows = session.request("ReqOrderInsert", fields, identity)
-            return self._result(
+            result = self._result(
                 session,
                 CtpOrderResponse,
                 request_id,
@@ -159,6 +177,8 @@ class CtpClient:
                 rows[0] if rows else None,
                 identity,
             )
+            result.price_adjustment = adjustment
+            return result
 
     def cancel_order(
         self, request: CtpCancelByExchange | CtpCancelBySession

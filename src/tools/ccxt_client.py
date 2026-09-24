@@ -17,6 +17,7 @@ from src.domain_errors import (
     ResponseRowLimitExceeded,
 )
 from src.tools.ccxt_ohlcv import OhlcvNetworkFetcher
+from src.tools.ccxt_prices import CcxtOrderPrices
 from src.tools.ccxt_trading import _CcxtTradingMixin
 from src.tools.ccxt_transport import CcxtTransport
 
@@ -38,6 +39,9 @@ class CcxtClient(_CcxtTradingMixin):
         self.mode = mode
         self.cache = cache
         self._transport = CcxtTransport(exchange, f"{exchange_name}/{market}/{mode}")
+        self._order_prices = CcxtOrderPrices(
+            exchange, exchange_name, market, self._transport
+        )
         self.ccxt_request_lock = self._transport.lock
         self._ohlcv = OhlcvNetworkFetcher(exchange_name, market, self._fetch_ohlcv_page)
 

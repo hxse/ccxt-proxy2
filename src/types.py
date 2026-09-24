@@ -1,6 +1,6 @@
-from typing import Literal, get_args
+from typing import Annotated, Literal, get_args
 
-from pydantic import Field, model_validator
+from pydantic import BeforeValidator, Field, model_validator
 
 from src.base_types import (
     CCXT_TIMESTAMP_MS_MAX,
@@ -16,6 +16,15 @@ from src.base_types import (
 
 OhlcvVariant = Literal["default", "mark", "index", "premiumIndex"]
 TimeInForce = Literal["GTC", "IOC", "FOK"]
+
+
+def _reject_boolean_price(value):
+    if isinstance(value, bool):
+        raise ValueError("价格不能是布尔值")
+    return value
+
+
+PriceInput = Annotated[float, BeforeValidator(_reject_boolean_price)]
 
 
 class BaseOhlcvRequest(BaseSymbolRequest):
@@ -88,8 +97,13 @@ class LimitOrderRequest(BaseSymbolRequest):
     amount: float = Field(
         ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
     )
-    price: float = Field(
-        ..., gt=0, allow_inf_nan=False, title="价格", examples=[40000.0]
+    price: PriceInput = Field(
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="价格",
+        examples=[40000.0],
+        description="拒绝布尔值；后端先消除极小浮点尾差，再按官方步长买入向下、卖出向上对齐；最终越界拒绝，不自动截到价格边界。",
     )
     clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["my_order_2"]
@@ -110,7 +124,7 @@ class StopMarketOrderRequest(BaseSymbolRequest):
         ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
     )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: float = Field(
+    triggerPrice: PriceInput = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
@@ -136,7 +150,7 @@ class TakeProfitMarketOrderRequest(BaseSymbolRequest):
         ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
     )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: float = Field(
+    triggerPrice: PriceInput = Field(
         ...,
         gt=0,
         allow_inf_nan=False,

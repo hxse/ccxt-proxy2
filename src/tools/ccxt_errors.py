@@ -13,10 +13,15 @@ from src.domain_errors import (
     ProviderOrderNotFound,
     ProviderOrderRejected,
 )
+from src.tools.ccxt_price_errors import price_rejection
 
 
 def map_ccxt_exception(exc: ccxt.BaseError) -> DomainError:
     """Map CCXT's exception hierarchy to the stable HTTP/domain contract."""
+    if isinstance(exc, (ccxt.InvalidOrder, ccxt.BadRequest)):
+        price_error = price_rejection(exc)
+        if price_error is not None:
+            return price_error
     if isinstance(exc, ccxt.CancelPending):
         return OperationStatusUnknown(
             "provider reports that operation status is unknown"

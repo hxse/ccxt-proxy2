@@ -76,6 +76,33 @@ unsupported → NOT_SUPPORTED
 - Kraken Spot 不重建超出原生 window 的历史，不做额外 range 推断；整个 Spot 能力只是 best-effort。
 - Kraken Spot 没有 sandbox API；`kraken/spot/sandbox` 在配置阶段明确拒绝，不暗中转到 live。
 
+## 委托价格
+
+价格处理由后端 `CcxtClient` 负责。`create_limit_order` 请求字段不变；使用同一 exchange/market/mode 的官方价格资料，以十进制运算将买入限价向下、卖出限价向上对齐。对齐后的价格必须为正且满足有效边界，不自动截到价格上限或下限。
+
+HTTP price/triggerPrice 在转成 float 前拒绝布尔值，仍接受整数、小数和可解析的数字字符串。普通限价的 float 报价若距离最近正数网格价不超过 `min(2 × ulp(报价), tickSize × 0.000001)`，先还原为该网格价；其他报价继续买入向下、卖出向上对齐。例：步长 0.1 时卖价 100.10000000000001 还原为 100.1，而 100.123 仍变成 100.2。内部精确 Decimal/字符串及触发价不使用此容差；静态、动态范围检查也不放宽。price_adjustment.requested_price 保留原报价。
+
+- Binance 的 tickSize、minPrice、maxPrice 来自 PRICE_FILTER，不用 pricePrecision 代替步长。合约按当前 markPrice 和 PERCENT_PRICE 倍率分别检查买入上界、卖出下界；现货按平均价窗口及 PERCENT_PRICE/PERCENT_PRICE_BY_SIDE 检查双侧边界，窗口为 0 时用最新成交价。
+- Kraken 使用合约 tickSize 或 CCXT 的价格精度资料。合约跨盘口限价按当前 markPrice 的 20% price collar 检查；不把该规则套用于远端挂单或现货。其他未公开范围由上游最终校验。
+- 参考行情缺失、无效、参考窗口不匹配或必要规则缺失时，返回 503 PRICE_RULES_UNAVAILABLE，不提交订单。动态预检不能保证稍后到达交易所时仍满足规则，上游仍可拒单。
+- stop-loss/take-profit 的触发阈值只校验合法步长和静态范围，不自动调整阈值，也不应用立即成交限价的动态边界。
+
+参考 Binance [价格过滤器](https://developers.binance.com/zh-CN/docs/products/derivatives-trading-usds-futures/common-definition) 和 Kraken [合约订单类型](https://support.kraken.com/articles/360031471211-derivatives-order-types)。规则使用当前交易环境的数据，不从另一环境的行情推算。
+
+CCXT 下单结果的 `order.price_adjustment` 返回本次价格处理信息；所有金额均为十进制字符串，例如报价 3574.2、步长 1 的买单：
+
+```json
+{"requested_price":"3574.2","submitted_price":"3574","tick_size":"1","adjusted":true}
+```
+
+市价、撤单及历史查询不补造原报价，调整字段为 null 或不存在。Kraken 现货受理回执未提供订单状态时，`order.status` 为 null，不代表成交，也不因缺少状态丢弃已取得的订单号和价格信息。
+
+扩展参数不能覆盖正式报价和交易对语义：禁止原生 price、limitPrice、price2、priceMatch、stopPrice、triggerPrice、activationPrice、trailingTriggerPrice，以及嵌套 stopLoss/takeProfit/close。原生 pair/type/symbol/side 不能替换正式字段。相对价格 trailingAmount/trailingPercent/trailingLimitAmount/trailingLimitPercent/limitPriceOffsetValue/limitPriceOffsetUnit 不属于当前报价契约，明确拒绝。`orderType/ordertype` 只允许在限价链路内指定 limit/lmt/ioc/fok/post。正式止盈止损参数仍由 Client 翻译为 stopLossPrice/takeProfitPrice，并执行同一校验。
+
+提交前还需确认 SDK 的价格格式化会保留处理后的十进制值；SDK 与官方价格网格矛盾时返回 PRICE_RULES_UNAVAILABLE，不能再次隐式改价。
+
+价格错误使用 422 INVALID_ORDER_PRICE、INVALID_PRICE_PRECISION、PRICE_OUT_OF_RANGE，附加可取得的 price_context。HTTP schema 的基本参数错误仍返回既有 422 校验结构。已识别的 Binance/Kraken 价格拒单额外给出 provider/provider_code 和安全的价格原因；不返回原始签名 URL 或未筛选异常文本。其他错误保持原分类。报价预检的只读失败不会被误标成已发送订单的状态未知。
+
 ## 重试边界
 
 当前实现只对 read-only operation 自动 retry：

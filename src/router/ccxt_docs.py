@@ -18,6 +18,12 @@ CCXT_ORDER_READ_RESPONSES = {
 }
 CCXT_WRITE_RESPONSES: dict[int | str, dict[str, Any]] = {
     **CCXT_ORDER_READ_RESPONSES,
+    422: {
+        "description": "参数/报价非法、步长不匹配或超出价格边界。价格错误可返回 price_context、provider/provider_code；上游异常原文不透传。"
+    },
+    503: {
+        "description": "服务未就绪，或 PRICE_RULES_UNAVAILABLE：未取得可靠价格规则/参考行情，订单未提交。"
+    },
     409: {"description": "资金不足、保证金状态冲突或 Provider 拒绝该操作。"},
 }
 

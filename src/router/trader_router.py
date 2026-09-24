@@ -193,7 +193,7 @@ def create_market_order(params: MarketOrderRequest):
     "/create_limit_order",
     response_model=OrderResponse,
     summary="创建限价单",
-    description="有状态操作：按 price/amount 创建 limit order，可传 timeInForce、postOnly、clientOrderId 和 Provider 扩展参数。",
+    description="有状态操作：报价按官方步长买入向下、卖出向上对齐，检查静态范围和适用动态边界；越界拒绝，order.price_adjustment 返回原报价及提交价。timeInForce、postOnly、clientOrderId 等保持原语义；扩展参数不能覆盖价格处理。",
     response_description="Provider 接受后返回的 unified order。",
     responses=CCXT_WRITE_RESPONSES,
 )
@@ -213,7 +213,7 @@ def create_limit_order(params: LimitOrderRequest):
     "/create_stop_market_order",
     response_model=OrderResponse,
     summary="创建止损市价触发单",
-    description="有状态操作：将 triggerPrice 翻译为 Provider stop-loss trigger；默认 reduceOnly=true，网络失败不会自动重试。",
+    description="有状态操作：将 triggerPrice 翻译为 Provider stop-loss trigger；校验触发价步长和静态范围，非法时拒绝，不自动移动阈值。默认 reduceOnly=true，网络失败不会自动重试。",
     response_description="创建后的 unified conditional order。",
     responses=CCXT_WRITE_RESPONSES,
 )
@@ -235,7 +235,7 @@ def create_stop_market_order(params: StopMarketOrderRequest):
     "/create_take_profit_market_order",
     response_model=OrderResponse,
     summary="创建止盈市价触发单",
-    description="有状态操作：将 triggerPrice 翻译为 Provider take-profit trigger；默认 reduceOnly=true，网络失败不会自动重试。",
+    description="有状态操作：将 triggerPrice 翻译为 Provider take-profit trigger；校验触发价步长和静态范围，非法时拒绝，不自动移动阈值。默认 reduceOnly=true，网络失败不会自动重试。",
     response_description="创建后的 unified conditional order。",
     responses=CCXT_WRITE_RESPONSES,
 )

@@ -1,10 +1,13 @@
+from typing import Any
+
+
 class DomainError(Exception):
     status_code = 500
     code = "DOMAIN_ERROR"
 
     def __init__(self, message: str | None = None):
         self.message = message
-        detail: dict[str, str] = {"code": self.code}
+        detail: dict[str, Any] = {"code": self.code}
         if message:
             detail["message"] = message
         self.detail = detail

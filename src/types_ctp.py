@@ -90,7 +90,7 @@ class CtpLimitOrderRequest(CtpOrderRequest):
     price: float = Field(
         gt=0,
         allow_inf_nan=False,
-        description="LimitPrice：必填委托价格，按合约报价单位填写；上游校验价格步长和涨跌停限制。",
+        description="原始限价；后端查询同环境 PriceTick，买入向下、卖出向上对齐，并检查当日涨跌停；响应 price_adjustment 给出实际委托价。",
         examples=[3500.0],
     )
     time_in_force: Literal["GFD", "IOC", "FOK"] = Field(

@@ -125,6 +125,28 @@ def test_status_spi_copies_callback_dictionary_and_invalidates_on_disconnect(tmp
 
 
 @requires_sdk
+@pytest.mark.parametrize(
+    ("method", "callback"),
+    [
+        ("ReqQryInstrument", "onRspQryInstrument"),
+        ("ReqQryDepthMarketData", "onRspQryDepthMarketData"),
+    ],
+)
+def test_price_query_callbacks_reach_pending_request(tmp_path, method, callback):
+    from src.tools.ctp_callbacks import Pending
+
+    config = ctp_config(tmp_path)
+    callbacks = CtpCallbacks(config.test, "sandbox")
+    callbacks.pending = Pending(method, 42, None)
+    api = create_api(callbacks)
+    data = {"InstrumentID": "m2701", "ExchangeID": "DCE"}
+    getattr(api, callback)(data, {}, 42, True)
+    data["InstrumentID"] = "changed"
+    assert callbacks.pending.event.is_set()
+    assert callbacks.pending.rows == [{"InstrumentID": "m2701", "ExchangeID": "DCE"}]
+
+
+@requires_sdk
 def test_only_the_trading_extension_is_installed_and_loaded():
     code = """
 import importlib.metadata as metadata

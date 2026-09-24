@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.base_types import ModeType
 from src.ctp_records_account import CtpPosition, CtpTradingAccount
 from src.ctp_records_trading import CtpOrder, CtpTrade
+from src.order_prices import PriceAdjustment
 from src.responses_system import ServiceErrorDetail
 from src.responses_trading_status import TradingStatusResponse
 
@@ -94,6 +95,9 @@ class CtpResponse(BaseModel):
 
 
 class CtpOrderResponse(CtpResponse):
+    price_adjustment: PriceAdjustment | None = Field(
+        None, description="限价原报价与实际提交价；市价和撤单为 null。"
+    )
     order: CtpOrder = Field(
         description="OnRtnOrder 订单快照；下单不保证已成交，撤单成功确认 OrderStatus=5。"
     )
@@ -158,6 +162,9 @@ class CtpErrorDetail(BaseModel):
     )
     order_identity: CtpOrderIdentity | None = Field(
         None, description="已知订单定位信息；操作状态未知时用于先查询订单/成交对账。"
+    )
+    price_context: dict[str, str | list[str] | None] | None = Field(
+        None, description="价格校验的字段、步长和有效边界；提交前拒绝时没有新订单身份。"
     )
 
 

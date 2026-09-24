@@ -132,7 +132,9 @@ TimeCondition=1（IOC）、VolumeCondition=1（AV）。请求体**不接受 pric
 
 CTP_LIMIT_DESCRIPTION = (
     """
-薄转发 `ReqOrderInsert`：固定 OrderPriceType=2（LimitPrice），**price 必填**，按合约报价单位填写。
+固定 OrderPriceType=2（LimitPrice），**price 必填**，按合约报价单位填写。
+提交前从同一交易前置查询 PriceTick 与当日涨跌停，报价买入向下、卖出向上对齐；
+资料不可用或对齐后越界时不提交，不自动截到涨跌停价。响应 price_adjustment 保留原报价、实际委托价与步长。
 time_in_force=GFD（默认）使用 GFD+AV；IOC 使用 IOC+AV；FOK 使用 IOC+CV。
 上游校验最小变动价位、涨跌停板、可用资金和权限。返回的 LimitPrice 是委托价格，非成交价格。
 """

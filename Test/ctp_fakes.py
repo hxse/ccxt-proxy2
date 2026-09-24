@@ -110,6 +110,24 @@ class FakeApi:
                     ),
                 )
                 self.callbacks.on_order(order)
+            elif (
+                method in {"ReqQryInstrument", "ReqQryDepthMarketData"}
+                and method not in self.queries
+            ):
+                info = {
+                    "ExchangeID": data["ExchangeID"],
+                    "InstrumentID": data["InstrumentID"],
+                }
+                info.update(
+                    {"PriceTick": 1}
+                    if method == "ReqQryInstrument"
+                    else {
+                        "TradingDay": "20260917",
+                        "LowerLimitPrice": 1,
+                        "UpperLimitPrice": 100000,
+                    }
+                )
+                self.callbacks.on_response(method, info, {}, request_id, True)
             else:
                 for row in self.queries.get(method, []):
                     self.callbacks.on_response(method, row, None, request_id, False)

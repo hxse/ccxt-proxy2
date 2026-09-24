@@ -135,11 +135,27 @@ GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
 `volume` 是正整数手数。上游校验交易权限、资金、可平仓位、价格步长和涨跌停范围。调用方按交易所规则选择平仓、平今、平昨，服务不自动查仓拆单或平全部。
 
 - 市价接口不接受 price，固定 AnyPrice + IOC + AV，LimitPrice=0。
-- 限价接口 price 必填；GFD（默认）=GFD+AV，IOC=IOC+AV，FOK=IOC+CV。
+- 限价接口 price 必填；后端用同一前置的 PriceTick 买入向下、卖出向上对齐，检查当日涨跌停后再提交。GFD（默认）=GFD+AV，IOC=IOC+AV，FOK=IOC+CV。
 - 原生市价和指令组合是否支持由上游决定。不支持时返回明确错误，不查 TQ 价格合成市价单、不自动降级。
 - 主连先通过既有 TQ 接口解析；TQ 的 SHFE.rb2610 由调用方拆成 exchange_id=SHFE、instrument_id=rb2610。CTP 路由不接受主连或指数代码。
 
 下单成功返回收到的订单快照，不保证成交或全部成交。服务等待匹配的 OnRtnOrder 接受/订单状态回报；OnRspOrderInsert、OnErrRtnOrderInsert 和订单拒绝回报均处理为错误。成交明细使用 fetch_trades 查询。
+
+### 限价价格资料与回执
+
+客户端在提交前调用 ReqQryInstrument / ReqQryDepthMarketData。CTP 可能按合约前缀返回相关期权，必须在完整回包中精确匹配 exchange_id/instrument_id；无匹配或多条相同身份都不能继续。合约 PriceTick 按会话、登录代次和交易日缓存；重新登录或连接重建后失效。每次限价都重新查询涨跌停，TradingDay 必须匹配当前登录交易日。
+
+报价用十进制运算对齐，转换为 CTP double 后提交。`price_adjustment` 为下单响应的顶层字段，保存十进制字符串原报价、提交价、步长和调整标记；市价或撤单为 null。例如步长 1 时卖出报价 3574.2：
+
+```json
+{"requested_price":"3574.2","submitted_price":"3575","tick_size":"1","adjusted":true}
+```
+
+与 CCXT 复用普通限价尾差处理：float 报价与最近正数网格价之差不超过 `min(2 × ulp(报价), PriceTick × 0.000001)` 时，先还原到该网格价，再检查范围。例：步长 1 的卖价 3574.0000000000005 还原为 3574，不因尾差加一档。原报价仍保留，涨跌停不使用容差；布尔值价格继续在 HTTP 参数阶段拒绝。
+
+对齐后非正或越界返回 422 INVALID_ORDER_PRICE/PRICE_OUT_OF_RANGE；资料缺失、错误合约、矛盾或跨交易日返回 503 PRICE_RULES_UNAVAILABLE。详情可带 price_context，提交前错误不分配新 OrderRef。跨交易日资料使会话在下一次请求重建。查询拒绝、断线及超时沿用既有只读错误，禁止继续 ReqOrderInsert。原生市价不查询这些资料。
+
+不查询 TQ 或其他交易环境代替当前前置资料，不自动把越界报价截到涨跌停。上游最终拒单仍保留 CTP 错误原因和身份。
 
 ## 撤单与查询
 

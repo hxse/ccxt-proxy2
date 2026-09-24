@@ -10,6 +10,7 @@ class _CcxtTradingMixin:
     exchange: Any
     exchange_name: str
     market: str
+    _order_prices: Any
 
     def fetch_tickers(self, symbols: list[str] | None = None):
         self._validate_symbols(symbols)
@@ -60,16 +61,23 @@ class _CcxtTradingMixin:
             raise InvalidProviderRequest("side must be buy or sell")
         if price is not None:
             self._require_positive_finite(price, "price")
-        return self._write_method(
+        extra = dict(params or {})
+        adjustment = self._order_prices.prepare(
+            self._resolve_market(symbol), order_type, side, price, extra
+        )
+        order = self._write_method(
             "createOrder",
             "create_order",
             symbol,
             order_type,
             side,
             amount,
-            price,
-            params=params or {},
+            adjustment.submitted_price if adjustment else price,
+            params=extra,
         )
+        if adjustment:
+            order = {**order, "price_adjustment": adjustment.model_dump()}
+        return order
 
     def create_stop_market_order(
         self,

@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from src.base_types import PositionSide, SideType
+from src.order_prices import PriceAdjustment
 
 # === Market Info ===
 
@@ -175,10 +176,10 @@ class OrderStructure(BaseModel):
         description="最近一次成交的时间",
         examples=[1672531200000],
     )
-    status: str = Field(
+    status: str | None = Field(
         ...,
         title="订单状态",
-        description="open, closed, canceled, expired, rejected",
+        description="open, closed, canceled, expired, rejected；上游受理回执未提供状态时为 null，不代表已成交。",
         examples=["open", "closed", "canceled", "expired", "rejected"],
     )
     symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
@@ -192,6 +193,9 @@ class OrderStructure(BaseModel):
         ..., title="方向", description="buy, sell", examples=["buy", "sell"]
     )
     price: Optional[float] = Field(None, title="委托价格", examples=[42000.0])
+    price_adjustment: PriceAdjustment | None = Field(
+        None, description="本次限价提交的后端价格处理；历史查询不补造。"
+    )
     amount: Optional[float] = Field(None, title="委托数量", examples=[1.0])
     filled: Optional[float] = Field(None, title="已成交数量", examples=[0.5])
     remaining: Optional[float] = Field(None, title="剩余数量", examples=[0.5])

@@ -31,10 +31,12 @@ class FakeExchange:
         self.invalid_symbols: set[str] = set()
         self.positions: list[dict[str, Any]] = []
         self.closed = 0
+        self.precisionMode = ccxt.TICK_SIZE
         self.has = {
             "fetchOHLCV": True,
             "fetchBalance": True,
             "fetchTickers": True,
+            "fetchTicker": True,
             "fetchPositions": True,
             "fetchOpenOrders": True,
             "fetchClosedOrders": True,
@@ -95,6 +97,20 @@ class FakeExchange:
     def fetch_tickers(self, symbols, params):
         return {}
 
+    def fetch_ticker(self, symbol):
+        return {"symbol": symbol, "markPrice": 50000, "bid": 49999, "ask": 50001}
+
+    def fapiPublicGetPremiumIndex(self, params):
+        return {"symbol": params["symbol"], "markPrice": "50000"}
+
+    def price_to_precision(self, symbol, price):
+        return ccxt.decimal_to_precision(
+            str(price),
+            ccxt.ROUND,
+            self.market(symbol)["precision"]["price"],
+            self.precisionMode,
+        )
+
     def fetch_my_trades(self, symbol, since, limit, params):
         return []
 
@@ -108,8 +124,25 @@ class FakeExchange:
         if symbol in self.invalid_symbols:
             raise ccxt.BadSymbol(symbol)
         return {
+            "id": "BTCUSDT",
+            "symbol": symbol,
             "limits": {"amount": {"min": 0.001}},
-            "precision": {"amount": 0.001},
+            "precision": {"amount": 0.001, "price": 0.1},
+            "info": {
+                "filters": [
+                    {
+                        "filterType": "PRICE_FILTER",
+                        "tickSize": "0.1",
+                        "minPrice": "0.1",
+                        "maxPrice": "1000000",
+                    },
+                    {
+                        "filterType": "PERCENT_PRICE",
+                        "multiplierDown": "0.95",
+                        "multiplierUp": "1.05",
+                    },
+                ]
+            },
             "linear": self.linear,
             "settle": "USDT",
             "contractSize": 1,

@@ -125,9 +125,9 @@ def test_order_side_offset_and_integer_volume_are_forwarded(
     assert [method for method, _, _ in factory.apis[0].requests].count(
         "ReqOrderInsert"
     ) == 2
-    assert not any(
-        method.startswith("ReqQry") for method, _, _ in factory.apis[0].requests
-    )
+    methods = [method for method, _, _ in factory.apis[0].requests]
+    assert methods.count("ReqQryInstrument") == 1
+    assert methods.count("ReqQryDepthMarketData") == 2
 
 
 @pytest.mark.parametrize(
