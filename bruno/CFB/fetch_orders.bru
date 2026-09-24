@@ -14,6 +14,11 @@ params:query {
   mode: sandbox
   exchange_id: SHFE
   instrument_id: rb2610
+  ~order_sys_id: REPLACE_ORDER_SYS_ID
+  ~trading_day: 20260924
+  ~front_id: 3
+  ~session_id: -123
+  ~order_ref: 000018
 }
 
 assert {
@@ -29,6 +34,9 @@ tests {
 }
 
 docs {
-  通过 ccxt-proxy2 的 Bearer 鉴权转发到服务端配置的 CFB；默认 mode=sandbox，可按上游配置修改为 live。
+  通过 ccxt-proxy2 的 Bearer 鉴权转发到 CFB；mode 默认 sandbox，必须匹配上游启动环境，否则返回 409；live 不会触发账户切换。
   合约和品种按实际环境修改；查询 URL 和 params:query 同步修改。详细参数及返回模型从 CFB 自动文档同步到本项目 /docs。
+  优先把提交响应的 order_id 原样填入 order_sys_id；request_id 不是订单编号。
+  没有 order_id 时，可启用完整 identity 查询：交易所、合约、交易日、前置、会话和报单引用六项一起传；此时禁用 order_sys_id。示例日期、负数会话编号和报单引用须替换为真实响应值，字符串前导零原样保留。
+  orders=[] 不表示从未提交；consistency=stable 不表示全部成交。查询仅支持当前交易日，最终结果查看订单 status、filled_volume 和 remaining_volume。
 }

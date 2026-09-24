@@ -68,6 +68,34 @@ def test_all_document_references_including_cancel_discriminator_resolve():
     assert set(body["discriminator"]["mapping"]) == {"exchange_order", "session_order"}
 
 
+def test_order_followup_fields_and_submission_evidence_are_documented():
+    schema = app.openapi()
+    operation = schema["paths"]["/cfb/fetch_orders"]["get"]
+    parameters = {item["name"]: item["schema"] for item in operation["parameters"]}
+    identity_fields = {
+        "exchange_id",
+        "instrument_id",
+        "trading_day",
+        "front_id",
+        "session_id",
+        "order_ref",
+    }
+    assert identity_fields | {"mode", "order_sys_id"} <= parameters.keys()
+    assert parameters["mode"]["default"] == "sandbox"
+    assert parameters["session_id"]["anyOf"][0]["minimum"] < 0
+    assert parameters["order_ref"]["anyOf"][0]["type"] == "string"
+    definitions = schema["components"]["schemas"]
+    assert set(definitions["Cfb_OrderIdentity"]["required"]) == identity_fields
+    for name in ("Cfb_SubmissionResult", "Cfb_ErrorResponse"):
+        assert {"identity", "execution", "verification", "order_id"} <= (
+            definitions[name]["properties"].keys()
+        )
+    assert definitions["Cfb_OrdersResult"]["properties"]["consistency"]["enum"] == [
+        "stable",
+        "changing",
+    ]
+
+
 def test_sync_copies_business_docs_without_rewriting_or_exposing_diagnostic_routes():
     source = load_contract()
     source["paths"]["/v1/status"] = {

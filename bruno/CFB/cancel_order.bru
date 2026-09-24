@@ -31,7 +31,9 @@ assert {
 }
 
 docs {
-  通过 ccxt-proxy2 的 Bearer 鉴权转发到服务端配置的 CFB；默认 mode=sandbox，可按上游配置修改为 live。
+  通过 ccxt-proxy2 的 Bearer 鉴权转发到 CFB；mode 默认 sandbox，必须匹配上游启动环境，否则返回 409；live 不会触发账户切换。
   本请求有交易副作用，请替换合约、价格或订单标识后按需单独执行。可选 Idempotency-Key 默认关闭，启用时由调用方填写。
   上游能力与当前状态决定是否返回 202；不支持的功能可能返回 501。代理原样返回结果，不自动重试。
+  order_sys_id 使用真实交易所订单编号，不能填写 request_id 或单独的 order_ref；当前上游会话编号撤单尚未核验。
+  202 仅表示提交；后续查询 fetch_orders 确认订单状态。已撤单也可能曾部分成交，需同时查看 filled_volume。
 }

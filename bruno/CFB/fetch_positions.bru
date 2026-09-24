@@ -29,6 +29,6 @@ tests {
 }
 
 docs {
-  通过 ccxt-proxy2 的 Bearer 鉴权转发到服务端配置的 CFB；默认 mode=sandbox，可按上游配置修改为 live。
+  通过 ccxt-proxy2 的 Bearer 鉴权转发到 CFB；mode 默认 sandbox，必须匹配上游启动环境，否则返回 409；live 不会触发账户切换。
   合约和品种按实际环境修改；查询 URL 和 params:query 同步修改。详细参数及返回模型从 CFB 自动文档同步到本项目 /docs。
 }

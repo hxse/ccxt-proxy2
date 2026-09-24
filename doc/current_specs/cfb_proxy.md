@@ -1,6 +1,6 @@
 # CFB HTTP 薄转发
 
-ccxt-proxy2 使用现有 Bearer 鉴权，将固定的八条 `/cfb` 业务路由转发到独立的 cn-futures-bridge 服务。模拟盘 `mode=sandbox`、实盘 `mode=live` 及其他请求字段均原样传递，上游决定实际支持范围。
+ccxt-proxy2 使用现有 Bearer 鉴权，将固定的八条 `/cfb` 业务路由转发到独立的 cn-futures-bridge 服务。模拟盘 `mode=sandbox`、实盘 `mode=live` 及其他请求字段均原样传递，上游决定实际支持范围。当前上游要求 `mode` 匹配其启动环境，不匹配返回 409；传入 `live` 不会切换上游账户。
 
 ## 配置与启动
 
@@ -37,6 +37,21 @@ service = "cfb"
 查询字符串、请求体字节及 `Idempotency-Key` 原样传递，不由代理解析、补默认值或执行交易判断。CFB 的 HTTP 状态码、正文、请求编号和业务响应头原样保留。HTTP 连接专用头不跨连接传递；HTTPX 解压正文后同步移除编码头并重算长度。
 
 每次请求只发送一次，不自动重试、不跟随重定向、不缓存结果、不增加业务队列。上游返回的错误和 `202` 等状态也直接转发。仅代理自身网络失败返回 `502 {"detail":{"code":"CFB_PROXY_NETWORK_ERROR"}}`，超过配置的整次上游请求等待时间返回 `504 {"detail":{"code":"CFB_PROXY_TIMEOUT"}}`。
+
+## 订单结果与复查
+
+提交响应中的 `order_id` 是交易所订单编号，`request_id` 是 CFB 请求追踪编号。复查优先把 `order_id` 原样传给 `/cfb/fetch_orders` 的 `order_sys_id`，并带原 `mode`、交易所及合约。编号保持字符串，不转成数字。
+
+`order_id=null` 且返回 `identity` 时，完整传入 `exchange_id/instrument_id/trading_day/front_id/session_id/order_ref` 六个字段，另带原 `mode`，不混入 `order_sys_id`。完整引用中的负数会话编号及报单引用前导零也原样保留。以下编号仅展示格式，使用时替换为实际响应值：
+
+```text
+GET /cfb/fetch_orders?mode=sandbox&exchange_id=DCE&instrument_id=m2701&order_sys_id=648294
+GET /cfb/fetch_orders?mode=sandbox&exchange_id=DCE&instrument_id=m2701&trading_day=20260924&front_id=3&session_id=-123&order_ref=000018
+```
+
+当前上游只查询终端当前交易日；完整引用缺字段或与订单编号混用时由上游返回 422，其他交易日返回 501。代理不另行校验这些业务规则。
+
+上游响应中的 `identity/execution/verification`、查询 `consistency` 及错误详情全部透传。HTTP 202、`submitted`、`verification.status=observed`、`consistency=stable` 都不能单独证明全部成交；读取订单 `status/filled_volume/remaining_volume`。非成功响应也可能保留提交事实及订单标识，后续确认使用订单查询，不根据报错重新下单。
 
 ## 自动文档同步
 

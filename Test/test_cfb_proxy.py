@@ -125,8 +125,19 @@ def test_upstream_status_and_body_are_returned_once_without_redirect_or_retry(
 ):
     client, configure, calls, _, _ = http
     content = (
-        b'{ "submission_status":"unknown", "error":{"code":"UPSTREAM", "extra":true}}'
+        b'{ "request_id":"cfb-original", "submission_status":"submitted",'
+        b' "order_id":null, "identity":{"exchange_id":"DCE",'
+        b' "instrument_id":"m2701", "trading_day":"20260924",'
+        b' "front_id":3, "session_id":-123, "order_ref":"000018"},'
+        b' "execution":{"kind":"limit", "price":3500.0, "time_in_force":"GFD"},'
+        b' "verification":{"status":"pending", "correlation":"order_ref"}'
     )
+    if status >= 400:
+        content += (
+            b', "error":{"code":"UPSTREAM", "message":"upstream failed",'
+            b' "extra":true}'
+        )
+    content += b"}"
     configure(
         lambda request: httpx.Response(
             status,
@@ -143,6 +154,44 @@ def test_upstream_status_and_body_are_returned_once_without_redirect_or_retry(
     assert response.headers["retry-after"] == "10"
     assert response.headers["location"] == "http://another.invalid/do-not-follow"
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "identity_query",
+    [
+        "order_sys_id=%20%20648294",
+        "trading_day=20260924&front_id=3&session_id=-123&order_ref=000018",
+    ],
+)
+def test_order_followup_preserves_exact_identifiers(http, identity_query):
+    client, configure, calls, _, _ = http
+    identity = (
+        {
+            "exchange_id": "DCE",
+            "instrument_id": "m2701",
+            "trading_day": "20260924",
+            "front_id": 3,
+            "session_id": -123,
+            "order_ref": "000018",
+        }
+        if identity_query.startswith("trading_day=")
+        else None
+    )
+    payload = {
+        "request_id": "cfb-query",
+        "observed_at": "2026-09-24T09:30:00+08:00",
+        "source": "terminal_csv_and_native" if identity else "terminal_csv",
+        "consistency": "changing",
+        "orders": [],
+        "identity": identity,
+    }
+    configure(lambda request: httpx.Response(200, json=payload))
+    query = "mode=sandbox&exchange_id=DCE&instrument_id=m2701&" + identity_query
+
+    response = client.get("/cfb/fetch_orders?" + query)
+
+    assert response.status_code == 200 and response.json() == payload
+    assert len(calls) == 1 and calls[0].url.query == query.encode()
 
 
 def test_proxy_does_not_parse_json_and_preserves_duplicate_idempotency_headers(http):
