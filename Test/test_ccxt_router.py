@@ -87,11 +87,12 @@ def test_router_exposes_only_the_three_unambiguous_ohlcv_paths():
     assert "/ccxt/ohlcv/latest-limit" not in paths
 
 
-def test_openapi_contains_three_distinct_ohlcv_query_schemas():
+def test_openapi_contains_ohlcv_schemas_and_route_mode_defaults():
     app = FastAPI()
     app.include_router(trader_router.ccxt_router)
 
-    paths = app.openapi()["paths"]
+    schema = app.openapi()
+    paths = schema["paths"]
 
     assert "/ccxt/fetch_ohlcv/since-limit" in paths
     assert "/ccxt/fetch_ohlcv/since-latest" in paths
@@ -101,8 +102,22 @@ def test_openapi_contains_three_distinct_ohlcv_query_schemas():
         "/ccxt/fetch_ohlcv/since-latest",
         "/ccxt/fetch_ohlcv/latest-limit",
     ):
-        parameters = {item["name"] for item in paths[path]["get"]["parameters"]}
+        parameters = {
+            item["name"]: item for item in paths[path]["get"]["parameters"]
+        }
         assert "include_last" not in parameters
+        assert parameters["mode"]["schema"]["default"] == "live"
+
+    for path, operations in paths.items():
+        if path.startswith("/ccxt/fetch_ohlcv/"):
+            continue
+        for parameter in operations.get("get", {}).get("parameters", []):
+            if parameter["name"] == "mode":
+                assert parameter["schema"]["default"] == "sandbox", path
+    for name, definition in schema["components"]["schemas"].items():
+        mode = definition.get("properties", {}).get("mode")
+        if mode is not None:
+            assert mode["default"] == "sandbox", name
 
 
 @pytest.mark.parametrize(

@@ -14,11 +14,13 @@
 
 - `exchange_name`；
 - `market`；
-- `mode`；
+- `mode`，默认 `live`，可显式指定 `sandbox`；
 - `symbol`；
 - `timeframe`；
 - `variant`，默认 `default`；Binance Futures 额外支持 `mark/index/premiumIndex`；
 - `enable_cache`，默认 `true`。
+
+`mode=live` 的默认值仅适用于以上三条 OHLCV 路由；其他 CCXT 路由默认 `sandbox`。显式传入的 `mode` 始终优先，所选身份必须在服务白名单中启用，不自动回退到另一环境。
 
 `enable_cache=false` 同时禁止 cache read 和 cache write，但不取消 network completeness 和 completion metadata 的计算。
 

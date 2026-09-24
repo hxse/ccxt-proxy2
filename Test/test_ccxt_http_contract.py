@@ -80,6 +80,10 @@ def _base_query() -> dict[str, str]:
 
 
 @pytest.mark.parametrize(
+    ("mode", "expected_mode"),
+    [(None, "live"), ("sandbox", "sandbox"), ("live", "live")],
+)
+@pytest.mark.parametrize(
     ("path", "extra", "operation"),
     [
         (
@@ -100,18 +104,22 @@ def _base_query() -> dict[str, str]:
     ],
 )
 def test_three_http_routes_parse_query_and_dispatch(
-    ohlcv_http_client, path, extra, operation
+    ohlcv_http_client, path, extra, operation, mode, expected_mode
 ):
     app, fake, identities = ohlcv_http_client
+    params = _base_query() | extra
+    params.pop("mode")
+    if mode is not None:
+        params["mode"] = mode
 
-    response = _get(app, path, _base_query() | extra)
+    response = _get(app, path, params)
 
     assert response.status_code == 200
     assert response.json() == {
         "rows": [[60_000, 1.0, 2.0, 0.0, 1.5, 5.0]],
         "last_bar_completion_confirmed": False,
     }
-    assert identities == [("binance", "future", "sandbox")]
+    assert identities == [("binance", "future", expected_mode)]
     assert fake.calls[0][0] == operation
     assert fake.calls[0][2] == {
         "variant": "mark",
@@ -174,21 +182,28 @@ def test_unknown_ohlcv_query_parameter_is_rejected(ohlcv_http_client, unknown):
     assert identities == []
 
 
-def test_fetch_positions_symbols_are_repeated_query_parameters(ohlcv_http_client):
+@pytest.mark.parametrize(
+    ("mode", "expected_mode"),
+    [(None, "sandbox"), ("sandbox", "sandbox"), ("live", "live")],
+)
+def test_fetch_positions_symbols_are_repeated_query_parameters(
+    ohlcv_http_client, mode, expected_mode
+):
     app, fake, identities = ohlcv_http_client
     params = [
         ("exchange_name", "binance"),
         ("market", "future"),
-        ("mode", "live"),
         ("symbols", "BTC/USDT:USDT"),
         ("symbols", "ETH/USDT:USDT"),
     ]
+    if mode is not None:
+        params.append(("mode", mode))
 
     response = _get(app, "/ccxt/fetch_positions", params)
 
     assert response.status_code == 200
     assert response.json() == {"positions": []}
-    assert identities == [("binance", "future", "live")]
+    assert identities == [("binance", "future", expected_mode)]
     assert fake.calls == [("positions", (["BTC/USDT:USDT", "ETH/USDT:USDT"],), {})]
 
 

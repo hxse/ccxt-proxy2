@@ -8,6 +8,7 @@ from src.base_types import (
     VALID_PERIODS,
     BaseExchangeRequest,
     BaseSymbolRequest,
+    ModeType,
     NonEmptyString,
     PositionSide,
     SideType,
@@ -20,6 +21,12 @@ TimeInForce = Literal["GTC", "IOC", "FOK"]
 class BaseOhlcvRequest(BaseSymbolRequest):
     """三个 OHLCV 路由共享的无歧义参数。"""
 
+    mode: ModeType = Field(
+        "live",
+        title="模式",
+        description="live (实盘，默认) 或 sandbox (测试网)",
+        examples=["live", "sandbox"],
+    )
     timeframe: VALID_PERIODS = Field(
         ...,
         title="时间周期",
