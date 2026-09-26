@@ -48,7 +48,9 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
             "TQ_CALENDAR_RANGE_UNAVAILABLE。"
         )
     },
-    500: {"description": "TQ_NOT_CONFIGURED 或无成功网络结果时的 TQ_CACHE_READ_FAILED。"},
+    500: {
+        "description": "TQ_NOT_CONFIGURED 或无成功网络结果时的 TQ_CACHE_READ_FAILED。"
+    },
     504: {"description": "行情队列与序列就绪超过 10 秒预算：TQ_DATA_TIMEOUT。"},
     507: {"description": "CACHE_CAPACITY_EXCEEDED：缓存容量保护失败并回滚。"},
     503: {
@@ -101,44 +103,26 @@ TQ 进程内缓存提示：
 """
 
 TQ_UNDERLYING_DESCRIPTION = """
-查询 TQ 主连合约当前实际标的，并可选返回最近 N 个交易日的历史映射。
+单主连当前有效标的与可选换月节点，统一以官方历史事件源为准。
 
-用途：
-
-- 持仓换月前确认主连当前对应的实际合约。
-- 下单前把 `KQ.m@...` 主连 symbol 解析到具体合约。
-- 审计最近若干交易日主连标的切换历史。
-
-实现说明：
-
-- 当前标的优先来自 `api.query_symbol_info(symbol)` 的 `underlying_symbol`。
-- 若当前元数据缺少 `underlying_symbol`，单个 symbol 会 fallback 到 `api.get_quote(symbol).underlying_symbol`。
-- `n` 传入时额外调用 `api.query_his_cont_quotes(symbol, n=n)`，并将 TQ 返回的 pandas 宽表转换为稳定 JSON 长表。
-
-响应说明：
-
-- `items` 是当前主力解析结果。
-- `history` 仅在传入 `n` 时返回最近 N 个交易日的主连映射。
-- 当前 symbol 必须是 TQ `CONT` 主连合约；非主连或缺少 `underlying_symbol` 返回 422。
+- 无论是否传历史范围，每次固定在线时间、重新下载历史源，读取主连最新单根 5m 时间确定已生效交易日 D。
+- 只传 symbol 返回 items；合约取源在 D 的节点，省略未设置的 history。
+- 历史用成对 start_time/end_time，正整数 Unix 纳秒；夜盘按中国期货交易日解释。
+- 历史最多到 D；未来预公告不进入 items、history 或历史缓存。
+- enable_cache 默认 true；源摘要、完整日记录与节点一致时复用，否则交既有缓存接口更新。源失败不能用缓存冒充成功。
+- history 只返回真实换月节点，含 date/symbol/underlying_symbol/old_symbol；解释左边界的节点可早于请求起点。
+- 缺少前驱时 old_symbol=null；无法证明节点时明确报错。旧 n、多 symbol、refresh_source、now 不支持。
+- SDK 当前标的可能滞后于历史源和行情；query_symbol_info 与两个旧日历/历史入口硬禁，不以 Quote 当前标的核对或回退。
 """
 
 TQ_TRADING_CALENDAR_DESCRIPTION = """
-薄转发 TQ `get_trading_calendar(start_dt, end_dt)`，返回闭区间内每个北京时间自然日是否为中国期货交易日。
+从官方节假日源转换中国期货日历，并按真实日期重叠复用项目缓存。
 
-日期与时区语义：
-
-- `start_date/end_date` 是不带时刻和时区的 calendar date，格式固定为 `YYYY-MM-DD`；它们不是 UTC 毫秒时间戳。
-- 服务将输入直接解释为中国期货日历中的自然日（`Asia/Shanghai`），不根据客户端、服务器或 UTC 时区做日期换算。
-- 例如 `start_date=2026-09-01` 始终表示中国日历的 2026-09-01，不表示该日零点对应的某个 instant。
-- 响应中的 `date` 沿用同一语义；它不负责把夜盘时刻归属到某个 trading day。
-
-能力边界：
-
-- 请求区间两端都包含；起点晚于终点返回 `TQ_INVALID_DATE_RANGE`。
-- 日历是中国期货通用节假日/周末标记，不区分 symbol 或交易所，也不表达夜盘归属、具体开闭市时刻、节前禁入或换月政策。
-- 请求超出 TqSdk 当前节假日数据覆盖年份时返回 `TQ_CALENDAR_RANGE_UNAVAILABLE`，不截断响应。
-- 成功响应必须逐自然日完整覆盖闭区间、日期严格递增且唯一；Provider 短响应返回 `TQ_CALENDAR_INCOMPLETE`。
-- 本接口不接入 DuckDB cache；TqSdk 自己维护节假日数据，调用仍在现有 TqApi `FileLock` 内完成。
+- start_date/end_date 为 Asia/Shanghai 自然日，YYYY-MM-DD，闭区间；不是 UTC 时间戳，不做时区换算。
+- enable_cache 默认 true。每次先在线取时；C≥源实际最后节假日 H、无 H 或缺覆盖时重新下载一次，H 不硬编码为年末。
+- 返回每个自然日 date/trading，包括非交易日；完整性用标准日期库校验，缺行不填 false。
+- 有效年份来自官方源首末日期所在年份；超范围明确报错。刷新后源末日未延长也不循环下载。
+- 不用日历推断实际合约开市或 K 线完成；不调用 SDK 旧日历入口。
 """
 
 
@@ -150,11 +134,11 @@ TQ_TRADING_CALENDAR_DESCRIPTION = """
     response_description="清洗并按时间升序返回的 TQ K 线 records。",
     responses=TQ_COMMON_RESPONSES,
 )
-def fetch_ohlcv(params: TqOhlcvRequest = Depends(tq_ohlcv_request)):
+async def fetch_ohlcv(params: TqOhlcvRequest = Depends(tq_ohlcv_request)):
     """
     薄转发 TQ get_kline_serial 实时 K 线序列。
     """
-    return tq_manager.fetch_ohlcv(params)
+    return await tq_manager.fetch_ohlcv(params)
 
 
 @tq_router.get(
@@ -180,13 +164,13 @@ def fetch_tick(params: TqTickRequest = Depends(tq_tick_request)):
     response_description="主连当前实际合约以及可选的历史映射。",
     responses=TQ_COMMON_RESPONSES,
 )
-def fetch_underlying_symbol(
+async def fetch_underlying_symbol(
     params: TqUnderlyingSymbolRequest = Depends(tq_underlying_symbol_request),
 ):
     """
     根据 TQ 主连 symbol 查询当前实际主力合约和可选历史映射。
     """
-    return tq_manager.fetch_underlying_symbol(params)
+    return await tq_manager.fetch_underlying_symbol(params)
 
 
 @tq_router.get(
@@ -197,11 +181,11 @@ def fetch_underlying_symbol(
     response_description="闭区间内逐自然日的 date/trading records。",
     responses=TQ_COMMON_RESPONSES,
 )
-def fetch_trading_calendar(
+async def fetch_trading_calendar(
     params: TqTradingCalendarRequest = Depends(tq_trading_calendar_request),
 ):
-    """薄转发 TQ get_trading_calendar。"""
-    return tq_manager.fetch_trading_calendar(params)
+    """在线检查后查询官方日历与日期缓存。"""
+    return await tq_manager.fetch_trading_calendar(params)
 
 
 @tq_router.get(

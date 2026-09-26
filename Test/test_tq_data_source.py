@@ -1,24 +1,19 @@
 import asyncio
 import math
-from datetime import date
 
 import pandas as pd
 import pytest
-from fastapi import HTTPException
 
 from src.tools.config_types import TqConfig
 from src.tools.tq_client import TqClient
 from src.tools.tq_data_source import (
     TqDataFrameError,
     clean_tq_serial_records,
-    history_wide_frame_to_records,
     normalize_tq_serial_frame,
-    trading_calendar_frame_to_records,
 )
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
-    TqTradingCalendarRequest,
 )
 
 
@@ -70,15 +65,6 @@ class FakeTqApi:
         self.loop.run_until_complete(asyncio.sleep(0))
         assert deadline is not None
         return False
-
-    def get_trading_calendar(self, start_date, end_date):
-        self.calls.append("get_trading_calendar")
-        return pd.DataFrame(
-            {
-                "date": pd.date_range(start=start_date, end=end_date, freq="D"),
-                "trading": [True, False, False],
-            }
-        )
 
 
 def test_kline_trims_leading_placeholders_and_allows_short_response():
@@ -189,38 +175,6 @@ def test_serial_rejects_row_when_every_price_is_non_finite():
         normalize_tq_serial_frame(frame, "kline")
 
 
-def test_history_wide_frame_converts_to_long_records():
-    frame = pd.DataFrame(
-        {
-            "date": ["2026-06-10", "2026-06-11"],
-            "KQ.m@DCE.i": ["DCE.i2509", "DCE.i2510"],
-            "KQ.m@DCE.a": ["DCE.a2509", ""],
-            "KQ.m@DCE.b": [math.nan, math.nan],
-            "KQ.m@DCE.c": ["NaN", None],
-        }
-    )
-
-    result = history_wide_frame_to_records(frame)
-
-    assert result == [
-        {
-            "date": "2026-06-10",
-            "symbol": "KQ.m@DCE.i",
-            "underlying_symbol": "DCE.i2509",
-        },
-        {
-            "date": "2026-06-11",
-            "symbol": "KQ.m@DCE.i",
-            "underlying_symbol": "DCE.i2510",
-        },
-        {
-            "date": "2026-06-10",
-            "symbol": "KQ.m@DCE.a",
-            "underlying_symbol": "DCE.a2509",
-        },
-    ]
-
-
 def test_fetch_ohlcv_and_tick_advance_tq_message_loop(temp_dir):
     fake_api = FakeTqApi()
     manager = TqClient(
@@ -241,78 +195,6 @@ def test_fetch_ohlcv_and_tick_advance_tq_message_loop(temp_dir):
         "get_tick_serial",
         "wait_update",
     ]
-
-
-def test_fetch_trading_calendar_returns_complete_inclusive_daily_records(temp_dir):
-    fake_api = FakeTqApi()
-    manager = TqClient(TqConfig(), lock_path=temp_dir / "tq.lock")
-    manager._api = fake_api
-
-    records = manager.fetch_trading_calendar(
-        TqTradingCalendarRequest(
-            start_date=date(2026, 9, 11),
-            end_date=date(2026, 9, 13),
-        )
-    )
-
-    assert records == [
-        {"date": "2026-09-11", "trading": True},
-        {"date": "2026-09-12", "trading": False},
-        {"date": "2026-09-13", "trading": False},
-    ]
-    assert fake_api.calls == ["get_trading_calendar"]
-
-
-def test_trading_calendar_rejects_invalid_or_incomplete_provider_data(
-    temp_dir,
-    monkeypatch,
-):
-    invalid = pd.DataFrame(
-        {
-            "date": ["2026-09-11", "2026-09-11"],
-            "trading": [True, False],
-        }
-    )
-    with pytest.raises(TqDataFrameError, match="TQ_INVALID_TRADING_CALENDAR"):
-        trading_calendar_frame_to_records(invalid)
-
-    fake_api = FakeTqApi()
-    monkeypatch.setattr(
-        fake_api,
-        "get_trading_calendar",
-        lambda start, end: pd.DataFrame({"date": [start], "trading": [True]}),
-    )
-    manager = TqClient(TqConfig(), lock_path=temp_dir / "tq.lock")
-    manager._api = fake_api
-    request = TqTradingCalendarRequest(
-        start_date=date(2026, 9, 11),
-        end_date=date(2026, 9, 12),
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        manager.fetch_trading_calendar(request)
-
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "TQ_CALENDAR_INCOMPLETE"
-
-
-def test_underlying_items_require_cont_symbol(temp_dir):
-    manager = TqClient(None, lock_path=temp_dir / "tq.lock")
-    item = manager._underlying_item_from_row(
-        "DCE.i2509",
-        {
-            "underlying_symbol": "",
-            "ins_class": "FUTURE",
-            "exchange_id": "DCE",
-            "product_id": "i",
-        },
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        manager._validate_underlying_item(item)
-
-    assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == "TQ_NOT_CONT_SYMBOL"
 
 
 def test_tq_exception_mapping_prefers_adj_type_over_generic_param_error(temp_dir):

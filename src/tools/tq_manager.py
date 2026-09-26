@@ -1,5 +1,6 @@
 """TQ SDK 操作复用启动线程；交易状态独立读快照，请求不触发初始化。"""
 
+import asyncio
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,11 +11,15 @@ from typing import Any
 from fastapi import HTTPException
 
 from src.cache_tool import DuckDbOhlcvCache
-from src.responses_tq import TqTradingStatusResponse, TqUnderlyingSymbolResponse
+from src.responses_tq import (
+    TqTradingStatusResponse,
+    TqUnderlyingSymbolResponse,
+)
 from src.tools import tq_ohlcv
 from src.tools.config_types import TqConfig
 from src.tools.shared import config, service_runtime
 from src.tools.tq_client import TQ_HTTP_UPDATE_TIMEOUT_SECONDS, TqClient
+from src.tools.tq_metadata_query import TqMetadataQuery
 from src.tools.tq_worker import TqWorker
 from src.types_tq import (
     TqOhlcvRequest,
@@ -42,6 +47,8 @@ class TqManager:
         self._lifecycle = Condition()
         self._active = 0
         self._closing = False
+        self._metadata: TqMetadataQuery | None = None
+        self._metadata_tasks: set[asyncio.Task] = set()
 
     def initialize(self, cache: DuckDbOhlcvCache | None = None) -> None:
         self._cache = cache
@@ -53,10 +60,10 @@ class TqManager:
             self._access_guard("tq")
         return self._worker.call(operation)
 
-    def fetch_ohlcv(self, request: TqOhlcvRequest) -> list[dict[str, Any]]:
+    async def fetch_ohlcv(self, request: TqOhlcvRequest) -> list[dict[str, Any]]:
         with self._business_scope():
             try:
-                records = self.fetch_raw_ohlcv(request)
+                records = await asyncio.to_thread(self.fetch_raw_ohlcv, request)
             except HTTPException as exc:
                 if (
                     not tq_ohlcv.is_network_failure(exc)
@@ -64,10 +71,12 @@ class TqManager:
                     or request.duration_seconds > 604800
                 ):
                     raise
-                return self._closed_market_fallback(request, exc)
+                return await self._closed_market_fallback(request, exc)
             if self._worker.stop_event.is_set():
                 raise HTTPException(503, detail="TQ_NOT_READY")
-            return tq_ohlcv.cache_result(request, records, self._cache)
+            return await asyncio.to_thread(
+                tq_ohlcv.cache_result, request, records, self._cache
+            )
 
     def fetch_raw_ohlcv(
         self, request: TqOhlcvRequest, *, deadline: float | None = None
@@ -86,18 +95,18 @@ class TqManager:
             deadline=end,
         )
 
-    def _closed_market_fallback(self, request: TqOhlcvRequest, original: HTTPException):
+    async def _closed_market_fallback(
+        self, request: TqOhlcvRequest, original: HTTPException
+    ):
         symbol, resolve = tq_ohlcv.status_symbol(request.symbol)
         if resolve:
-            deadline = monotonic() + 10
             try:
-                symbol = self._worker.call(
-                    lambda: self._client.resolve_underlying(
-                        symbol, deadline, self._worker.stop_event
-                    ),
-                    deadline=deadline,
+                mapping = await self.fetch_underlying_symbol(
+                    TqUnderlyingSymbolRequest(symbol=symbol)
                 )
-                symbol = tq_ohlcv.require_actual_symbol(symbol)
+                symbol = tq_ohlcv.require_actual_symbol(
+                    mapping.items[0].underlying_symbol
+                )
             except HTTPException as exc:
                 if exc.status_code == 403:
                     raise
@@ -106,7 +115,9 @@ class TqManager:
                 ) from exc
         status = self._client.status_snapshot.read(symbol)
         if status.raw_status == "NOTRADING" and status.is_open is False:
-            return tq_ohlcv.closed_market_result(request, self._cache)
+            return await asyncio.to_thread(
+                tq_ohlcv.closed_market_result, request, self._cache
+            )
         if status.is_open is True or status.raw_status == "AUCTIONORDERING":
             raise original
         raise HTTPException(502, detail="TQ_TRADING_STATUS_UNAVAILABLE")
@@ -127,15 +138,68 @@ class TqManager:
     def fetch_tick(self, request: TqTickRequest) -> list[dict[str, Any]]:
         return self._call(lambda: self._client.fetch_tick(request))
 
-    def fetch_underlying_symbol(
+    def _metadata_query(self) -> TqMetadataQuery:
+        if self._access_guard is not None:
+            self._access_guard("tq")
+        if self._closing:
+            raise HTTPException(503, "TQ_NOT_READY")
+        if self._metadata is None:
+            self._metadata = TqMetadataQuery(
+                self._cache, self._metadata_headers, self._mapping_reference
+            )
+        return self._metadata
+
+    async def _metadata_headers(self):
+        deadline = monotonic() + 10
+        return await asyncio.to_thread(
+            self._worker.call, self._client.metadata_headers, deadline=deadline
+        )
+
+    async def _mapping_reference(self, symbol):
+        deadline = monotonic() + 10
+        return await asyncio.to_thread(
+            self._worker.call,
+            lambda: self._client.fetch_mapping_reference_time(
+                symbol, deadline, self._worker.stop_event
+            ),
+            deadline=deadline,
+        )
+
+    async def fetch_underlying_symbol(
         self, request: TqUnderlyingSymbolRequest
     ) -> TqUnderlyingSymbolResponse:
-        return self._call(lambda: self._client.fetch_underlying_symbol(request))
+        query = self._metadata_query()
+        task = asyncio.current_task()
+        assert task is not None
+        self._metadata_tasks.add(task)
+        try:
+            with self._business_scope():
+                return await query.mapping(request)
+        finally:
+            self._metadata_tasks.discard(task)
 
-    def fetch_trading_calendar(
+    async def fetch_trading_calendar(
         self, request: TqTradingCalendarRequest
     ) -> list[dict[str, object]]:
-        return self._call(lambda: self._client.fetch_trading_calendar(request))
+        query = self._metadata_query()
+        task = asyncio.current_task()
+        assert task is not None
+        self._metadata_tasks.add(task)
+        try:
+            with self._business_scope():
+                return await query.calendar(request)
+        finally:
+            self._metadata_tasks.discard(task)
+
+    async def close_metadata(self):
+        self._closing = True
+        tasks = list(self._metadata_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        if self._metadata is not None:
+            await self._metadata.close()
+            self._metadata = None
 
     def fetch_trading_status(
         self, request: TqTradingStatusRequest

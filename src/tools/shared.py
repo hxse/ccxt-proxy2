@@ -33,8 +33,13 @@ async def _finish_lifespan(
     # 等线程中的初始化退出后再清理，避免 close 之后又创建新的连接。
     # 启动异常由 lifespan 的首次 await 传播；取消时也必须取回任务结果。
     await asyncio.gather(startup, return_exceptions=True)
+    from src.tools.tq_manager import tq_manager
+
     try:
-        await run_in_threadpool(service_runtime.close)
+        try:
+            await tq_manager.close_metadata()
+        finally:
+            await run_in_threadpool(service_runtime.close)
     finally:
         try:
             await close_cfb()

@@ -47,8 +47,13 @@ def fake_managers(events, fail=None):
             if fail == name:
                 raise RuntimeError("offline initialization failed")
 
+        async def close_metadata():
+            pass
+
         return SimpleNamespace(
-            initialize=initialize, close=lambda: events.append("close:" + name)
+            initialize=initialize,
+            close=lambda: events.append("close:" + name),
+            close_metadata=close_metadata,
         )
 
     return [manager(name) for name in ("ccxt", "tq", "ctp")]

@@ -30,3 +30,7 @@ HTTP 鉴权、公共取时和业务日期转换是不同职责。当前公共函
 路由和响应模型见 [system_router.py](../../src/router/system_router.py) 与 [responses_time.py](../../src/responses_time.py)。[Bruno 示例](../../bruno/SYSTEM/fetch_time.bru)通过 `just bru-public-time` 手动运行。
 
 离线测试模拟 HTTP，验证原值保留、参数与鉴权、错误映射、整次等待时限，以及每次调用不重试。真实公共时间来自[币安时间接口](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/general#time)，部署环境需要能够访问该地址。
+
+## 元数据业务使用
+
+TQ 日历/历史映射复用 fetch_public_time 公共函数，每个请求固定一次可信时间；不经本机 HTTP 回调，不接受客户端 now，不回退本机日期。历史映射的已生效日还需实际主连行情时间，不能仅将周末在线日期推到下周。仅当前主连 items 查询也固定一次在线时间和实际参考行情日期。源规则见 [TQ 元数据](tq_metadata.md)。单调时钟和本机时间用于 SDK/HTTP 等待 deadline，不用于判断交易历史生效。

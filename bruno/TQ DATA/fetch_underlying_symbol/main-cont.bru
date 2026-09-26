@@ -5,14 +5,15 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/tq/fetch_underlying_symbol?symbol=KQ.m@SHFE.rb&n=3
+  url: {{baseUrl}}/tq/fetch_underlying_symbol?symbol=KQ.m@SHFE.rb&start_time=1790125200000000000&end_time=1790211600000000000
   body: none
   auth: inherit
 }
 
 params:query {
   symbol: KQ.m@SHFE.rb
-  n: 3
+  start_time: 1790125200000000000
+  end_time: 1790211600000000000
 }
 
 assert {

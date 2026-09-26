@@ -1,4 +1,6 @@
-SCHEMA_VERSION = "2"
+from src.cache_tool.metadata_schema import upgrade_metadata
+
+SCHEMA_VERSION = "3"
 
 
 def _ensure_schema(connection) -> None:
@@ -13,7 +15,7 @@ def _ensure_schema(connection) -> None:
     version = connection.execute(
         "SELECT value FROM cache_meta WHERE key='schema_version'"
     ).fetchone()[0]
-    if version not in ("1", SCHEMA_VERSION):
+    if version not in ("1", "2", SCHEMA_VERSION):
         raise RuntimeError(f"unsupported cache schema version: {version}")
     connection.execute("""
         CREATE TABLE IF NOT EXISTS cache_segments (
@@ -46,9 +48,12 @@ def _ensure_schema(connection) -> None:
         connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN sdk_id BIGINT")
         connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN open_oi DOUBLE")
         connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN close_oi DOUBLE")
-        connection.execute(
-            "UPDATE cache_meta SET value=? WHERE key='schema_version'", [SCHEMA_VERSION]
-        )
+        version = "2"
+    if version == "2":
+        upgrade_metadata(connection)
+    connection.execute(
+        "UPDATE cache_meta SET value=? WHERE key='schema_version'", [SCHEMA_VERSION]
+    )
 
 
 def ensure_schema(connection) -> None:

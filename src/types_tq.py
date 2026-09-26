@@ -11,12 +11,10 @@ from src.tq_validation import (
     _http_validation_error,
     _normalize_duration_seconds,
     _normalize_symbol,
-    _normalize_symbol_input,
     _validate_adj_type,
     _validate_calendar_range,
     _validate_data_length,
     _validate_duration_seconds,
-    _validate_n,
     _validate_symbol,
     _validate_symbols,
 )
@@ -78,17 +76,39 @@ class TqTickRequest(BaseModel):
 class TqUnderlyingSymbolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    symbol: str | list[str] = Field(..., title="TQ 主连 symbol")
-    n: int | None = Field(None, gt=0, title="最近 N 个交易日的主连映射")
+    symbol: str = Field(..., title="单个 TQ 主连 symbol")
+    start_time: int | None = Field(
+        None,
+        strict=True,
+        gt=0,
+        le=2**63 - 1,
+        description="包含式历史起点，整数 Unix 纳秒",
+    )
+    end_time: int | None = Field(
+        None,
+        strict=True,
+        gt=0,
+        le=2**63 - 1,
+        description="包含式历史终点，整数 Unix 纳秒",
+    )
+    enable_cache: bool = True
 
     @field_validator("symbol")
     @classmethod
-    def validate_symbol(cls, symbol: str | list[str]) -> str | list[str]:
-        return _normalize_symbol_input(symbol)
+    def validate_symbol(cls, symbol: str) -> str:
+        return _normalize_symbol(symbol)
 
-    @property
-    def symbol_list(self) -> list[str]:
-        return self.symbol if isinstance(self.symbol, list) else [self.symbol]
+    @model_validator(mode="after")
+    def validate_range(self):
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError("TQ_INVALID_DATE_RANGE")
+        if (
+            self.start_time is not None
+            and self.end_time is not None
+            and self.start_time > self.end_time
+        ):
+            raise ValueError("TQ_INVALID_DATE_RANGE")
+        return self
 
 
 class TqTradingCalendarRequest(BaseModel):
@@ -106,6 +126,8 @@ class TqTradingCalendarRequest(BaseModel):
             "仅为 YYYY-MM-DD date，不是 UTC 时间戳，不做时区换算。"
         )
     )
+
+    enable_cache: bool = Field(True, description="启用日历缓存；仍先在线检查官方覆盖")
 
     @model_validator(mode="after")
     def validate_range(self) -> "TqTradingCalendarRequest":
@@ -249,33 +271,37 @@ def tq_underlying_symbol_request(
     symbol: Annotated[
         list[str],
         Query(
-            title="TQ 主连 symbol",
-            description=(
-                "TQ 主连 symbol。单个主连传一个 symbol；多个主连用重复 query "
-                "参数传多个同名 symbol。典型格式为 KQ.m@DCE.i。"
-            ),
-            examples=["KQ.m@DCE.i"],
+            description="一个完整 CONT 主连代码；重复 symbol 拒绝",
+            examples=["KQ.m@SHFE.rb"],
         ),
     ],
-    n: Annotated[
+    start_time: Annotated[
         int | None,
-        Query(
-            title="最近 N 个交易日的主连映射",
-            description=(
-                "可选。传入后额外调用 TQ query_his_cont_quotes(symbol, n=n)，"
-                "返回最近 N 个交易日的主连标的映射；不传时只返回当前标的。"
-            ),
-            examples=[20],
-            json_schema_extra={"exclusiveMinimum": 0},
-        ),
+        Query(description="包含式起点，正整数 Unix 纳秒", gt=0, le=2**63 - 1),
     ] = None,
+    end_time: Annotated[
+        int | None,
+        Query(description="包含式终点，正整数 Unix 纳秒", gt=0, le=2**63 - 1),
+    ] = None,
+    enable_cache: Annotated[
+        bool, Query(description="项目缓存读写；自动核验仍执行")
+    ] = True,
 ) -> TqUnderlyingSymbolRequest:
-    reject_unknown_query_params(request, {"symbol", "n"})
+    reject_unknown_query_params(
+        request, {"symbol", "start_time", "end_time", "enable_cache"}
+    )
     symbols = _validate_symbols(symbol)
-    request_symbol: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
+    if len(symbols) != 1:
+        raise _http_validation_error("TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED")
+    if (start_time is None) != (end_time is None) or (
+        start_time is not None and end_time is not None and start_time > end_time
+    ):
+        raise _http_validation_error("TQ_INVALID_DATE_RANGE")
     return TqUnderlyingSymbolRequest(
-        symbol=request_symbol,
-        n=_validate_n(n),
+        symbol=symbols[0],
+        start_time=start_time,
+        end_time=end_time,
+        enable_cache=enable_cache,
     )
 
 
@@ -305,7 +331,12 @@ def tq_trading_calendar_request(
             examples=["2026-09-30"],
         ),
     ],
+    enable_cache: Annotated[
+        bool, Query(description="启用项目缓存；仍自动核验官方覆盖")
+    ] = True,
 ) -> TqTradingCalendarRequest:
-    reject_unknown_query_params(request, {"start_date", "end_date"})
+    reject_unknown_query_params(request, {"start_date", "end_date", "enable_cache"})
     _validate_calendar_range(start_date, end_date)
-    return TqTradingCalendarRequest(start_date=start_date, end_date=end_date)
+    return TqTradingCalendarRequest(
+        start_date=start_date, end_date=end_date, enable_cache=enable_cache
+    )

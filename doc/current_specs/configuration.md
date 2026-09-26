@@ -128,3 +128,5 @@ docker run -d -p 5123:8000 \
 - 旧 exchange_whitelist：`uv run --no-sync python scripts/migrate_service_whitelist.py`。
 
 工具核对后保留原文件备份；配置和备份权限为 0600，既有目标或备份不覆盖。白名单迁移保留原 CCXT 身份，并显式列出原已配置的 TQ/CTP 模式。新旧白名单不能混用；旧 CCXT_PROXY_ENV_FILE 应改为 CCXT_PROXY_CONFIG_PATH。迁移后核对内容并重启应用。
+
+TQ 自有元数据源沿用集中读取的 TQ_CHINESE_HOLIDAY_URL、TQ_CONT_TABLE_URL。不新增登录配置或 refresh_source 开关；下载头取自已初始化 SDK，应用关闭时先停止元数据任务并释放 HTTP 客户端。

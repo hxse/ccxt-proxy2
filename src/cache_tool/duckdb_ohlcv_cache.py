@@ -1,13 +1,15 @@
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
-from src.cache_tool import ohlcv_readers
+from src.cache_tool import metadata_store, ohlcv_readers
 from src.cache_tool.duckdb_schema import ensure_schema
+from src.cache_tool.metadata_models import CalendarSourceResult, MappingSourceResult
 from src.cache_tool.models import (
     OhlcvResult,
     OhlcvRow,
@@ -18,6 +20,7 @@ from src.cache_tool.models import (
     tq_storage_rows,
 )
 from src.cache_tool.ohlcv_capacity import OhlcvCapacity
+from src.cache_tool.segments import select_segment
 from src.domain_errors import CacheCapacityExceeded
 
 
@@ -146,40 +149,81 @@ class DuckDbOhlcvCache(OhlcvCapacity):
         if covered_from > first_time:
             raise ValueError("verified_covered_from must not exceed first row time")
 
+        with self._transaction() as connection:
+            conflict = connection.execute(
+                "SELECT 1 FROM cache_segments WHERE series_key=? AND (data_kind<>'ohlcv' OR time_unit<>?) LIMIT 1",
+                [series_key, time_unit],
+            ).fetchone()
+            if conflict:
+                raise ValueError("series kind/unit conflict")
+            self._load_incoming(connection, rows)
+            segment_id, absorbed, existing_coverage = self._select_segment(
+                connection, series_key
+            )
+            coverage = min([covered_from, *existing_coverage])
+            self._merge_into_segment(
+                connection,
+                series_key,
+                segment_id,
+                absorbed,
+                coverage,
+                rows,
+                time_unit,
+            )
+            try:
+                self._enforce_capacity(connection, series_key)
+            except CacheCapacityExceeded:
+                raise
+            except Exception as exc:
+                raise CacheCapacityExceeded("cache eviction failed") from exc
+
+    @contextmanager
+    def _transaction(self):
         with self._write_lock:
             connection = self._connection()
             connection.execute("BEGIN TRANSACTION")
             try:
-                conflict = connection.execute(
-                    "SELECT 1 FROM cache_segments WHERE series_key=? AND (data_kind<>'ohlcv' OR time_unit<>?) LIMIT 1",
-                    [series_key, time_unit],
-                ).fetchone()
-                if conflict:
-                    raise ValueError("series kind/unit conflict")
-                self._load_incoming(connection, rows)
-                segment_id, absorbed, existing_coverage = self._select_segment(
-                    connection, series_key
-                )
-                coverage = min([covered_from, *existing_coverage])
-                self._merge_into_segment(
-                    connection,
-                    series_key,
-                    segment_id,
-                    absorbed,
-                    coverage,
-                    rows,
-                    time_unit,
-                )
-                try:
-                    self._enforce_capacity(connection, series_key)
-                except CacheCapacityExceeded:
-                    raise
-                except Exception as exc:
-                    raise CacheCapacityExceeded("cache eviction failed") from exc
+                yield connection
                 connection.execute("COMMIT")
-            except Exception:
+            except BaseException:
                 connection.execute("ROLLBACK")
                 raise
+
+    @contextmanager
+    def _read_transaction(self):
+        with self._reader_scope():
+            connection = self._connection()
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                yield connection
+                connection.execute("COMMIT")
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+
+    def read_calendar_range(self, start: date, end: date):
+        with self._read_transaction() as connection:
+            return metadata_store.read_calendar(connection, start, end)
+
+    def submit_calendar(self, result: CalendarSourceResult) -> None:
+        with self._transaction() as connection:
+            metadata_store.submit_calendar(connection, result)
+
+    def read_mapping_range(self, symbol: str, dates: list[date], max_date: date):
+        with self._read_transaction() as connection:
+            return metadata_store.read_mapping(connection, symbol, dates, max_date)
+
+    def submit_mapping(self, result: MappingSourceResult) -> None:
+        with self._transaction() as connection:
+            metadata_store.submit_mapping(connection, result)
+
+    def read_matching_mapping(self, result: MappingSourceResult):
+        with self._read_transaction() as connection:
+            return metadata_store.read_matching_mapping(connection, result)
+
+    def read_metadata_facts(self, kind: str, symbol: str | None = None):
+        with self._reader_scope():
+            return metadata_store.read_facts(self._connection(), kind, symbol)
 
     def close(self) -> None:
         with self._write_lock:
@@ -257,27 +301,9 @@ class DuckDbOhlcvCache(OhlcvCapacity):
         )
 
     def _select_segment(self, connection, series_key: str):
-        overlapping = connection.execute(
-            """
-            SELECT s.segment_id, s.covered_from, s.row_count
-            FROM cache_segments AS s
-            WHERE s.data_kind='ohlcv' AND s.series_key = ? AND EXISTS (
-                SELECT 1 FROM ohlcv_rows AS r JOIN incoming_ohlcv AS i ON i.time=r.time
-                WHERE r.segment_id=s.segment_id
-            )
-            ORDER BY s.row_count DESC, s.segment_id ASC
-        """,
-            [series_key],
-        ).fetchall()
-        if not overlapping:
-            segment_id = connection.execute(
-                "SELECT nextval('cache_segment_id_seq')"
-            ).fetchone()[0]
-            return segment_id, [], []
-        segment_id = overlapping[0][0]
-        absorbed = [row[0] for row in overlapping[1:]]
-        coverage = [row[1] for row in overlapping]
-        return segment_id, absorbed, coverage
+        return select_segment(
+            connection, series_key, "ohlcv", "ohlcv_rows", "time", "incoming_ohlcv"
+        )
 
     def _merge_into_segment(
         self,

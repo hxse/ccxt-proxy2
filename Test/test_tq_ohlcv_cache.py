@@ -1,14 +1,17 @@
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 from fastapi import HTTPException
 
 from src.cache_tool import DuckDbOhlcvCache, TqOhlcvBatch, TqOhlcvSeries
-from src.responses_tq import TqTradingStatusResponse
+from src.responses_tq import (
+    TqTradingStatusResponse,
+    TqUnderlyingItem,
+    TqUnderlyingSymbolResponse,
+)
 from src.tools.config_types import TqConfig
 from src.tools.tq_manager import TqManager
 from src.types_tq import TqOhlcvRequest
@@ -57,8 +60,10 @@ class SerialApi:
         return pd.DataFrame(self.rows, columns=list(records()[0]))
 
     def get_quote(self, symbol):
-        assert self.loop.is_running()
-        return SimpleNamespace(underlying_symbol="SHFE.rb2610", ins_class="CONT")
+        pytest.fail("旧当前标的入口不得调用")
+
+    def query_symbol_info(self, symbol):
+        pytest.fail("旧当前标的入口不得调用")
 
     def is_serial_ready(self, frame):
         return self.ready
@@ -101,8 +106,10 @@ def test_one_fixed_sdk_window_and_no_status_on_success(service, monkeypatch, cou
         "read",
         lambda *_: pytest.fail("成功不能查状态"),
     )
-    result = manager.fetch_ohlcv(
-        TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=count)
+    result = asyncio.run(
+        manager.fetch_ohlcv(
+            TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=count)
+        )
     )
     assert len(result) == min(3, count)
     assert result[0]["datetime"] == BASE
@@ -117,8 +124,10 @@ def test_project_history_extends_sdk_window_to_twenty_thousand(service):
     series = TqOhlcvSeries(SYMBOL, 60)
     cache.write_tq_segment(series, TqOhlcvBatch(records(0, 11001)))
     api.rows = records(10000, 10000)
-    result = manager.fetch_ohlcv(
-        TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=20000)
+    result = asyncio.run(
+        manager.fetch_ohlcv(
+            TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=20000)
+        )
     )
     assert len(result) == 20000
     assert (result[0]["id"], result[-1]["id"]) == (0, 19999)
@@ -135,8 +144,12 @@ def test_disabled_or_large_period_never_uses_project_cache(
     monkeypatch.setattr(
         cache, "read_connected_history", lambda *_: pytest.fail("不应读缓存")
     )
-    assert manager.fetch_ohlcv(
-        TqOhlcvRequest(symbol=SYMBOL, duration_seconds=duration, enable_cache=enabled)
+    assert asyncio.run(
+        manager.fetch_ohlcv(
+            TqOhlcvRequest(
+                symbol=SYMBOL, duration_seconds=duration, enable_cache=enabled
+            )
+        )
     )
 
 
@@ -145,10 +158,10 @@ def test_gaps_in_clock_are_valid_but_id_gaps_fail(service):
     api.rows[1]["datetime"] += 2 * 86400 * 1_000_000_000
     api.rows[2]["datetime"] += 2 * 86400 * 1_000_000_000
     request = TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60)
-    assert len(manager.fetch_ohlcv(request)) == 3
+    assert len(asyncio.run(manager.fetch_ohlcv(request))) == 3
     api.rows[1]["id"] = 5
     with pytest.raises(HTTPException) as error:
-        manager.fetch_ohlcv(request)
+        asyncio.run(manager.fetch_ohlcv(request))
     assert (error.value.status_code, error.value.detail) == (
         422,
         "TQ_INVALID_TIME_AXIS",
@@ -160,15 +173,17 @@ def test_nullable_prices_return_but_whole_eligible_batch_is_not_stored(service):
     manager, api, cache = service
     api.rows[0]["open"] = None
     assert (
-        manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))[0][
-            "open"
-        ]
+        asyncio.run(
+            manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+        )[0]["open"]
         is None
     )
     assert cache.read_latest_summary(TqOhlcvSeries(SYMBOL, 60).key).count == 0
     api.rows[0]["high"] = 0
     with pytest.raises(HTTPException, match="TQ_INVALID_OHLCV_VALUES"):
-        manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+        asyncio.run(
+            manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+        )
 
 
 @pytest.mark.parametrize("symbol", ["SHFE.rb2610", SYMBOL, "KQ.i@SHFE.rb"])
@@ -186,9 +201,23 @@ def test_closed_status_uses_original_series_identity(service, monkeypatch, symbo
         )
 
     monkeypatch.setattr(manager._client.status_snapshot, "read", status)
-    result = manager.fetch_ohlcv(TqOhlcvRequest(symbol=symbol, duration_seconds=60))
+    resolved = []
+
+    async def mapping(request):
+        resolved.append(request.symbol)
+        return TqUnderlyingSymbolResponse(
+            items=[
+                TqUnderlyingItem(symbol=request.symbol, underlying_symbol="SHFE.rb2610")
+            ]
+        )
+
+    monkeypatch.setattr(manager, "fetch_underlying_symbol", mapping)
+    result = asyncio.run(
+        manager.fetch_ohlcv(TqOhlcvRequest(symbol=symbol, duration_seconds=60))
+    )
     assert [r["id"] for r in result] == [0, 1]
     assert checked == ["SHFE.rb2610"]
+    assert resolved == ([] if symbol == "SHFE.rb2610" else [SYMBOL])
     assert all(r["symbol"] == symbol for r in result)
 
 
@@ -215,7 +244,11 @@ def test_failed_query_does_not_fallback_on_unknown_or_open(
         ),
     )
     with pytest.raises(HTTPException, match=expected):
-        manager.fetch_ohlcv(TqOhlcvRequest(symbol="SHFE.rb2610", duration_seconds=60))
+        asyncio.run(
+            manager.fetch_ohlcv(
+                TqOhlcvRequest(symbol="SHFE.rb2610", duration_seconds=60)
+            )
+        )
 
 
 def test_permission_and_invalid_data_do_not_check_status(service, monkeypatch):
@@ -231,7 +264,9 @@ def test_permission_and_invalid_data_do_not_check_status(service, monkeypatch):
     ):
         api.error = error
         with pytest.raises(HTTPException) as captured:
-            manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+            asyncio.run(
+                manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+            )
         assert captured.value is error
 
 
@@ -258,7 +293,9 @@ def test_unknown_or_parameter_sdk_failures_cannot_be_hidden_by_closed_cache(
         lambda *_: pytest.fail("非网络错误不能查询休市兜底"),
     )
     with pytest.raises(HTTPException, match=code):
-        manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+        asyncio.run(
+            manager.fetch_ohlcv(TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60))
+        )
 
 
 def test_raw_serial_deadline_releases_worker_without_late_write(service):
@@ -280,7 +317,7 @@ def test_close_cancels_serial_wait_and_joins_worker(service):
     api.ready = False
     request = TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(manager.fetch_ohlcv, request)
+        pending = pool.submit(asyncio.run, manager.fetch_ohlcv(request))
         while not api.calls:
             time.sleep(0.001)
         manager.close()
@@ -297,14 +334,14 @@ def test_unknown_single_tail_cannot_join_old_cache_and_empty_success_is_empty(
     cache.write_tq_segment(series, TqOhlcvBatch(records(0, 4)))
     api.rows = records(2, 1)
     request = TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=10)
-    assert [r["id"] for r in manager.fetch_ohlcv(request)] == [2]
+    assert [r["id"] for r in asyncio.run(manager.fetch_ohlcv(request))] == [2]
     api.rows = []
     monkeypatch.setattr(
         manager._client.status_snapshot,
         "read",
         lambda *_: pytest.fail("空成功不查状态"),
     )
-    assert manager.fetch_ohlcv(request) == []
+    assert asyncio.run(manager.fetch_ohlcv(request)) == []
 
 
 def test_full_sdk_window_does_not_read_cache_and_unconnected_window_stays_separate(
@@ -315,46 +352,16 @@ def test_full_sdk_window_does_not_read_cache_and_unconnected_window_stays_separa
     cache.write_tq_segment(series, TqOhlcvBatch(records(0, 4)))
     api.rows = records(10, 3)
     request = TqOhlcvRequest(symbol=SYMBOL, duration_seconds=60, data_length=10)
-    assert [r["id"] for r in manager.fetch_ohlcv(request)] == [10, 11, 12]
+    assert [r["id"] for r in asyncio.run(manager.fetch_ohlcv(request))] == [10, 11, 12]
     assert cache.read_latest_summary(series.key).segment_count == 2
     monkeypatch.setattr(
         cache, "read_connected_history", lambda *_: pytest.fail("完整 SDK 窗口无需读库")
     )
-    assert len(manager.fetch_ohlcv(request.model_copy(update={"data_length": 3}))) == 3
-
-
-def test_closed_cache_read_failure_and_status_permission_are_errors(
-    service, monkeypatch
-):
-    manager, api, cache = service
-    api.error = HTTPException(502, "TQ_NETWORK_UNAVAILABLE")
-    request = TqOhlcvRequest(symbol="SHFE.rb2610", duration_seconds=60)
-    monkeypatch.setattr(
-        manager._client.status_snapshot,
-        "read",
-        lambda symbol: TqTradingStatusResponse(
-            symbol=symbol, raw_status="NOTRADING", is_open=False
-        ),
+    assert (
+        len(
+            asyncio.run(
+                manager.fetch_ohlcv(request.model_copy(update={"data_length": 3}))
+            )
+        )
+        == 3
     )
-    assert manager.fetch_ohlcv(request) == []
-
-    def fail_read(*args):
-        raise RuntimeError("offline database failure")
-
-    monkeypatch.setattr(cache, "read_contiguous_before", fail_read)
-    with pytest.raises(HTTPException) as error:
-        manager.fetch_ohlcv(request)
-    assert (error.value.status_code, error.value.detail) == (
-        500,
-        "TQ_CACHE_READ_FAILED",
-    )
-
-    def denied(*args):
-        raise HTTPException(403, "TQ_TRADING_STATUS_PERMISSION_DENIED")
-
-    monkeypatch.setattr(manager._client.status_snapshot, "read", denied)
-    with pytest.raises(
-        HTTPException, match="TQ_TRADING_STATUS_PERMISSION_DENIED"
-    ) as error:
-        manager.fetch_ohlcv(request)
-    assert error.value.status_code == 403

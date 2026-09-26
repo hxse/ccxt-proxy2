@@ -1,4 +1,3 @@
-from datetime import date, datetime
 from typing import Any, Literal
 
 import numpy as np
@@ -90,55 +89,6 @@ def sanitize_json_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return target.astype(object).where(pd.notna(target), None)
 
 
-def history_wide_frame_to_records(frame: Any) -> list[dict[str, Any]]:
-    target = to_pandas_frame(frame)
-    if target.empty:
-        return []
-    _ensure_columns(target, ("date",))
-    symbol_columns = [column for column in target.columns if column != "date"]
-    if not symbol_columns:
-        return []
-
-    long_frame = target.melt(
-        id_vars=["date"],
-        value_vars=symbol_columns,
-        var_name="symbol",
-        value_name="underlying_symbol",
-    )
-    text = long_frame["underlying_symbol"].astype("string").str.strip()
-    valid = text.notna() & text.ne("") & text.str.lower().ne("nan")
-    long_frame = long_frame.loc[valid].copy()
-    long_frame["underlying_symbol"] = text.loc[valid].astype(str)
-    long_frame["date"] = long_frame["date"].map(_stringify_date)
-    return sanitize_json_frame(long_frame).to_dict(orient="records")
-
-
-def trading_calendar_frame_to_records(frame: Any) -> list[dict[str, object]]:
-    target = to_pandas_frame(frame)
-    _ensure_columns(target, ("date", "trading"))
-    if target.empty:
-        return []
-
-    dates = pd.to_datetime(target["date"], errors="coerce")
-    if (
-        dates.isna().any()
-        or dates.duplicated().any()
-        or dates.diff().dropna().le(pd.Timedelta(0)).any()
-    ):
-        raise TqDataFrameError("TQ_INVALID_TRADING_CALENDAR")
-
-    trading = target["trading"]
-    if trading.isna().any() or any(
-        not isinstance(value, (bool, np.bool_)) for value in trading
-    ):
-        raise TqDataFrameError("TQ_INVALID_TRADING_CALENDAR")
-
-    return [
-        {"date": timestamp.date().isoformat(), "trading": bool(is_trading)}
-        for timestamp, is_trading in zip(dates, trading)
-    ]
-
-
 def frame_rows(frame: Any) -> list[dict[str, Any]]:
     return sanitize_json_frame(to_pandas_frame(frame)).to_dict(orient="records")
 
@@ -146,13 +96,3 @@ def frame_rows(frame: Any) -> list[dict[str, Any]]:
 def _ensure_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
     if any(column not in frame.columns for column in columns):
         raise TqDataFrameError()
-
-
-def _stringify_date(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    return str(value)

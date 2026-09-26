@@ -132,7 +132,8 @@ def test_tq_openapi_query_schema_documents_bounds_and_adj_type_enum():
     assert tick["data_length"]["minimum"] == 1
     assert tick["data_length"]["maximum"] == MAX_TQ_DATA_LENGTH
     assert tick["adj_type"]["enum"] == TQ_ADJ_TYPE_QUERY_ENUM
-    assert underlying["n"]["exclusiveMinimum"] == 0
+    assert "n" not in underlying
+    assert underlying["enable_cache"]["default"] is True
 
     calendar = {item["name"]: item for item in paths["/calendar"]["get"]["parameters"]}
     assert calendar["start_date"]["schema"]["format"] == "date"
@@ -155,7 +156,7 @@ def test_tq_request_models_enforce_internal_contract():
     with pytest.raises(ValidationError):
         TqTickRequest(symbol=" ", data_length=10)
     with pytest.raises(ValidationError):
-        TqUnderlyingSymbolRequest(symbol="KQ.m@DCE.i", n=0)
+        TqUnderlyingSymbolRequest.model_validate({"symbol": "KQ.m@DCE.i", "n": 0})
     with pytest.raises(ValidationError, match="TQ_INVALID_DATE_RANGE"):
         TqTradingCalendarRequest(
             start_date=date(2026, 9, 2),
@@ -163,15 +164,20 @@ def test_tq_request_models_enforce_internal_contract():
         )
 
 
-def test_underlying_request_preserves_repeated_symbol_params():
-    request = tq_underlying_symbol_request(
-        _query_request(),
-        symbol=["KQ.m@DCE.i", "KQ.m@DCE.a"],
-        n=20,
-    )
-
-    assert request.symbol == ["KQ.m@DCE.i", "KQ.m@DCE.a"]
-    assert request.n == 20
+def test_underlying_request_rejects_multiple_symbols_and_old_n():
+    with pytest.raises(HTTPException, match="TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED"):
+        tq_underlying_symbol_request(
+            _query_request(), symbol=["KQ.m@DCE.i", "KQ.m@DCE.a"]
+        )
+    with pytest.raises(HTTPException) as error:
+        tq_underlying_symbol_request(
+            _query_request(b"symbol=KQ.m%40DCE.i&n=20"), symbol=["KQ.m@DCE.i"]
+        )
+    assert error.value.status_code == 422
+    with pytest.raises(HTTPException, match="TQ_INVALID_DATE_RANGE"):
+        tq_underlying_symbol_request(
+            _query_request(), symbol=["KQ.m@DCE.i"], start_time=1790211600000000000
+        )
 
 
 def test_tq_dependency_rejects_unknown_query_parameters():
@@ -228,7 +234,7 @@ def test_trading_calendar_http_route_parses_dates_and_serializes_response(
 ):
     captured: list[TqTradingCalendarRequest] = []
 
-    def fetch(request: TqTradingCalendarRequest):
+    async def fetch(request: TqTradingCalendarRequest):
         captured.append(request)
         return [
             {"date": "2026-09-11", "trading": True},

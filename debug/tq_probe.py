@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import json
 from typing import Any
 
@@ -30,22 +31,23 @@ def main() -> None:
 
     underlying = subparsers.add_parser("underlying")
     underlying.add_argument("--symbol", required=True)
-    underlying.add_argument("--n", default=None)
+    underlying.add_argument("--start-time", type=int, default=None)
+    underlying.add_argument("--end-time", type=int, default=None)
 
     args = parser.parse_args()
     if not any(item.service == "tq" for item in config.service_whitelist):
         parser.error("tq is not enabled in service_whitelist")
     try:
         tq_manager.initialize()
-        _query(args)
+        asyncio.run(_query(args))
     finally:
         tq_manager.close()
 
 
-def _query(args):
+async def _query(args):
 
     if args.command == "ohlcv":
-        result = tq_manager.fetch_ohlcv(
+        result = await tq_manager.fetch_ohlcv(
             TqOhlcvRequest(
                 symbol=args.symbol,
                 duration_seconds=args.duration_seconds,
@@ -67,11 +69,15 @@ def _query(args):
         _print_json(result)
         return
 
-    n = int(args.n) if args.n not in (None, "") else None
-    result = tq_manager.fetch_underlying_symbol(
-        TqUnderlyingSymbolRequest(symbol=args.symbol, n=n)
-    )
-    _print_json(result.model_dump())
+    try:
+        result = await tq_manager.fetch_underlying_symbol(
+            TqUnderlyingSymbolRequest(
+                symbol=args.symbol, start_time=args.start_time, end_time=args.end_time
+            )
+        )
+        _print_json(result.model_dump())
+    finally:
+        await tq_manager.close_metadata()
 
 
 if __name__ == "__main__":

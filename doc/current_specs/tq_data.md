@@ -4,7 +4,7 @@
 
 TQ 获取算法独立于 CCXT；普通 K 线只使用最新数量窗口，Tick 不落项目缓存。OHLCV 单次请求 min(N,10000)，成功后复用共享缓存的原有时间戳交集与片段证明；不用 since、interval 推算或窗口试探。
 
-普通行情详情见下文，片段身份和持久化规则见[共享缓存规范](ohlcv_cache_storage.md)。主连映射和日历此时仍使用各自原入口。
+普通行情详情见下文，片段身份和持久化规则见[共享缓存规范](ohlcv_cache_storage.md)。日历和历史映射走[自有元数据链](tq_metadata.md)。
 
 ## HTTP 路由
 
@@ -25,9 +25,6 @@ GET /tq/fetch_trading_status
 ```python
 api.get_kline_serial(symbol, duration_seconds, data_length, adj_type=None)
 api.get_tick_serial(symbol, data_length, adj_type=None)
-api.query_symbol_info(symbol)
-api.query_his_cont_quotes(symbol, n=n)
-api.get_trading_calendar(start_dt, end_dt)
 ```
 
 SDK `data_length` 范围为 `1..10000`，默认 10000；项目 OHLCV 请求可指定最多 100000，超出的连续历史由项目缓存补充。它是固定宽度滚动窗口的上限，不保证响应一定有该数量。服务运行更久不会让同一 serial 返回超过 `data_length` 的 rows。
@@ -36,7 +33,7 @@ SDK `data_length` 范围为 `1..10000`，默认 10000；项目 OHLCV 请求可�
 
 专业版历史接口 `get_kline_data_series/get_tick_data_series` 不属于当前实现能力，也不依赖其 `~/.tqsdk/data_series_1` 磁盘 cache。
 
-当前日历和历史主连表由 SDK 首次下载后在进程内静态复用；反复调用路由不等于每次重新取得官方源。历史 n 查询还使用 SDK 当前时间；项目目前未将其替换为公共在线时间。日历源的最后节假日、SDK 展开的有效年份范围和请求结果末日是不同概念，不能混称为缓存覆盖终点。
+SDK 的静态日历/历史映射缓存入口及 query_symbol_info 当前标的入口已硬禁，使用项目自有官方源转换；自动刷新、在线时间和已生效边界见[元数据规范](tq_metadata.md)。
 
 ## TqApi 序列复用
 
@@ -59,7 +56,7 @@ TQ symbol 本身表达数据类型，不增加 `data_type`：
 - 主连：`KQ.m@SHFE.rb`；
 - 指数/加权：`KQ.i@SHFE.rb`。
 
-普通 OHLCV 只接受一个完整 symbol，重复同名参数（含相同值）返回 400 TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED；内部列表也拒绝。当前主连映射仍保留其单/多合约输入。
+普通 OHLCV 只接受一个完整 symbol，重复同名参数（含相同值）返回 400 TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED；内部列表也拒绝。主连映射同样只允许单个 symbol。
 
 TQ 行情没有 live/sandbox 参数，不受交易账户环境配置影响。主连与加权都是行情身份，不能据名称解释成可以直接下单的实际合约。
 
@@ -79,7 +76,7 @@ SDK 在所属线程取得稳定副本；数据库和响应合并在其锁外。�
 
 SDK 空/短结果均为成功，不检查交易状态，不补第二个窗口。无交集保持独立片段；未知末根不能单独连接。可自然复用超过一万根历史。
 
-仅网络/服务失败且缓存启用时检查一次状态：实际合约检查自身，主连解析本次当前标的，加权通过同品种主连解析。只有 raw_status=NOTRADING 且 is_open=false 返回原序列最新连续缓存（空库可 []）；竞价/开市返回原错误，未知/解析失败为 502 TQ_TRADING_STATUS_UNAVAILABLE，权限错误保持 403。缓存读失败为 500 TQ_CACHE_READ_FAILED。正常缓存读写错误不丢成功网络响应；容量失败为 507。
+仅网络/服务失败且缓存启用时检查一次状态：实际合约检查自身，主连和加权通过统一历史映射入口取得参考交易日的实际合约；不读 SDK 当前标的。只有 raw_status=NOTRADING 且 is_open=false 返回原序列最新连续缓存（空库可 []）；竞价/开市返回原错误，未知/解析失败为 502 TQ_TRADING_STATUS_UNAVAILABLE，权限错误保持 403。缓存读失败为 500 TQ_CACHE_READ_FAILED。正常缓存读写错误不丢成功网络响应；容量失败为 507。
 
 不按日历、时间段或行情不变化推算休市。大于一周的普通行情只作 SDK 单窗口薄转发，无项目缓存和休市兜底。
 
@@ -97,56 +94,11 @@ GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&e
 
 返回 TQ Tick 时间序列，而 `/ccxt/fetch_tickers` 是当前快照，两者不对齐。常见字段包括 `last_price/average/highest/lowest/bid_price1/ask_price1/volume/amount/open_interest`。
 
-## `/tq/fetch_underlying_symbol`
+## 日历与主连映射
 
-用于将 `CONT` 主连 symbol 解析为当前实际合约，并可选返回最近 N 个交易日的历史映射。
+`/tq/fetch_underlying_symbol` 保留当前 items；历史改用成对 start_time/end_time 整数纳秒，返回真实换月节点和 old_symbol，旧 n 与多 symbol 退出。`/tq/fetch_trading_calendar` 保留自然日闭区间。两者 enable_cache 默认 true；映射无论是否带范围都取在线时间、最新单根参考时间并重新获取官方历史源，当前 items 与历史使用同一来源。
 
-| 参数 | 类型 | 语义 |
-| --- | --- | --- |
-| `symbol` | `str \| list[str]` | 一个或多个主连 symbol |
-| `n` | positive `int \| None` | 不传只返当前；传入时增加历史 |
-
-主路径：
-
-```python
-info = api.query_symbol_info(symbol)
-underlying_symbol = info["underlying_symbol"]
-```
-
-单 symbol 且 metadata 缺字段时可 fallback `api.get_quote(symbol).underlying_symbol`。`n` 显式传入时才调 `query_his_cont_quotes`。
-
-响应 envelope：
-
-```json
-{
-  "items": [{"symbol": "KQ.m@DCE.i", "underlying_symbol": "DCE.i2509"}],
-  "history": [{"date": "2026-06-10", "symbol": "KQ.m@DCE.i", "underlying_symbol": "DCE.i2509"}]
-}
-```
-
-History 原始 Pandas 宽表必须转为长表，不将 symbol 作为动态 JSON key。非 `CONT` 返回 422；`CONT` 缺 underlying 也返回 422。
-
-## `/tq/fetch_trading_calendar`
-
-薄转发 `TqApi.get_trading_calendar(start_dt, end_dt)`：
-
-| 参数 | 类型 | 语义 |
-| --- | --- | --- |
-| `start_date` | ISO `date` | 中国期货日历的起始自然日（`Asia/Shanghai`），包含 |
-| `end_date` | ISO `date` | 中国期货日历的结束自然日（`Asia/Shanghai`），包含 |
-
-这两个参数是只表示 calendar date 的 `YYYY-MM-DD` 字符串，不是 UTC 毫秒时间戳，也不表示零点 instant。服务不会根据客户端、服务器或 UTC 时区换算日期；例如 `2026-09-01` 始终指中国期货日历中的 2026-09-01。响应 `date` 也使用这一语义，不表达夜盘时刻应归属的 trading day。
-
-响应是闭区间内逐自然日记录：
-
-```json
-[
-  {"date": "2026-09-11", "trading": true},
-  {"date": "2026-09-12", "trading": false}
-]
-```
-
-它表达中国期货通用交易日/休息日，不区分交易所或 symbol，也不负责夜盘到交易日的映射、交易时段、节前禁入或换月策略。请求超出 TqSdk 当前节假日数据覆盖范围时返回 422 `TQ_CALENDAR_RANGE_UNAVAILABLE`；成功结果必须完整覆盖每日闭区间，否则返回 502 `TQ_CALENDAR_INCOMPLETE`。不增加外层 cache。
+详细输入、输出、刷新、D 上界和缓存规则统一见[元数据规范](tq_metadata.md)。这些请求的 HTTP 下载不占 SDK 线程，生命周期先取消/等待元数据任务，再关闭 SDK 和共享缓存。
 
 ## TqManager 生命周期与锁
 

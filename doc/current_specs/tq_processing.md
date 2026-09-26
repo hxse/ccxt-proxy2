@@ -10,8 +10,7 @@ TqSdk 返回 Pandas DataFrame。Adapter 负责：
 4. time-axis 校验；
 5. NaN/Infinity 转 JSON `null`；
 6. records 输出；
-7. underlying history wide-to-long；
-8. trading calendar date/bool schema 与完整闭区间校验。
+7. 元数据独立走显式日期转换和完整范围校验，见[元数据规范](tq_metadata.md)。
 
 不做 CCXT six-column normalization，不强行删除 TQ raw fields。
 
@@ -119,21 +118,9 @@ OHLCV 拒绝多值 symbol；合法 SDK id 转为非负整数，批次内相邻 i
 
 写缓存前和最终返回前均校验：已知 OHLC 大小关系、非负数量/持仓、字段身份和顺序；nullable 不放过已知数值矛盾。非法值为 422 TQ_INVALID_OHLCV_VALUES，非法 id/时间为 422 TQ_INVALID_TIME_AXIS。缓存只收核心完整的整批可持久化行，未知网络末根只响应不新增落盘。
 
-## 主连历史的宽表转长表
+## 日历和主连节点
 
-TQ 原始历史：
-
-```text
-date | KQ.m@DCE.a | KQ.m@DCE.eg | ...
-```
-
-响应转为：
-
-```text
-date / symbol / underlying_symbol
-```
-
-Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbol 放到 dynamic JSON key。
+日历逐自然日保存，映射逐交易日保存；响应历史只返回真实换月节点与不同前驱。元数据不通过旧 SDK 宽表 melt 入口；转换、源刷新、日期片段及已生效 D 上界见[元数据规范](tq_metadata.md)。
 
 ## 错误契约
 
@@ -149,29 +136,28 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 | 422 | `TQ_INVALID_TRADING_CALENDAR` | calendar date/trading schema 非法 |
 | 422 | `TQ_CALENDAR_RANGE_UNAVAILABLE` | 超出 TqSdk 日历覆盖年份 |
 | 422 | `TQ_NOT_CONT_SYMBOL` | underlying route 收到非 CONT |
-| 422 | `TQ_UNDERLYING_SYMBOL_EMPTY` | CONT 缺 underlying |
 | 503 | `SERVICE_NOT_ENABLED` / `SERVICE_NOT_READY` | HTTP 服务白名单或启动门禁拒绝 |
 | 500 | `TQ_NOT_CONFIGURED` | 内部客户端缺少配置；正常 HTTP 入口先检查服务白名单 |
 | 502 | `TQ_NETWORK_UNAVAILABLE` | TQ 网络/登录失败 |
 | 502 | `TQ_UPSTREAM_ERROR` | 普通 OHLCV 的未知 SDK 错误，不允许休市缓存兜底 |
 | 502 | `TQ_CALENDAR_INCOMPLETE` | calendar 未逐日完整覆盖请求闭区间 |
 
-批量 underlying 查询中任一 symbol 无效时整个请求返回 422，detail 带失败 symbol。
+日历和历史映射不适用普通行情休市兜底；三个旧 SDK 元数据入口硬禁，误用为 500 TQ_LEGACY_METADATA_CALL_FORBIDDEN。
 
 ## 离线验证
 
 默认测试不创建真实 `TqApi`，使用 fake API/Pandas DataFrame。覆盖：
 
 - `data_length`/duration/adj type/symbol validation；
-- OHLCV 重复 `symbol` query 拒绝；映射此阶段保留原聚合；
+- OHLCV 与映射均拒绝重复 symbol；
 - Kline/Tick 前置 placeholder trim；
 - 可用 rows 少于 request length；
 - 中间 placeholder、非正/重复/倒序 time 报错；
 - NaN/Infinity 到 `null`；
 - OHLCV 单合约 id 连续性、合法 nullable、价格矛盾；
-- underlying current mapping 和 history melt；
+- 当前标的、真实换月节点与左边界前驱；
 - calendar ISO date range、date/bool conversion、顺序/唯一性与完整覆盖；
-- `n=None` 不调 history API；
+- 无历史范围也取在线时间/参考 K 线/历史源；完整命中仍重新取源，旧 n 返回 422；
 - 专用 SDK 线程持续推进消息，业务任务间也推进一次；状态 HTTP 读取不进入 SDK 队列；
 - FileLock/singleton lifecycle；
 - SDK 原始获取层不操作数据库；业务层只使用缓存高级接口，Tick 无缓存；不使用 Polars。

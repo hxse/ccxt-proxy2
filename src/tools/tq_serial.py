@@ -42,24 +42,3 @@ def get_serial(api: Any, request, deadline: float, stop: Event | None):
         # 只取消外层登记任务，SDK 自己管理的共享 serial 订阅继续保留。
         if not task.done():
             task.cancel()
-
-
-def get_underlying(api: Any, symbol: str, deadline: float, stop: Event | None) -> str:
-    require_budget(deadline, stop)
-
-    async def subscribe():
-        return api.get_quote(symbol)
-
-    task = api.create_task(subscribe())
-    try:
-        while True:
-            remaining = require_budget(deadline, stop)
-            api.wait_update(deadline=time.time() + min(0.2, remaining))
-            if task.done():
-                quote = task.result()
-                underlying = getattr(quote, "underlying_symbol", None)
-                if underlying and getattr(quote, "ins_class", None) == "CONT":
-                    return str(underlying)
-    finally:
-        if not task.done():
-            task.cancel()

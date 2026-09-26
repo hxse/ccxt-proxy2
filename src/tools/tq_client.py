@@ -1,6 +1,5 @@
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -9,33 +8,18 @@ from fastapi import HTTPException
 from filelock import FileLock, Timeout
 from loguru import logger
 
-from src.responses_tq import (
-    TqUnderlyingHistoryItem,
-    TqUnderlyingItem,
-    TqUnderlyingSymbolResponse,
-)
-from src.tools import tq_data_source
+from src.tools import tq_data_source, tq_metadata_sdk
 from src.tools.config_types import TqConfig
+from src.tools.tq_errors import TqLegacyMetadataCallForbidden
 from src.tools.tq_ohlcv_validation import validate_records
-from src.tools.tq_serial import get_serial, get_underlying, require_budget
+from src.tools.tq_serial import get_serial, require_budget
 from src.tools.tq_status_snapshot import TqStatusSnapshot
 from src.types_tq import (
     TqOhlcvRequest,
     TqTickRequest,
-    TqTradingCalendarRequest,
-    TqUnderlyingSymbolRequest,
 )
 
 TQ_HTTP_UPDATE_TIMEOUT_SECONDS = 0.2
-
-
-@dataclass(frozen=True)
-class _UnderlyingItemDraft:
-    symbol: str
-    underlying_symbol: str | None
-    ins_class: str | None
-    exchange_id: str | None
-    product_id: str | None
 
 
 class TqClient:
@@ -110,15 +94,6 @@ class TqClient:
             except Exception as exc:
                 raise self._map_tq_exception(exc, ohlcv=True) from exc
 
-    def resolve_underlying(self, symbol: str, deadline: float, stop: Event) -> str:
-        with self._bounded_lock(deadline, stop):
-            try:
-                return get_underlying(self._get_api(), symbol, deadline, stop)
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise self._map_tq_exception(exc) from exc
-
     @contextmanager
     def _bounded_lock(self, deadline: float, stop: Event | None):
         try:
@@ -145,54 +120,16 @@ class TqClient:
             except Exception as exc:
                 raise self._map_tq_exception(exc) from exc
 
-    def fetch_underlying_symbol(
-        self, request: TqUnderlyingSymbolRequest
-    ) -> TqUnderlyingSymbolResponse:
+    def metadata_headers(self) -> dict[str, str]:
         with self._lock:
-            api = self._get_api()
-            try:
-                symbols = request.symbol_list
-                items = self._query_underlying_items(api, symbols)
-                history: list[TqUnderlyingHistoryItem] = []
-                if request.n is not None:
-                    history_frame = api.query_his_cont_quotes(
-                        request.symbol, n=request.n
-                    )
-                    history = [
-                        TqUnderlyingHistoryItem.model_validate(record)
-                        for record in tq_data_source.history_wide_frame_to_records(
-                            history_frame
-                        )
-                    ]
-                return TqUnderlyingSymbolResponse(items=items, history=history)
-            except tq_data_source.TqDataFrameError as exc:
-                raise HTTPException(status_code=422, detail=exc.detail) from exc
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise self._map_tq_exception(exc) from exc
+            return dict(self._get_api()._base_headers)
 
-    def fetch_trading_calendar(
-        self, request: TqTradingCalendarRequest
-    ) -> list[dict[str, object]]:
-        with self._lock:
-            api = self._get_api()
+    def fetch_mapping_reference_time(self, symbol: str, deadline: float, stop: Event):
+        with self._bounded_lock(deadline, stop):
             try:
-                frame = api.get_trading_calendar(request.start_date, request.end_date)
-                records = tq_data_source.trading_calendar_frame_to_records(frame)
-                expected_rows = (request.end_date - request.start_date).days + 1
-                if (
-                    len(records) != expected_rows
-                    or records[0]["date"] != request.start_date.isoformat()
-                    or records[-1]["date"] != request.end_date.isoformat()
-                ):
-                    raise HTTPException(
-                        status_code=502,
-                        detail="TQ_CALENDAR_INCOMPLETE",
-                    )
-                return records
-            except tq_data_source.TqDataFrameError as exc:
-                raise HTTPException(status_code=422, detail=exc.detail) from exc
+                return tq_metadata_sdk.reference_time(
+                    self._get_api(), symbol, deadline, stop
+                )
             except HTTPException:
                 raise
             except Exception as exc:
@@ -238,65 +175,9 @@ class TqClient:
         except Exception as exc:
             raise self._map_tq_exception(exc) from exc
 
-    def _query_underlying_items(
-        self, api: Any, symbols: list[str]
-    ) -> list[TqUnderlyingItem]:
-        info_frame = api.query_symbol_info(symbols[0] if len(symbols) == 1 else symbols)
-        rows = tq_data_source.frame_rows(info_frame)
-        items: list[TqUnderlyingItem] = []
-        rows_by_symbol = {
-            str(row.get("instrument_id")): row
-            for row in rows
-            if row.get("instrument_id") is not None
-        }
-        for index, symbol in enumerate(symbols):
-            row = rows_by_symbol.get(symbol) or (
-                rows[index] if index < len(rows) else {}
-            )
-            draft = self._underlying_item_from_row(symbol, row)
-            if draft.underlying_symbol is None:
-                quote = api.get_quote(symbol)
-                api.wait_update(deadline=time.time() + 30)
-                draft = self._underlying_item_from_quote(symbol, quote)
-            items.append(self._validate_underlying_item(draft))
-        return items
-
-    def _underlying_item_from_row(
-        self, symbol: str, row: dict[str, Any]
-    ) -> _UnderlyingItemDraft:
-        return _UnderlyingItemDraft(
-            symbol=symbol,
-            underlying_symbol=_clean_text(row.get("underlying_symbol")),
-            ins_class=_clean_text(row.get("ins_class")),
-            exchange_id=_clean_text(row.get("exchange_id")),
-            product_id=_clean_text(row.get("product_id")),
-        )
-
-    def _underlying_item_from_quote(
-        self, symbol: str, quote: Any
-    ) -> _UnderlyingItemDraft:
-        return _UnderlyingItemDraft(
-            symbol=symbol,
-            underlying_symbol=_clean_text(getattr(quote, "underlying_symbol", None)),
-            ins_class=_clean_text(getattr(quote, "ins_class", None)),
-            exchange_id=_clean_text(getattr(quote, "exchange_id", None)),
-            product_id=_clean_text(getattr(quote, "product_id", None)),
-        )
-
-    def _validate_underlying_item(self, item: _UnderlyingItemDraft) -> TqUnderlyingItem:
-        if item.ins_class != "CONT":
-            raise HTTPException(status_code=422, detail="TQ_NOT_CONT_SYMBOL")
-        if item.underlying_symbol is None:
-            raise HTTPException(status_code=422, detail="TQ_UNDERLYING_SYMBOL_EMPTY")
-        return TqUnderlyingItem(
-            symbol=item.symbol,
-            underlying_symbol=item.underlying_symbol,
-            ins_class=item.ins_class,
-            exchange_id=item.exchange_id,
-            product_id=item.product_id,
-        )
-
     def _map_tq_exception(self, exc: Exception, *, ohlcv=False) -> HTTPException:
+        if isinstance(exc, TqLegacyMetadataCallForbidden):
+            return HTTPException(500, detail="TQ_LEGACY_METADATA_CALL_FORBIDDEN")
         message = str(exc)
         logger.bind(error_type=type(exc).__name__).warning(
             "TQ call failed: {}", message
@@ -343,12 +224,3 @@ class TqClient:
                 # 未知 SDK/内部错误不能伪装为断网，再用休市缓存掩盖。
                 return HTTPException(502, "TQ_UPSTREAM_ERROR")
         return HTTPException(status_code=502, detail="TQ_NETWORK_UNAVAILABLE")
-
-
-def _clean_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text or text.lower() == "nan":
-        return None
-    return text

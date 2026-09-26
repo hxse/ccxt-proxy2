@@ -216,3 +216,11 @@ Capacity 只限制 logical rows，不是严格 database byte 上限。不增加 
 read_contiguous_before 在包含式 end_time 之前选择最新实际行所在片段，取其末 max_rows 根并升序返回；不证明缓存已经追上 end_time。read_connected_history 仅用本批次可持久化行的真实时间戳交集选一个可向前复用最多的片段，平局按更新时间、ID；未知尾根不能独自建立连接。读取裁至网络批次上界，无连接返回空，不跨独立片段拼接。
 
 新增读取的 max_rows 为 1..100000 整数，不改变 read_best_prefix 原有 100001 根溢出检测能力。CachedHistory.rows 保持 CCXT tuple 或 TQ records 类型；TQ 读取不再次去尾。read_latest_summary 单快照返回 start/end/count、total_count、segment_count、time_unit；端点为原生单位，start 为实际首行，空库为 null/null/0；不暴露片段 ID。所有查询在同一 SQL 快照及 reader scope 内完成。
+
+## 日期高级接口
+
+read_calendar_range(start,end) 返回 CalendarSourceResult 或 miss；submit_calendar(result) 原子提交完整自然日表与源事实。read_mapping_range(symbol,dates,max_date) 按经日历核实的交易日和本次 D 返回 CachedMapping 或 miss；submit_mapping(result) 原子保存日表、必要节点、独立当前核验行与事实。read_metadata_facts(kind,symbol=None) 只读相应类型事实，不接受任意 SQL/事实键写入。
+
+日期读取在同一 reader scope 和只读事务中选择片段、读取数据及上下文；写入使用与普通行情相同的路径写锁与事务。完整规则见 [TQ 元数据](tq_metadata.md)。
+
+read_matching_mapping(result) 接收本次有效 MappingSourceResult，在同一读事务中核对源摘要、D 和目标范围的完整日记录及真实节点/前驱。仅完整相同返回 CachedMapping，否则 miss；全局摘要相同不能替其他未修订的旧片段背书。业务通过该高级入口复用映射，不在路由另造连续性判断。

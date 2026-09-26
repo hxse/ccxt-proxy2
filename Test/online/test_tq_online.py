@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 from datetime import date
@@ -33,20 +34,24 @@ def initialized_tq(tmp_path_factory):
     resource = CacheResource(
         config.ohlcv_cache.model_copy(update={"database_path": str(cache_path)})
     )
-    try:
-        tq_manager.initialize(resource.get())
-        yield
-    finally:
-        tq_manager.close()
+    with asyncio.Runner() as runner:
+        try:
+            tq_manager.initialize(resource.get())
+            yield runner
+        finally:
+            runner.run(tq_manager.close_metadata())
+            tq_manager.close()
         resource.close()
 
 
-def test_tq_online_fetch_ohlcv_smoke():
-    result = tq_manager.fetch_ohlcv(
-        TqOhlcvRequest(
-            symbol="KQ.m@SHFE.rb",
-            duration_seconds=60,
-            data_length=10,
+def test_tq_online_fetch_ohlcv_smoke(initialized_tq):
+    result = initialized_tq.run(
+        tq_manager.fetch_ohlcv(
+            TqOhlcvRequest(
+                symbol="KQ.m@SHFE.rb",
+                duration_seconds=60,
+                data_length=10,
+            )
         )
     )
 
@@ -87,9 +92,11 @@ def test_tq_online_fetch_tick_smoke():
         assert finite_prices
 
 
-def test_tq_online_fetch_underlying_symbol_smoke():
-    result = tq_manager.fetch_underlying_symbol(
-        TqUnderlyingSymbolRequest(symbol="KQ.m@SHFE.rb", n=3)
+def test_tq_online_fetch_underlying_symbol_smoke(initialized_tq):
+    result = initialized_tq.run(
+        tq_manager.fetch_underlying_symbol(
+            TqUnderlyingSymbolRequest(symbol="KQ.m@SHFE.rb")
+        )
     )
 
     assert len(result.items) == 1
@@ -97,15 +104,17 @@ def test_tq_online_fetch_underlying_symbol_smoke():
     assert item.symbol == "KQ.m@SHFE.rb"
     assert item.ins_class == "CONT"
     assert item.underlying_symbol
-    assert len(result.history) <= 3
+    assert result.history == []
     assert all(history.underlying_symbol for history in result.history)
 
 
-def test_tq_online_fetch_trading_calendar_smoke():
-    result = tq_manager.fetch_trading_calendar(
-        TqTradingCalendarRequest(
-            start_date=date(2021, 2, 1),
-            end_date=date(2021, 2, 3),
+def test_tq_online_fetch_trading_calendar_smoke(initialized_tq):
+    result = initialized_tq.run(
+        tq_manager.fetch_trading_calendar(
+            TqTradingCalendarRequest(
+                start_date=date(2021, 2, 1),
+                end_date=date(2021, 2, 3),
+            )
         )
     )
 

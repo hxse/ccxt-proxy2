@@ -281,6 +281,12 @@ def test_cache_public_api_stays_io_only_and_callback_free():
         "read_contiguous_before",
         "read_connected_history",
         "read_latest_summary",
+        "read_calendar_range",
+        "submit_calendar",
+        "read_mapping_range",
+        "read_matching_mapping",
+        "submit_mapping",
+        "read_metadata_facts",
         "close",
     }
 

@@ -64,7 +64,10 @@ class TqUnderlyingHistoryItem(BaseModel):
 
     date: str = Field(..., min_length=1, title="交易日")
     symbol: str = Field(..., min_length=1, title="TQ 主连 symbol")
-    underlying_symbol: str = Field(..., min_length=1, title="当日标的合约")
+    underlying_symbol: str = Field(..., min_length=1, title="该节点开始生效的合约")
+    old_symbol: str | None = Field(
+        None, title="节点之前的不同实际合约，缺少可靠前驱时为 null"
+    )
 
 
 class TqUnderlyingSymbolResponse(BaseModel):

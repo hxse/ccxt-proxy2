@@ -13,12 +13,6 @@ MAX_TQ_OHLCV_LENGTH = 100000
 TQ_ADJ_TYPE_QUERY_ENUM = ["", "F", "B", "FORWARD", "BACK"]
 
 
-def _normalize_symbol_input(symbol: str | list[str]) -> str | list[str]:
-    if isinstance(symbol, list):
-        return _normalize_symbols(symbol)
-    return _normalize_symbol(symbol)
-
-
 def _normalize_symbols(symbols: list[str]) -> list[str]:
     normalized = [symbol.strip() for symbol in symbols]
     if not normalized or any(not symbol for symbol in normalized):
@@ -86,12 +80,6 @@ def _validate_adj_type(adj_type: str | None) -> TqAdjType | None:
     if adj_type == "BACK":
         return "BACK"
     raise HTTPException(status_code=400, detail="TQ_INVALID_ADJ_TYPE")
-
-
-def _validate_n(n: int | None) -> int | None:
-    if n is not None and n <= 0:
-        raise _http_validation_error("TQ_INVALID_DATA_LENGTH")
-    return n
 
 
 def _validate_calendar_range(start_date: date, end_date: date) -> None:
