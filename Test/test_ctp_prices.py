@@ -33,7 +33,7 @@ def insert_count(api):
 def test_ctp_normalizes_with_real_query_callbacks(price_service, side, expected):
     client, api = price_service
     result = client.create_order(
-        CtpLimitOrderRequest(**(BASE | {"side": side}), price=3574.2)
+        CtpLimitOrderRequest.model_validate(BASE | {"side": side, "price": 3574.2})
     )
     assert result.order.LimitPrice == expected
     assert result.price_adjustment.submitted_price == str(expected)
@@ -51,7 +51,9 @@ def test_instrument_prefix_results_are_filtered_exactly(price_service):
         {"InstrumentID": "m2701-C-3000", "ExchangeID": "DCE", "PriceTick": 0.5},
         {"InstrumentID": "m2701", "ExchangeID": "DCE", "PriceTick": 1},
     ]
-    result = client.create_order(CtpLimitOrderRequest(**BASE, price=3574.8))
+    result = client.create_order(
+        CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.8})
+    )
     assert result.order.LimitPrice == 3574
 
 
@@ -75,7 +77,7 @@ def test_missing_wrong_ambiguous_or_invalid_contract_does_not_trade(
     client, api = price_service
     api.queries["ReqQryInstrument"] = rows
     with pytest.raises(CtpError) as error:
-        client.create_order(CtpLimitOrderRequest(**BASE, price=3574))
+        client.create_order(CtpLimitOrderRequest.model_validate(BASE | {"price": 3574}))
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "PRICE_RULES_UNAVAILABLE"
     assert error.value.detail["order_identity"] is None and insert_count(api) == 0
@@ -93,7 +95,9 @@ def test_depth_rejects_out_of_bounds_without_changing_order_ref(price_service):
         }
     ]
     with pytest.raises(CtpError) as error:
-        client.create_order(CtpLimitOrderRequest(**BASE, price=3574.2))
+        client.create_order(
+            CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.2})
+        )
     assert error.value.detail["code"] == "PRICE_OUT_OF_RANGE"
     assert error.value.detail["price_context"]["upper_bound"] == "3500"
     assert error.value.detail["order_identity"] is None
@@ -121,7 +125,9 @@ def test_stale_or_invalid_depth_never_sends(price_service, change):
         }
     ]
     with pytest.raises(CtpError) as error:
-        client.create_order(CtpLimitOrderRequest(**BASE, price=3574.2))
+        client.create_order(
+            CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.2})
+        )
     assert (
         error.value.detail["code"] == "PRICE_RULES_UNAVAILABLE"
         and insert_count(api) == 0
@@ -130,7 +136,7 @@ def test_stale_or_invalid_depth_never_sends(price_service, change):
 
 def test_cache_reuses_only_static_info_and_reloads_after_login(price_service):
     client, api = price_service
-    request = CtpLimitOrderRequest(**BASE, price=3574.2)
+    request = CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.2})
     client.create_order(request)
     client.create_order(request)
     methods = [m for m, _, _ in api.requests]
@@ -160,7 +166,9 @@ def test_query_rejection_never_sends_order(price_service, query):
 
     api.hooks[query] = reject
     with pytest.raises(CtpError) as error:
-        client.create_order(CtpLimitOrderRequest(**BASE, price=3574.2))
+        client.create_order(
+            CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.2})
+        )
     assert error.value.detail["code"] == "CTP_QUERY_FAILED"
     assert error.value.detail["order_identity"] is None and insert_count(api) == 0
 
@@ -180,13 +188,15 @@ def test_incomplete_query_times_out_before_order(price_service):
 
     api.hooks["ReqQryInstrument"] = incomplete
     with pytest.raises(CtpError) as error:
-        client.create_order(CtpLimitOrderRequest(**BASE, price=3574.2))
+        client.create_order(
+            CtpLimitOrderRequest.model_validate(BASE | {"price": 3574.2})
+        )
     assert error.value.detail["code"] == "CTP_TIMEOUT" and insert_count(api) == 0
 
 
 def test_market_order_does_not_require_price_queries(price_service):
     client, api = price_service
-    result = client.create_order(CtpMarketOrderRequest(**BASE))
+    result = client.create_order(CtpMarketOrderRequest.model_validate(BASE))
     assert result.price_adjustment is None
     assert result.order.OrderPriceType == "1"
     assert not any(method.startswith("ReqQry") for method, _, _ in api.requests)

@@ -120,6 +120,7 @@ class CtpClient:
                 try:
                     adjustment = self._order_prices.prepare(session, request)
                 except OrderPriceError as exc:
+                    assert exc.message is not None
                     raise session.callbacks.error(
                         exc.status_code,
                         exc.code,
@@ -135,6 +136,7 @@ class CtpClient:
             }
             price_type, price, tif = "1", 0.0, "IOC"
             if isinstance(request, CtpLimitOrderRequest):
+                assert adjustment is not None
                 price_type, price, tif = (
                     "2",
                     float(adjustment.submitted_price),

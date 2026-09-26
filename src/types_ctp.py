@@ -2,7 +2,14 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    field_validator,
+)
 
 from src.base_types import ModeType, SideType
 
@@ -64,7 +71,7 @@ class CtpOrderRequest(CtpRequest):
     )
 
 
-ORDER_EXAMPLE = {
+ORDER_EXAMPLE: dict[str, JsonValue] = {
     "mode": "sandbox",
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",

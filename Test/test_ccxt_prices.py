@@ -11,12 +11,23 @@ from Test.test_ccxt_client import FakeExchange
 SYMBOL = "BTC/USDT:USDT"
 
 
+class PriceExchange(FakeExchange):
+    def __init__(self):
+        super().__init__([])
+        self.market_info = copy.deepcopy(super().market(SYMBOL))
+        self.market_info["limits"]["price"] = {"min": 0.1, "max": 1000000}
+
+    def market(self, symbol):
+        return self.market_info
+
+
 def price_client(provider="binance", kind="future"):
-    exchange = FakeExchange([])
-    market = copy.deepcopy(exchange.market(SYMBOL))
-    market["limits"]["price"] = {"min": 0.1, "max": 1000000}
-    exchange.market = lambda symbol: market
-    return CcxtClient(exchange, provider, kind, "sandbox", None), exchange, market
+    exchange = PriceExchange()
+    return (
+        CcxtClient(exchange, provider, kind, "sandbox", None),
+        exchange,
+        exchange.market_info,
+    )
 
 
 @pytest.mark.parametrize(
@@ -200,7 +211,7 @@ def test_kraken_spot_decimal_precision_and_no_futures_collar():
 
 
 @pytest.mark.parametrize("provider", ["binance", "kraken"])
-def test_actual_sdk_builder_keeps_backend_price(provider):
+def test_actual_sdk_builder_keeps_backend_price(provider, monkeypatch):
     sdk = ccxt.binance() if provider == "binance" else ccxt.krakenfutures()
     symbol = SYMBOL if provider == "binance" else "BTC/USD:USD"
     market = {
@@ -237,16 +248,23 @@ def test_actual_sdk_builder_keeps_backend_price(provider):
         },
     }
     sdk.set_markets([market])
-    sdk.fetch = lambda *a, **kw: pytest.fail("禁止网络")
-    sdk.fapiPublicGetPremiumIndex = lambda params: {"markPrice": "50000"}
-    sdk.fetch_ticker = lambda symbol: {"markPrice": 50000, "bid": 49999, "ask": 50001}
+    monkeypatch.setattr(sdk, "fetch", lambda *a, **kw: pytest.fail("禁止网络"))
+    if provider == "binance":
+        monkeypatch.setattr(
+            sdk, "fapiPublicGetPremiumIndex", lambda params: {"markPrice": "50000"}
+        )
+    monkeypatch.setattr(
+        sdk,
+        "fetch_ticker",
+        lambda symbol: {"markPrice": 50000, "bid": 49999, "ask": 50001},
+    )
     captured = []
 
     def create(*args, **kwargs):
         captured.append(sdk.create_order_request(*args, **kwargs))
         return {"id": "offline"}
 
-    sdk.create_order = create
+    monkeypatch.setattr(sdk, "create_order", create)
     client = CcxtClient(sdk, provider, "future", "sandbox", None)
     result = client.create_order(symbol, "limit", "sell", 0.01, 50000.15)
     assert captured[0]["price" if provider == "binance" else "limitPrice"] == "50000.2"

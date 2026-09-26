@@ -47,7 +47,7 @@ def test_ccxt_http_returns_effective_price_and_structured_bounds(
     )
     app = FastAPI()
     app.include_router(ccxt_router)
-    app.add_exception_handler(DomainError, handle_domain_error)
+    app.exception_handler(DomainError)(handle_domain_error)
     app.dependency_overrides[auth_manager] = lambda: {"sub": "offline"}
     http = LocalClient(app)
     request = {
@@ -190,12 +190,16 @@ def test_kraken_spot_ack_retains_unknown_status_and_price_adjustment():
             "txid": ["order-1"],
         }
     )
-    parsed["price_adjustment"] = {
-        "requested_price": "330.129",
-        "submitted_price": "330.12",
-        "tick_size": "0.01",
-        "adjusted": True,
+    order = {
+        **parsed,
+        "price_adjustment": {
+            "requested_price": "330.129",
+            "submitted_price": "330.12",
+            "tick_size": "0.01",
+            "adjusted": True,
+        },
     }
-    response = OrderResponse.model_validate({"order": parsed})
+    response = OrderResponse.model_validate({"order": order})
     assert response.order.id == "order-1" and response.order.status is None
+    assert response.order.price_adjustment is not None
     assert response.order.price_adjustment.submitted_price == "330.12"

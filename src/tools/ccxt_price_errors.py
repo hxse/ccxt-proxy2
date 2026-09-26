@@ -62,6 +62,7 @@ def price_rejection(exc):
     error = OrderPriceError(*selected)
     error.detail.update(provider=provider, provider_code=provider_code)
     if provider == "binance" and provider_code in {-4016, -4024}:
+        assert isinstance(payload, dict)
         message = payload.get("msg", "")
         match = (
             re.fullmatch(

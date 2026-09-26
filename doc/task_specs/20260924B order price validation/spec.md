@@ -83,6 +83,6 @@ CTP 测试覆盖真实 session/callback 请求序列、查询完整性、精确�
 
 使用正式入口：`CCXT_PROXY_CONFIG_PATH=Test/fixtures/config.toml just test-file`，运行新增价格测试、既有 CCXT 客户端/交易/边界/HTTP/router、domain error、CTP 客户端/native/HTTP/callback/correlation/status 和 repository contract 测试。必须全部通过，警告和异常跳过需说明。
 
-源码变更后运行 `just lint`。不需要持久化新在线测试；本会话已授权模拟盘诊断，可用独立 debug 探针核对只读合约资料及有限 sandbox 委托，明确设置超时、不重试写操作、清理测试新增挂单和仓位。不得使用 live 下单。
+源码变更后运行 `just lint` 与 `just check`，类型检查覆盖生产代码及离线测试，不通过宽泛忽略或关闭检查隐藏诊断。类型修正须保留价格校验、错误映射、订单请求顺序及原生市价行为。不需要持久化新在线测试；本会话已授权模拟盘诊断，可用独立 debug 探针核对只读合约资料及有限 sandbox 委托，明确设置超时、不重试写操作、清理测试新增挂单和仓位。不得使用 live 下单。
 
 本任务整体替换，无临时兼容入口，不调整 CFB 或其他任务历史。
