@@ -58,9 +58,6 @@ class FakeExchange:
         rows = self.rows
         if since is not None:
             return [row for row in rows if row[0] >= since][:limit]
-        until = (params or {}).get("until")
-        if until is not None:
-            rows = [row for row in rows if row[0] <= until]
         return rows[-limit:]
 
     def fetch_open_orders(self, symbol, since, limit, params):
@@ -163,19 +160,19 @@ def _client(temp_dir, times=None, provider="binance", market="future"):
 
 def test_full_cache_hit_does_not_call_provider_again(temp_dir):
     client, exchange = _client(temp_dir)
-    first = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)
+    first = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 3)
     calls_after_first = len(exchange.ohlcv_calls)
 
     second = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)
 
-    assert [row[0] for row in first.rows] == _minutes(1, 2)
+    assert [row[0] for row in first.rows] == _minutes(1, 2, 3)
     assert second.last_bar_completion_confirmed is True
     assert len(exchange.ohlcv_calls) == calls_after_first
 
 
 def test_partial_cache_hit_fetches_from_cached_tail_with_overlap(temp_dir):
     client, exchange = _client(temp_dir)
-    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)
+    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 3)
     exchange.ohlcv_calls.clear()
 
     result = client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 3)
@@ -186,7 +183,7 @@ def test_partial_cache_hit_fetches_from_cached_tail_with_overlap(temp_dir):
 
 def test_overlap_failure_discards_prefix_and_refetches_original_query(temp_dir):
     client, exchange = _client(temp_dir)
-    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 2)
+    client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 3)
     original_fetch = exchange.fetch_ohlcv
     omit_overlap = True
 
@@ -238,7 +235,7 @@ def test_enable_cache_false_disables_both_read_and_write(temp_dir):
     assert count == 0
 
 
-def test_latest_limit_never_reads_cache_and_does_not_cache_tail(temp_dir):
+def test_latest_limit_reuses_cache_and_does_not_cache_network_tail(temp_dir):
     client, exchange = _client(temp_dir)
 
     result = client.fetch_ohlcv_latest_limit("BTC/USDT", "1m", 3)

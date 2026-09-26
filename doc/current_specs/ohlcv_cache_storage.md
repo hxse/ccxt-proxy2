@@ -132,7 +132,7 @@ covered_from = min(
 
 例如原证明从 2026-09-01 12:00 UTC 覆盖至次日上市时刻，新请求从 9 月 1 日 11:00 UTC 仍首次返回次日同一根数据，则覆盖下界向前扩展一小时。
 
-只有能保证“遵循 since 并返回起点后最早 rows”的 network method 可以提供 `verified_covered_from`。`LatestLimit` 没有 since 证明，非空结果使用 `covered_from=first_time`。Kraken Spot thin-forward 不写 cache。
+只有能保证“遵循 since 并返回起点后最早 rows”的 network method 可以提供 `verified_covered_from`。固定周期 `LatestLimit` 以推导起点进入 since＋limit 链，可沿该链保存已证明下界；仅最新窗口没有 since 时只能以 first_time 作为下界。Kraken Spot thin-forward 不写 cache。
 
 ## 片段合并
 

@@ -75,7 +75,7 @@ Candidate selection 和 row read 在一条 SQL 或同一 read transaction 中完
 
 - `SinceLimit` 最多读 `limit`；
 - `SinceLatest` 最多读 100,001 根用于识别超限；
-- `LatestLimit` 不读 cache。
+- `LatestLimit` 固定周期复用快照查询的前缀读取，候选裁到最初的 S；周线以上不读写缓存。
 
 ## 可缓存行选择
 

@@ -16,14 +16,14 @@ def test_since_limit_count_includes_unknown_tail_but_cache_omits_it(temp_dir):
     assert _cached_times(client) == _minutes(1, 2, 3, 4)
 
 
-def test_since_limit_successor_confirms_and_caches_requested_tail(temp_dir):
+def test_since_limit_never_requests_a_successor_for_confirmation(temp_dir):
     client, _ = _client(temp_dir, times=_minutes(1, 2, 3, 4, 5))
 
     result = client.fetch_ohlcv_since_limit("BTC/USDT:USDT", "1m", MINUTE, 4)
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3, 4)
-    assert result.last_bar_completion_confirmed is True
-    assert _cached_times(client) == _minutes(1, 2, 3, 4)
+    assert result.last_bar_completion_confirmed is False
+    assert _cached_times(client) == _minutes(1, 2, 3)
 
 
 def test_since_latest_returns_snapshot_tail_but_does_not_cache_it(temp_dir):
@@ -47,7 +47,7 @@ def test_latest_limit_returns_full_limit_while_cache_omits_unknown_tail(temp_dir
 
     assert [row[0] for row in result.rows] == _minutes(3, 4, 5)
     assert result.last_bar_completion_confirmed is False
-    assert exchange.ohlcv_calls[0]["limit"] == 3
+    assert exchange.ohlcv_calls[0]["limit"] == 1
     assert _cached_times(client, 3 * MINUTE) == _minutes(3, 4)
 
 

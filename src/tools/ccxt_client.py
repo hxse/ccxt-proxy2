@@ -16,7 +16,12 @@ from src.domain_errors import (
     InvalidProviderRequest,
     ResponseRowLimitExceeded,
 )
-from src.tools.ccxt_ohlcv import OhlcvNetworkFetcher
+from src.tools.ccxt_ohlcv import (
+    MissingPrefixAnchor,
+    OhlcvNetworkFetcher,
+    clip_snapshot,
+    fixed_interval_ms,
+)
 from src.tools.ccxt_prices import CcxtOrderPrices
 from src.tools.ccxt_trading import _CcxtTradingMixin
 from src.tools.ccxt_transport import CcxtTransport
@@ -62,29 +67,9 @@ class CcxtClient(_CcxtTradingMixin):
         enable_cache: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant, limit)
-        series = self._series(symbol, timeframe, variant)
-        prefix = self._read_prefix(series, since, limit) if enable_cache else []
-        if len(prefix) >= limit:
-            return OhlcvResult(prefix[:limit], True)
-
-        network_since = prefix[-1][0] if prefix else since
-        network_limit = limit - len(prefix) + (1 if prefix else 0)
-        network = self._ohlcv.fetch_since_limit(
-            symbol, timeframe, network_since, network_limit, variant
-        )
-        if prefix and not self._contains_time(network, network_since):
-            logger.bind(series_key=series.key).warning(
-                "cache prefix overlap failed; refetching the full query"
-            )
-            prefix = []
-            network = self._ohlcv.fetch_since_limit(
-                symbol, timeframe, since, limit, variant
-            )
-        rows = merge_rows(prefix, network.rows)[:limit]
-        confirmed = network.last_bar_completion_confirmed if rows else None
-        raw = OhlcvResult(rows, confirmed)
-        self._write_cache(series, raw, since, enable_cache)
-        return raw
+        if not self._cacheable_timeframe(timeframe):
+            return self._thin_ohlcv(symbol, timeframe, since, limit, variant)
+        return self._query_ohlcv(symbol, timeframe, since, limit, variant, enable_cache)
 
     def fetch_ohlcv_since_latest(
         self,
@@ -96,48 +81,16 @@ class CcxtClient(_CcxtTradingMixin):
         enable_cache: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant)
-        if not self._ohlcv.supports_full_history:
+        if not self._cacheable_timeframe(timeframe):
             raise CapabilityNotSupported(
-                f"{self.exchange_name}/{self.market} does not support SinceLatest"
+                f"{self.exchange_name}/{self.market}/{timeframe} does not support SinceLatest"
             )
         snapshot = self._ohlcv.fetch_latest_anchor(symbol, timeframe, variant)
         if snapshot is None or since > snapshot:
             return OhlcvResult([], None)
-
-        series = self._series(symbol, timeframe, variant)
-        prefix = (
-            self._read_prefix(series, since, MAX_RESPONSE_ROWS + 1)
-            if enable_cache
-            else []
+        return self._query_ohlcv(
+            symbol, timeframe, since, MAX_RESPONSE_ROWS, variant, enable_cache, snapshot
         )
-        prefix = [row for row in prefix if row[0] <= snapshot]
-        if len(prefix) > MAX_RESPONSE_ROWS:
-            raise ResponseRowLimitExceeded()
-        if prefix and prefix[-1][0] == snapshot:
-            return OhlcvResult(prefix, True)
-
-        network_since = prefix[-1][0] if prefix else since
-        network_budget = MAX_RESPONSE_ROWS - len(prefix) + (1 if prefix else 0)
-        if network_budget <= 0:
-            raise ResponseRowLimitExceeded()
-        network = self._ohlcv.fetch_to_snapshot(
-            symbol, timeframe, network_since, snapshot, variant, network_budget
-        )
-        if prefix and not self._contains_time(network, network_since):
-            logger.bind(series_key=series.key).warning(
-                "cache prefix overlap failed; refetching the full query"
-            )
-            prefix = []
-            network = self._ohlcv.fetch_to_snapshot(
-                symbol, timeframe, since, snapshot, variant, MAX_RESPONSE_ROWS
-            )
-        rows = merge_rows(prefix, network.rows)
-        rows = [row for row in rows if since <= row[0] <= snapshot]
-        if len(rows) > MAX_RESPONSE_ROWS:
-            raise ResponseRowLimitExceeded()
-        raw = OhlcvResult(rows, network.last_bar_completion_confirmed if rows else None)
-        self._write_cache(series, raw, since, enable_cache)
-        return raw
 
     def fetch_ohlcv_latest_limit(
         self,
@@ -149,11 +102,95 @@ class CcxtClient(_CcxtTradingMixin):
         enable_cache: bool = True,
     ) -> OhlcvResult:
         self._validate_ohlcv(symbol, timeframe, variant, limit)
-        raw = self._ohlcv.fetch_latest_limit(symbol, timeframe, limit, variant)
-        self._write_cache(
-            self._series(symbol, timeframe, variant), raw, None, enable_cache
+        if not self._cacheable_timeframe(timeframe):
+            return self._thin_ohlcv(symbol, timeframe, None, limit, variant)
+        snapshot = self._ohlcv.fetch_latest_anchor(symbol, timeframe, variant)
+        if snapshot is None:
+            return OhlcvResult([], None)
+        duration = fixed_interval_ms(timeframe)
+        assert duration is not None
+        since = snapshot - (limit - 1) * duration
+        if since < 0:
+            raise InvalidProviderRequest("derived start is invalid; reduce limit")
+        return self._query_ohlcv(
+            symbol, timeframe, since, limit, variant, enable_cache, snapshot
         )
-        return raw
+
+    def _cacheable_timeframe(self, timeframe: str) -> bool:
+        return (
+            self._ohlcv.supports_full_history
+            and fixed_interval_ms(timeframe) is not None
+        )
+
+    def _thin_ohlcv(
+        self, symbol: str, timeframe: str, since: int | None, limit: int, variant: str
+    ) -> OhlcvResult:
+        if self._ohlcv.supports_full_history and limit > self._ohlcv.page_limit:
+            raise CapabilityNotSupported(
+                "timeframes above one week support a single provider page only"
+            )
+        return self._ohlcv.fetch_single(symbol, timeframe, since, limit, variant)
+
+    def _query_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str,
+        since: int,
+        count: int,
+        variant: str,
+        enable_cache: bool,
+        snapshot: int | None = None,
+    ) -> OhlcvResult:
+        series = self._series(symbol, timeframe, variant)
+        read_budget = count + (snapshot is not None)
+        prefix = self._read_prefix(series, since, read_budget) if enable_cache else []
+        prefix = clip_snapshot(prefix, snapshot)
+        if len(prefix) > count:
+            raise ResponseRowLimitExceeded()
+        if prefix and (
+            (snapshot is None and len(prefix) == count)
+            or (snapshot is not None and prefix[-1][0] == snapshot)
+        ):
+            self._ohlcv.validate_result(prefix, timeframe, since, count, snapshot)
+            return OhlcvResult(prefix, True)
+
+        def fetch(cursor: int, budget: int) -> OhlcvResult:
+            if snapshot is None:
+                return self._ohlcv.fetch_since_limit(
+                    symbol,
+                    timeframe,
+                    cursor,
+                    budget,
+                    variant,
+                    require_initial_anchor=bool(prefix),
+                )
+            return self._ohlcv.fetch_to_snapshot(
+                symbol,
+                timeframe,
+                cursor,
+                snapshot,
+                variant,
+                budget,
+                require_initial_anchor=bool(prefix),
+            )
+
+        cursor = prefix[-1][0] if prefix else since
+        budget = count - len(prefix) + bool(prefix)
+        if budget <= 0:
+            raise ResponseRowLimitExceeded()
+        try:
+            network = fetch(cursor, budget)
+        except MissingPrefixAnchor:
+            logger.bind(series_key=series.key).warning(
+                "cache prefix overlap failed; refetching the full query"
+            )
+            prefix = []
+            network = fetch(since, count)
+        rows = clip_snapshot(merge_rows(prefix, network.rows), snapshot)
+        self._ohlcv.validate_result(rows, timeframe, since, count, snapshot)
+        result = OhlcvResult(rows, False if rows else None)
+        self._write_cache(series, result, since, enable_cache)
+        return result
 
     def _fetch_ohlcv_page(self, *args: Any, **kwargs: Any):
         return self._read_method("fetchOHLCV", "fetch_ohlcv", *args, **kwargs)
@@ -250,7 +287,3 @@ class CcxtClient(_CcxtTradingMixin):
             logger.bind(series_key=series.key).exception(
                 "cache write failed; returning network response"
             )
-
-    @staticmethod
-    def _contains_time(result: OhlcvResult, timestamp: int) -> bool:
-        return any(row[0] == timestamp for row in result.rows)

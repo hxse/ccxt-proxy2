@@ -37,16 +37,10 @@ class PageSource:
         if since is not None:
             candidates = [row for row in candidates if row[0] >= since]
             return candidates[:limit]
-        cutoff = (params or {}).get("until")
-        request_params = params or {}
-        if cutoff is None and "to" in request_params:
-            cutoff = request_params["to"] * 1_000
-        if cutoff is not None:
-            candidates = [row for row in candidates if row[0] <= cutoff]
         return candidates[-limit:]
 
 
-def test_since_limit_uses_inclusive_overlap_and_successor():
+def test_since_limit_uses_inclusive_overlap_without_successor():
     source = PageSource(_minutes(1, 2, 3, 4, 5, 6))
     fetcher = OhlcvNetworkFetcher("binance", "future", source)
     fetcher.page_limit = 3
@@ -54,7 +48,7 @@ def test_since_limit_uses_inclusive_overlap_and_successor():
     result = fetcher.fetch_since_limit("BTC/USDT", "1m", MINUTE, 4, "default")
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3, 4)
-    assert result.last_bar_completion_confirmed is True
+    assert result.last_bar_completion_confirmed is False
     assert source.calls[1]["since"] == 3 * MINUTE
 
 
@@ -69,12 +63,12 @@ def test_since_limit_returns_tail_but_marks_it_unknown_without_successor():
     assert result.last_bar_completion_confirmed is False
 
 
-def test_since_latest_freezes_snapshot_and_uses_later_row_only_as_proof():
-    def append_successor_on_lookahead(source: PageSource) -> None:
-        if len(source.calls) == 3:
+def test_since_latest_freezes_snapshot_and_discards_newer_rows():
+    def append_newer_row(source: PageSource) -> None:
+        if len(source.calls) == 2:
             source.rows.append(_row(4 * MINUTE))
 
-    source = PageSource(_minutes(1, 2, 3), append_successor_on_lookahead)
+    source = PageSource(_minutes(1, 2, 3), append_newer_row)
     fetcher = OhlcvNetworkFetcher("binance", "future", source)
 
     snapshot = fetcher.fetch_latest_anchor("BTC/USDT", "1m", "default")
@@ -84,37 +78,23 @@ def test_since_latest_freezes_snapshot_and_uses_later_row_only_as_proof():
     )
 
     assert [row[0] for row in result.rows] == _minutes(1, 2, 3)
-    assert result.last_bar_completion_confirmed is True
-
-
-def test_latest_limit_pages_backwards_from_real_latest():
-    source = PageSource(_minutes(*range(1, 9)))
-    fetcher = OhlcvNetworkFetcher("binance", "future", source)
-    fetcher.page_limit = 3
-
-    result = fetcher.fetch_latest_limit("BTC/USDT", "1m", 5, "default")
-
-    assert [row[0] for row in result.rows] == _minutes(4, 5, 6, 7, 8)
     assert result.last_bar_completion_confirmed is False
-    assert source.calls[1]["params"] == {"until": 6 * MINUTE}
 
 
-def test_kraken_futures_backward_page_uses_explicit_from_and_to_window():
-    source = PageSource([60_000 * value for value in range(1, 9)])
-    fetcher = OhlcvNetworkFetcher("kraken", "future", source)
+@pytest.mark.parametrize("provider", ["binance", "kraken"])
+def test_snapshot_pages_only_forward_with_inclusive_overlap(provider):
+    source = PageSource(_minutes(*range(1, 9)))
+    fetcher = OhlcvNetworkFetcher(provider, "future", source)
     fetcher.page_limit = 3
-
-    result = fetcher.fetch_latest_limit("BTC/USD:USD", "1m", 5, "default")
-
-    assert [row[0] for row in result.rows] == [
-        240_000,
-        300_000,
-        360_000,
-        420_000,
-        480_000,
-    ]
-    assert source.calls[1]["since"] == 240_000
-    assert source.calls[1]["params"] == {"to": 360}
+    snapshot = fetcher.fetch_latest_anchor("BTC/USD:USD", "1m", "default")
+    assert snapshot is not None
+    result = fetcher.fetch_to_snapshot(
+        "BTC/USD:USD", "1m", 4 * MINUTE, snapshot, "default", 5
+    )
+    assert [r[0] for r in result.rows] == _minutes(4, 5, 6, 7, 8)
+    assert [c["since"] for c in source.calls] == [None, 4 * MINUTE, 6 * MINUTE]
+    assert all(c["params"] == {} for c in source.calls)
+    assert result.last_bar_completion_confirmed is False
 
 
 def test_forward_page_must_repeat_overlap_anchor():
@@ -145,20 +125,7 @@ def test_full_forward_page_without_new_rows_is_network_incomplete():
     fetcher.page_limit = 3
 
     with pytest.raises(NetworkIncomplete, match="forward page made no progress"):
-        fetcher.fetch_since_limit("BTC/USDT", "1m", MINUTE, 4, "default")
-
-
-def test_full_backward_page_without_new_rows_is_network_incomplete():
-    rows = [_row(timestamp) for timestamp in _minutes(1, 2, 3, 4, 5, 6, 7, 8)]
-
-    def ignore_until(*args, limit: int = 1000, **kwargs):
-        return rows[-limit:]
-
-    fetcher = OhlcvNetworkFetcher("binance", "future", ignore_until)
-    fetcher.page_limit = 3
-
-    with pytest.raises(NetworkIncomplete, match="backward page made no progress"):
-        fetcher.fetch_latest_limit("BTC/USDT", "1m", 5, "default")
+        fetcher.fetch_since_limit("BTC/USDT", "1m", MINUTE, 6, "default")
 
 
 def test_short_anchor_only_page_is_a_valid_history_boundary():
@@ -192,28 +159,10 @@ def test_binance_calendar_month_does_not_use_fixed_millisecond_continuity_check(
     source = PageSource([january, february, march])
     fetcher = OhlcvNetworkFetcher("binance", "future", source)
 
-    result = fetcher.fetch_since_limit("BTC/USD:USD", "1M", january, 2, "default")
+    result = fetcher.fetch_single("BTC/USD:USD", "1M", january, 2, "default")
 
     assert [row[0] for row in result.rows] == [january, february]
-    assert result.last_bar_completion_confirmed is True
-
-
-def test_binance_calendar_month_latest_pages_with_until_anchor():
-    months = [
-        1_704_067_200_000,
-        1_706_745_600_000,
-        1_709_251_200_000,
-        1_711_929_600_000,
-    ]
-    source = PageSource(months)
-    fetcher = OhlcvNetworkFetcher("binance", "future", source)
-    fetcher.page_limit = 3
-
-    result = fetcher.fetch_latest_limit("BTC/USDT:USDT", "1M", 4, "default")
-
-    assert [row[0] for row in result.rows] == months
-    assert source.calls[1]["since"] is None
-    assert source.calls[1]["params"] == {"until": months[1]}
+    assert result.last_bar_completion_confirmed is False
 
 
 def test_invalid_provider_row_fails_the_whole_network_operation():

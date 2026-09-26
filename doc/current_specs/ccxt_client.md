@@ -167,7 +167,7 @@ acquire
 
 ## OHLCV 网络调用边界
 
-Client 内部三个用户语义由 `OhlcvNetworkFetcher` 的 forward/backward/snapshot primitives 实现；这些 network-only primitive 必须：
+Client 内部三个用户语义由 `OhlcvNetworkFetcher` 的 统一 forward 分页与单页薄转发 实现；这些 network-only primitive 必须：
 
 1. 将 CCXT 只当作单页 Provider adapter；
 2. 自己处理 page limit、inclusive overlap 和 retry；
@@ -178,7 +178,7 @@ Client 内部三个用户语义由 `OhlcvNetworkFetcher` 的 forward/backward/sn
 7. 发现非连续 page 或满页 no-progress 时报 `NETWORK_INCOMPLETE`，不修复、不返回 partial rows；
 8. 返回完整语义结果或抛出异常，不把中途 partial pages 当成成功。
 
-`1M` 自然月只在 Provider 本身支持时可用，不执行固定毫秒邻接校验。连续性校验只是 Provider 异常的 fail-fast guard，不参与 pagination cursor 或 tail-completion 证明。
+`1M` 自然月只在 Provider 本身支持时可用，不执行固定毫秒邻接校验。LatestLimit 对固定周期用 interval 推导起点，其余向前游标仍来自真实重叠点。周线以上仅允许单页 SinceLimit/LatestLimit，无缓存且不支持 SinceLatest。所有结果在返回前再次校验。
 
 Cache 只接触合并后的 `OhlcvResult`，不得读取 Provider page 或控制重试。
 

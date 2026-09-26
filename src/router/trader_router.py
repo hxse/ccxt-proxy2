@@ -71,7 +71,7 @@ def _ohlcv_response(result) -> OhlcvResponse:
     "/fetch_ohlcv/since-limit",
     response_model=OhlcvResponse,
     summary="从指定时间获取固定数量 K 线",
-    description="从 since 向后返回最多 limit 根完整 rows；可复用一个最佳 cache prefix，并通过 successor metadata 描述尾根证据。",
+    description="从 since 向后返回最多 limit 根完整 rows；可复用一个最佳 cache prefix，网络目标末根保守为 unknown，响应保留末根。",
     response_description="完整目标 rows 与 last_bar_completion_confirmed。",
     responses=OHLCV_RESPONSES,
 )
@@ -110,8 +110,8 @@ def fetch_ohlcv_since_latest(params: Annotated[SinceLatestOhlcvRequest, Query()]
     "/fetch_ohlcv/latest-limit",
     response_model=OhlcvResponse,
     summary="获取最新倒数固定数量 K 线",
-    description="返回 Provider 最新倒数 limit 根。该模式不读取 cache，但会将可安全复用的非尾根写入 cache。",
-    response_description="完整 latest-limit rows；非空结果的尾根证据保守为 false。",
+    description="固定最新快照 S，按固定周期推导起点并复用连续缓存和 since＋limit 分页；返回最多 limit 根，普通网络末根不新增落盘。",
+    response_description="完整 latest-limit rows；网络末根为 false，纯可信缓存为 true，空结果为 null。",
     responses=OHLCV_RESPONSES,
 )
 def fetch_ohlcv_latest_limit(params: Annotated[LatestLimitOhlcvRequest, Query()]):

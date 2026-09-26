@@ -1,190 +1,63 @@
-# OHLCV 单前缀缓存查询算法
+# CCXT OHLCV 单前缀查询
 
-本文只规定当前 CCXT 查询编排。存储片段本身不包含网络分页算法，TQ 当前也不进入此链路。共同证据与返回/落盘分界见[行情数据契约](market_data_contract.md)。
+本篇定义 CCXT 的查询编排；缓存接口与片段证明见[缓存操作](ohlcv_cache_operations.md)。TQ 不使用本算法。
 
-## 共同原则
+## 唯一获取链
 
-```text
-read at most one cache prefix
-→ network-only continuation
-→ validate/merge/deduplicate
-→ cache decision
-→ return full rows + completion metadata
+三个查询共用 Client 的前缀编排和 OhlcvNetworkFetcher 的向前分页。网络只调用：
+
+```python
+exchange.fetch_ohlcv(symbol, timeframe, since=cursor, limit=page_size, params=variant_params)
 ```
 
-- 一旦进入 network 阶段，不再搜索第二个 cache segment。
-- Network 从已有 tail timestamp 含首请求，不计算 `tail + timeframe`。
-- Binance/Kraken Futures 的 fixed interval 用于 network page fail-fast validation；当前 Kraken Futures 倒序取数另用它构造范围。向后续页 cursor 使用真实重叠点，interval 不参与 cache proof。
-- Merge 按 time 去重，network row 在相同 timestamp 胜出。
-- 完整 network operation 成功才能返回或缓存；中途 partial 必须丢弃。
-- 所有用户 rows 最多 100,000，proof/overlap rows 不占用户计数。
+不传项目 until/to/endTime，不用自动分页或倒序补拉。最新快照只通过 since=None、limit=1 的一次特例取得 S；后续查询复用同一个 S，不刷新终点。
 
-## 前缀命中
+网络页、缓存候选与最终结果先裁去 S 之后的数据。S 冻结时间戳，后取得的同时间戳有效价格仍可更新响应。边界之外的价格不参与目标窗口校验或尾根证明。
 
-Cache 从 candidate segments 选一个可复用 rows 最多的 segment，返回其中 `time >= since` 的 rows。
+## 缓存前缀
 
-命中可以是：
+所有读取走 read_best_prefix；选择、覆盖和连接证据由缓存负责，Client 不操作底层表。可复用起点包括精确命中、片段内夹点、已有 covered_from 证明的空白前缀。
 
-```text
-Exact       : since 恰好是某 row
-Bracketed   : predecessor < since < successor
-Leading gap : covered_from <= since < first_time
-```
+- 最多复用一个片段；进入网络后不再找第二段缓存。
+- 完整命中最终校验后返回 true，不重复写库。
+- 不足时从缓存真实末端含首请求，预算包含重叠位置。
+- 网络结果缺少缓存连接点：放弃整个前缀，从原始起点完整重拉一次。
+- 页间连接点缺失仍报错，不以丢弃某页继续抓取。
 
-Leading gap 示例：
+## SinceLimit
 
-```text
-segment.covered_from = 2026-09-01 12:00 UTC
-segment.first_time   = 2026-09-02 09:00 UTC（品种上市）
-用户 since           = 2026-09-01 13:00 UTC
+从用户 since 向后获取最多 N 根。读取最多 N 根前缀；不足时请求剩余数量加含首重叠容量。无前缀直接请求 N 根。
 
-返回从 2026-09-02 09:00 UTC 开始的 rows
-```
+达到 N 即结束，不请求后继确认尾根。成功后合并、去重并最终校验；网络整批末根为 unknown，完整交缓存，由内部排除末根新增持久化，响应保留全部目标行。
 
-无需修改用户 since 或查询独立 mapping table。
+正常首窗为空返回空；非空短页仍有进展就继续。短页只剩预期连接点可作为正常数量终点，返回已取得短数据。后续空页没有连接点不能冒充成功。
 
-## `SinceLimit`
+## SinceLatest
 
-用户意图：
+先固定 S；没有最新数据或 since>S 返回空。最多读 100001 根前缀，裁到 S 后检查十万根预算；前缀已到 S 时返回可信缓存。
 
-```text
-从 since 向 timestamp 增大方向取最多 limit 根
-```
+否则从真实末端含首分页到 S。必须实际取得 S；短页有进展就继续，尚未到 S 时空页、无进展或缺连接点均报 NETWORK_INCOMPLETE。去重后超十万根报 RESPONSE_ROW_LIMIT_EXCEEDED，不截断成功，也不缓存部分结果。
 
-流程：
+到 S 即结束，不执行尾根确认请求。分页途中出现的新 K 线由固定边界裁掉，不延长本次查询。
 
-```text
-prefix = cache.read_best_prefix(series, since, limit)
+## LatestLimit
 
-prefix rows >= limit
-→ 返回 prefix[:limit]，metadata=true
+重点支持的固定周期≤1w：先取 S，按 start=S−(N−1)×interval_ms 推导起点，再以相同 S 调用上述内部快照编排。推导出负起点拒绝并提示减小 limit，不归零或寻找上市时间。
 
-0 < prefix rows < limit
-→ 从 prefix tail 含首补拉缺少 rows + one successor
+支持范围内正常完整数据应得到 N 根；正常链路自然取得合法短历史且到达 S 可以返回实际行数。内部缺口、无法达到 S 都不能当作短成功。
 
-prefix 为空
-→ 从原始 since 抓 limit rows + one successor
-```
+## 分页与结果校验
 
-部分命中时，network head 必须包含 cached tail timestamp。失败时：
+下一页从真实末根含首开始，不能用 tail＋interval。每页验证 canonical OHLCV、固定周期间隔、连接点和进展；同时间戳以后取得的值为准。Kraken SDK 的 since＋limit 是有限时间窗口，因此短页本身既不是完成证据，也不是失败。
 
-```text
-放弃整个 prefix
-→ 从原始 since 完整重拉一次
-```
+纯网络、纯缓存、合并三种最终结果均检查：有限数值、价格关系、非负 volume、时间唯一升序、起点、数量上限、固定 interval 和适用的 S。失败不返回或保存部分页。
 
-不得在 fallback 中无限重试同一 overlap mismatch。
+普通网络尾根 false，缓存内部只新增持久化前面的行；库中已可信的末根不再次删除或被未知网络尾根覆盖。空结果 metadata=null。全部网络页完成后只去一次尾，不逐页去尾。
 
-### 单行向后观察
+## 有限支持域与错误
 
-目标尾根为 `target_tail`。Lookahead 从它的 timestamp 含首请求，底层容量至少包含 anchor + 1：
+Kraken Spot 维持单页薄转发、无项目缓存、SinceLatest 不支持。其他已声明的周线以上周期（包括 1M）仅 SinceLimit/LatestLimit 单页薄转发，不读写缓存；limit 超 Provider 单页上限及 SinceLatest 均 NOT_SUPPORTED。月不换算成三十天。
 
-```text
-去重后存在 time > target_tail.time
-→ last_bar_completion_confirmed=true
-→ 用户目标 rows 全部可缓存
+上市前边界只做普通链路能够完成的处理；无法完成就明确结束，不增加上市日期服务、跨空窗推进或起点探测。正常请求顺带获得的 covered_from 证明继续保留，空响应不建空片段。
 
-不存在严格更晚 row
-→ last_bar_completion_confirmed=false
-→ cache 只写 rows[:-1]
-```
-
-Proof successor 不属于用户 N 根，不返回。
-
-### 例子
-
-```text
-用户 limit=10
-返回 rows=t1..t10
-
-观察到 t11 → response 10 根，cache t1..t10，metadata=true
-未观察到 t11 → response 10 根，cache t1..t9，metadata=false
-```
-
-Metadata 只影响 cache，不会把用户请求的 10 根变成 9 根。
-
-## `SinceLatest`
-
-用户意图：
-
-```text
-从 since 到本次请求开始时的 latest snapshot
-```
-
-为防止边拉边产生新 K 线导致无法终止，先向 Provider 获取当前最新一根：
-
-```text
-snapshot_tail
-```
-
-流程：
-
-```text
-读取一个最佳 prefix（最多 100,001 rows）
-→ 有 prefix：从 cached tail 含首补到 snapshot_tail
-→ 无 prefix：从原始 since 抓到 snapshot_tail
-→ 抓到 snapshot_tail 才算 complete
-→ 再对 snapshot_tail 做一次 lookahead
-```
-
-分页期间出现更晚 rows 不追加到 response。如果 lookahead 存在严格更晚 successor，snapshot tail metadata 为 `true`；否则 `false`。
-
-snapshot 固定的是本次响应的时间终点；同一时间戳在后续合法网络结果中发生修订，仍按原覆盖顺序采用，不承诺冻结首次取得的价格内容。
-
-去重后出现第 100,001 个用户 row 时立即失败，不返回/缓存 partial result。不增加 streaming 或后台任务。
-
-### 休盘
-
-休盘尾根可能实际已完成，但无 successor 时仍是 unknown：
-
-```text
-response 包含尾根
-metadata=false
-cache 不保存尾根
-```
-
-下次开盘出现 successor 后，旧尾根即成为安全 cache row。
-
-## `LatestLimit`
-
-用户意图：
-
-```text
-取 Provider 最新倒数 limit 根
-```
-
-流程：
-
-```text
-不读 cache
-→ Provider latest-limit network method
-→ response 返回全部 rows
-→ cache 写 rows[:-1]
-```
-
-Provider latest semantics 只证明尾根是查询当时最新 row，不证明它已完成，因此非空结果 metadata 为 `false`。
-
-`limit+1` 会在倒数语义中多取更老 row，不能作为 latest tail successor，因此不使用。
-
-## 完整响应
-
-Cache 和 Route 使用同一个未删尾 `OhlcvResult`：
-
-```text
-metadata=true  → cache 写全部 rows，Route 返回全部 rows
-metadata=false → cache 写 rows[:-1]，Route 仍返回全部 rows
-metadata=null  → rows 为空
-```
-
-服务端不提供删尾开关。调用方根据 `last_bar_completion_confirmed` 自行选择是否消费未知状态的最后一根，不能让这一消费策略反向改变 cache decision 或 route row count。
-
-## 正常边界与无进展
-
-Network method 只有在能证明语义完成时才成功返回。下列情况需要区分：
-
-- Provider 正常返回少于 limit：可能已达当前边界；
-- 请求/重试失败：异常，不得当作边界；
-- 短页仅返回 overlap anchor：可以作为无 successor/terminal 证据，不是新 row；
-- 非空满页合并去重后毫无进展：返回 `NETWORK_INCOMPLETE`，不将 partial rows 当作成功。
-
-详细 Provider retry/error mapping 见 [OHLCV Route contract](ccxt_ohlcv.md)。
+普通缓存失败、容量保护、网络重试和错误码见[OHLCV 契约](ccxt_ohlcv.md)。网络等待不持数据库写锁，单次查询失败不写入已抓到的部分行情。

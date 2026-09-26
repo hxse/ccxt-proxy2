@@ -107,7 +107,7 @@ def test_three_ohlcv_modes_preserve_count_start_and_snapshot_semantics(
         )
         _assert_rows(counted.rows, 3)
         assert counted.rows[0][0] == since, f"{provider}/{mode}"
-        assert counted.last_bar_completion_confirmed is True, f"{provider}/{mode}"
+        assert counted.last_bar_completion_confirmed is False, f"{provider}/{mode}"
 
         snapshot = client.fetch_ohlcv_since_latest(
             symbol,

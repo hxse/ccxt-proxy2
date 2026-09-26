@@ -1,9 +1,13 @@
+"""CCXT 唯一的 since + limit 获取链；网络阶段不读项目缓存。"""
+
+import operator
 from collections.abc import Callable
 from typing import Any
 
 from src.cache_tool.models import (
     OhlcvResult,
     OhlcvRow,
+    canonical_row,
     canonical_rows,
     merge_rows,
 )
@@ -14,6 +18,36 @@ from src.domain_errors import (
 )
 
 PageCall = Callable[..., list[list[Any]]]
+
+
+class MissingPrefixAnchor(NetworkIncomplete):
+    """首个网络页未接上缓存前缀，由 Client 完整回退一次。"""
+
+
+def clip_snapshot(rows, snapshot: int | None):
+    """先验证时间并裁边界，S 之后的价格不参与本次查询校验。"""
+    if snapshot is None:
+        return rows
+    selected = []
+    for row in rows:
+        try:
+            timestamp = operator.index(row[0])
+            if isinstance(row[0], bool) or timestamp < 0:
+                raise ValueError("invalid OHLCV timestamp")
+        except (IndexError, TypeError, ValueError) as exc:
+            raise InvalidProviderData("invalid OHLCV timestamp") from exc
+        if timestamp <= snapshot:
+            selected.append(row)
+    return selected
+
+
+def fixed_interval_ms(timeframe: str) -> int | None:
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    try:
+        seconds = int(timeframe[:-1]) * units[timeframe[-1]]
+    except (KeyError, ValueError, IndexError):
+        return None
+    return seconds * 1000 if 0 < seconds <= 604800 else None
 
 
 class OhlcvNetworkFetcher:
@@ -29,6 +63,15 @@ class OhlcvNetworkFetcher:
             self.provider == "kraken" and self.market == "future"
         )
 
+    def fetch_single(
+        self, symbol: str, timeframe: str, since: int | None, limit: int, variant: str
+    ) -> OhlcvResult:
+        rows = self._page(symbol, timeframe, since, limit, variant)
+        rows = [row for row in rows if since is None or row[0] >= since]
+        rows = rows[-limit:] if since is None else rows[:limit]
+        self.validate_result(rows, timeframe, since, limit)
+        return OhlcvResult(rows, False if rows else None)
+
     def fetch_since_limit(
         self,
         symbol: str,
@@ -36,61 +79,23 @@ class OhlcvNetworkFetcher:
         since: int,
         limit: int,
         variant: str,
+        *,
+        require_initial_anchor: bool = False,
     ) -> OhlcvResult:
-        if not self.supports_full_history:
-            rows = self._page(symbol, timeframe, since, limit, variant, {})
-            rows = [row for row in rows if row[0] >= since][:limit]
-            return OhlcvResult(rows, False if rows else None)
-        rows = self._fetch_forward(symbol, timeframe, since, limit + 1, variant)
-        user_rows = rows[:limit]
-        confirmed = len(rows) > len(user_rows)
-        return OhlcvResult(user_rows, confirmed if user_rows else None)
-
-    def fetch_latest_limit(
-        self,
-        symbol: str,
-        timeframe: str,
-        limit: int,
-        variant: str,
-    ) -> OhlcvResult:
-        if not self.supports_full_history:
-            rows = self._page(symbol, timeframe, None, limit, variant, {})
-            rows = rows[-limit:]
-            return OhlcvResult(rows, False if rows else None)
-
-        rows: list[OhlcvRow] = []
-        cursor: int | None = None
-        while len(rows) < limit:
-            overlap = 0 if cursor is None else 1
-            request_limit = min(self.page_limit, limit - len(rows) + overlap)
-            request_since, params = self._backward_request(
-                cursor, timeframe, request_limit
-            )
-            page = self._page(
-                symbol, timeframe, request_since, request_limit, variant, params
-            )
-            page_size = len(page)
-            if cursor is not None:
-                page = [row for row in page if row[0] <= cursor]
-                self._require_anchor(page, cursor, "backward page")
-            if not page:
-                break
-            previous = len(rows)
-            rows = merge_rows(rows, page)
-            if len(rows) == previous:
-                if page_size >= request_limit:
-                    raise NetworkIncomplete("backward page made no progress")
-                break
-            if page_size < request_limit:
-                break
-            cursor = rows[0][0]
-        user_rows = rows[-limit:]
-        return OhlcvResult(user_rows, False if user_rows else None)
+        rows = self._fetch_forward(
+            symbol,
+            timeframe,
+            since,
+            limit,
+            variant,
+            require_initial_anchor=require_initial_anchor,
+        )
+        return OhlcvResult(rows, False if rows else None)
 
     def fetch_latest_anchor(
         self, symbol: str, timeframe: str, variant: str
     ) -> int | None:
-        rows = self._page(symbol, timeframe, None, 1, variant, {})
+        rows = self._page(symbol, timeframe, None, 1, variant)
         return rows[-1][0] if rows else None
 
     def fetch_to_snapshot(
@@ -101,36 +106,21 @@ class OhlcvNetworkFetcher:
         snapshot: int,
         variant: str,
         max_rows: int,
+        *,
+        require_initial_anchor: bool = False,
     ) -> OhlcvResult:
         if since > snapshot:
             return OhlcvResult([], None)
-        rows: list[OhlcvRow] = []
-        cursor = since
-        first_page = True
-        while snapshot not in {row[0] for row in rows}:
-            request_limit = self.page_limit
-            page = self._page(symbol, timeframe, cursor, request_limit, variant, {})
-            if not first_page:
-                self._require_anchor(page, cursor, "forward page")
-            bounded = [row for row in page if since <= row[0] <= snapshot]
-            previous = len(rows)
-            rows = merge_rows(rows, bounded)
-            if len(rows) > max_rows:
-                raise ResponseRowLimitExceeded(
-                    f"OHLCV response exceeds {max_rows} rows"
-                )
-            if snapshot in {row[0] for row in rows}:
-                break
-            if not page or len(rows) == previous or len(page) < request_limit:
-                raise NetworkIncomplete("latest snapshot was not reached")
-            cursor = rows[-1][0]
-            first_page = False
-
-        proof = self.fetch_since_limit(symbol, timeframe, snapshot, 1, variant)
-        self._require_anchor(proof.rows, snapshot, "snapshot lookahead")
-        rows = merge_rows(rows, proof.rows)
-        rows = [row for row in rows if row[0] <= snapshot]
-        return OhlcvResult(rows, proof.last_bar_completion_confirmed)
+        rows = self._fetch_forward(
+            symbol,
+            timeframe,
+            since,
+            max_rows,
+            variant,
+            snapshot,
+            require_initial_anchor=require_initial_anchor,
+        )
+        return OhlcvResult(rows, False if rows else None)
 
     def _fetch_forward(
         self,
@@ -139,30 +129,53 @@ class OhlcvNetworkFetcher:
         since: int,
         count: int,
         variant: str,
+        snapshot: int | None = None,
+        *,
+        require_initial_anchor: bool = False,
     ) -> list[OhlcvRow]:
         rows: list[OhlcvRow] = []
         cursor = since
         first_page = True
-        while len(rows) < count:
-            overlap = 0 if first_page else 1
-            request_limit = min(self.page_limit, count - len(rows) + overlap)
-            page = self._page(symbol, timeframe, cursor, request_limit, variant, {})
+        while True:
+            # 固定快照多留一个溢出检测位置，重叠点另计；不是尾根完成性探测。
+            budget = (
+                count - len(rows) + (0 if first_page else 1) + (snapshot is not None)
+            )
+            request_limit = min(self.page_limit, budget)
+            page = self._page(
+                symbol, timeframe, cursor, request_limit, variant, snapshot
+            )
+            if (
+                first_page
+                and require_initial_anchor
+                and not any(row[0] == cursor for row in page)
+            ):
+                raise MissingPrefixAnchor(
+                    "network page did not include cache prefix anchor"
+                )
             if not first_page:
-                self._require_anchor(page, cursor, "forward page")
-            page = [row for row in page if row[0] >= since]
-            if not page:
-                break
+                self._require_anchor(page, cursor)
+            bounded = [row for row in page if row[0] >= since]
             previous = len(rows)
-            rows = merge_rows(rows, page)
-            if len(rows) == previous:
-                if len(page) >= request_limit:
-                    raise NetworkIncomplete("forward page made no progress")
+            rows = merge_rows(rows, bounded)
+            if len(rows) > count:
+                raise ResponseRowLimitExceeded(f"OHLCV response exceeds {count} rows")
+            if snapshot is not None and rows and rows[-1][0] == snapshot:
                 break
-            if len(page) < request_limit:
+            if snapshot is None and len(rows) >= count:
+                break
+            if not page or len(rows) == previous:
+                if snapshot is not None:
+                    raise NetworkIncomplete(
+                        "latest snapshot was not reached; adjust since or limit"
+                    )
+                if page and len(page) >= request_limit:
+                    raise NetworkIncomplete("forward page made no progress")
                 break
             cursor = rows[-1][0]
             first_page = False
-        return rows[:count]
+        self.validate_result(rows, timeframe, since, count, snapshot)
+        return rows
 
     def _page(
         self,
@@ -171,69 +184,55 @@ class OhlcvNetworkFetcher:
         since: int | None,
         limit: int,
         variant: str,
-        params: dict[str, Any],
+        snapshot: int | None = None,
     ) -> list[OhlcvRow]:
-        request_params = dict(params)
-        if variant != "default":
-            request_params["price"] = variant
+        params = {} if variant == "default" else {"price": variant}
         try:
             raw = self._page_call(
-                symbol,
-                timeframe,
-                since=since,
-                limit=limit,
-                params=request_params,
+                symbol, timeframe, since=since, limit=limit, params=params
             )
-            rows = canonical_rows(raw or [])
+            rows = canonical_rows(clip_snapshot(raw or [], snapshot))
             self._validate_fixed_interval_page(rows, timeframe)
             return rows
         except (TypeError, ValueError, OverflowError) as exc:
             raise InvalidProviderData(str(exc)) from exc
 
+    def validate_result(
+        self,
+        rows: list[OhlcvRow],
+        timeframe: str,
+        since: int | None,
+        max_rows: int,
+        snapshot: int | None = None,
+    ) -> None:
+        try:
+            for row in rows:
+                canonical_row(row)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InvalidProviderData(str(exc)) from exc
+        if any(current[0] <= previous[0] for previous, current in zip(rows, rows[1:])):
+            raise InvalidProviderData("OHLCV timestamps must be unique and increasing")
+        if rows and since is not None and rows[0][0] < since:
+            raise InvalidProviderData("OHLCV result precedes since")
+        if len(rows) > max_rows:
+            raise ResponseRowLimitExceeded()
+        self._validate_fixed_interval_page(rows, timeframe)
+        if snapshot is not None and (not rows or rows[-1][0] != snapshot):
+            raise NetworkIncomplete("latest snapshot was not reached")
+
     def _validate_fixed_interval_page(
         self, rows: list[OhlcvRow], timeframe: str
     ) -> None:
-        if not self.supports_full_history or len(rows) < 2:
+        duration_ms = fixed_interval_ms(timeframe)
+        if not self.supports_full_history or duration_ms is None:
             return
-        if timeframe.endswith("M"):
-            return
-        duration_ms = _timeframe_seconds(timeframe) * 1_000
         for previous, current in zip(rows, rows[1:]):
             if current[0] - previous[0] != duration_ms:
                 raise NetworkIncomplete(
-                    f"{self.provider} {self.market} OHLCV page is not contiguous "
-                    f"for {timeframe}: {previous[0]} -> {current[0]}"
+                    f"{self.provider} {self.market} OHLCV page is not contiguous for {timeframe}: {previous[0]} -> {current[0]}"
                 )
 
-    def _backward_request(
-        self, cursor: int | None, timeframe: str, limit: int
-    ) -> tuple[int | None, dict[str, int]]:
-        if cursor is None:
-            return None, {}
-        if self.provider == "binance":
-            return None, {"until": cursor}
-        if self.provider == "kraken" and self.market == "future":
-            duration_ms = _timeframe_seconds(timeframe) * 1_000
-            start = max(0, cursor - duration_ms * (limit - 1))
-            return start, {"to": cursor // 1_000}
-        return None, {}
-
-    def _require_anchor(
-        self, rows: list[OhlcvRow], anchor: int, operation: str
-    ) -> None:
+    @staticmethod
+    def _require_anchor(rows: list[OhlcvRow], anchor: int) -> None:
         if not any(row[0] == anchor for row in rows):
-            raise NetworkIncomplete(f"{operation} did not include overlap anchor")
-
-
-def _timeframe_seconds(timeframe: str) -> int:
-    unit_seconds = {
-        "m": 60,
-        "h": 3_600,
-        "d": 86_400,
-        "w": 604_800,
-        "M": 2_592_000,
-    }
-    try:
-        return int(timeframe[:-1]) * unit_seconds[timeframe[-1]]
-    except (KeyError, ValueError) as exc:
-        raise InvalidProviderData(f"unsupported timeframe: {timeframe}") from exc
+            raise NetworkIncomplete("forward page did not include overlap anchor")

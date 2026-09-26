@@ -17,7 +17,7 @@
 
 - `SinceLimit`：数据足够、少于 limit、恰好 page boundary、多页。
 - `SinceLatest`：固定 snapshot、分页期间出现新 row 不追加。
-- `LatestLimit`：无 since，Provider 最新 N 根。
+- `LatestLimit`：固定一次 S，推导起点复用快照查询，最终校验数量/间隔；非法起点明确拒绝。
 
 ### 分页
 
@@ -26,20 +26,20 @@
 - Binance/Kraken Futures 固定周期 page 出现非连续 timestamp 时触发 `NETWORK_INCOMPLETE`。
 - 连续性校验不搜索 gap、不扩大时间窗口、不返回 partial rows。
 - Page head 不含预期 anchor 时报错。
-- Empty/短页 anchor-only 可作为边界；满页 no-progress 必须返回 `NETWORK_INCOMPLETE`。
+- 数量查询首窗 Empty/后续短页 anchor-only 可正常结束；快照查询未到 S 则失败。非空短页有合法进展继续，不能跨空窗搜索。满页 no-progress 必须返回 `NETWORK_INCOMPLETE`。
 - Network 中途失败不返回 partial result。
 - Read-only retry 按次数生效；create/cancel/close/leverage 不自动 retry。
 - Authentication/BadRequest 等 Provider rejection 不重试；非网络型 write rejection 不得误标为 `OPERATION_STATUS_UNKNOWN`。
-- Binance `1M` LatestLimit 只用 `until` overlap anchor 向后分页，不使用固定 30 天窗口；Kraken 未声明 `1M` capability 时在 Client boundary 明确拒绝。
+- 周线以上只允许有限单页 SinceLimit/LatestLimit，无项目缓存；SinceLatest 不支持。月不按三十天换算，Provider 未声明周期时前置拒绝。
 
 ### 尾根证据
 
-- `SinceLimit` 存在严格更晚 successor → metadata `true`。
-- Lookahead 只返回 overlap anchor → `false`。
-- Proof successor 不占 limit、不进 response、不作为未证明 cache tail。
-- `SinceLatest` 休盘无 successor → 返回 tail + metadata `false`。
-- `LatestLimit` 非空结果 metadata 始终保守 `false`。
-- 分页 overlap same timestamp 不能作为 successor。
+- 所有普通网络 OHLCV 最终尾根返回 false；不再发后继确认请求。
+- 完整分页只排除整体末根的新增持久化，不逐页排尾。
+- 纯可信缓存返回 true，不重复去尾或写回；未知网络尾根不降级库内同时间戳可信行。
+- 最新快照只取一次，所有来源裁去 S 之后数据；同 S 有效修订可更新响应。
+- 含首重叠和溢出检测仍保留，不能作为删掉后继请求的连带删除项。
+- 真实 Kraken SDK 配离线 candles 验证有限时间窗口短页正常续接与空窗失败；不联网寻找上市日期。
 
 ## 缓存读取验证
 
@@ -57,7 +57,7 @@
 - 品种上市前 since/上市时 first row 产生 leading gap proof。
 - 后续更晚但仍早于 first row 的 since 复用同一 segment。
 - 更早 verified request 将 coverage 从 12:00 扩到 11:00。
-- `LatestLimit` 新 segment 设 `covered_from=first_time`。
+- 固定周期 `LatestLimit` 从推导 since 取得的合法覆盖沿统一入口保存；没有 since 证明的最新窗口只能从实际首行开始。
 - 不支持 since 权威语义的 Provider 不能创建 leading proof。
 - Eviction 裁掉 segment 前缀后重置 `covered_from=new first_time`。
 
@@ -132,7 +132,7 @@
 - 每个 Bruno method/path 必须对应现有 FastAPI route；Just 引用的 `.bru` 路径必须存在。
 - Mutating Bruno request 必须带 `[STATEFUL]`；`bru-readonly-basic` 只能引用 GET request。
 - `Test/online` 只使用 live identity，并禁止 create/cancel/close/set/send 等 mutating call；`test-online` 不得包含 Telegram 或 sandbox identity。
-- Cache package 不 import CCXT/TQSDK/FastAPI，公开 API 只保留 `read_best_prefix`、`write_segment`、`close`。
+- Cache package 不 import CCXT/TQSDK/FastAPI，公开 API 仅允许缓存操作规范列出的高级读写与生命周期入口，不暴露底层连接或 callback。
 - 生产模块保持每文件不超过 400 行；已删除的平行 CCXT module 不得重新出现。
 
 ## 旧接口退出约束

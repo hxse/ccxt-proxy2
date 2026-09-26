@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | `SinceLimit` | `since + limit` | 从起点向后最多 N 根 | 最佳单 prefix | 是 |
 | `SinceLatest` | `since` | 从起点到请求开始时的 latest snapshot | 最佳单 prefix | 是 |
-| `LatestLimit` | `limit` | 最新倒数 N 根 | 否 | 是 |
+| `LatestLimit` | `limit` | 固定 S 后计算起点获取最新 N 根 | 最佳单 prefix | 是 |
 
 固定 URI 为 `/ccxt/fetch_ohlcv/since-limit`、`/ccxt/fetch_ohlcv/since-latest`、`/ccxt/fetch_ohlcv/latest-limit`。旧 `/ccxt/fetch_ohlcv` 已删除，不提供兼容转发。
 
@@ -68,7 +68,7 @@ max_response_rows = 100_000
 - Client public method 也维持该不变量，避免被非 HTTP 调用绕过。
 - `SinceLatest` 在 cache read 和 network pagination 中累计去重后的用户 rows，第 100,001 根触发 `ResponseRowLimitExceeded`。
 - 超限时不返回、不缓存 partial result。
-- overlap anchor 和 proof successor 不计入用户行数。
+- overlap anchor 去重后只计一次；溢出检测容量不作为成功响应多余行。
 
 Cache 可通过多次请求累积到远高于 100,000 行；response budget 与 cache capacity 不联动。
 
@@ -99,51 +99,15 @@ Binance 和 Kraken Futures 的完整分页明确以“正常 crypto OHLCV 在固
 
 Client 先检查 `timeframe in exchange.timeframes`。`1M` 是自然月，长度不固定；只有 Provider 本身支持时才可请求，且不做固定毫秒邻接校验。当前 Kraken Futures/Spot 均不支持 `1M`。
 
-向后分页不使用 `tail + timeframe_ms` 构造下一页 cursor，timeframe 也不用于证明尾根完成。当前 latest-limit 仍有项目倒序分支：Binance 以真实首部时间传 until，Kraken Futures 用 interval 计算起点并传 to；这些计算不能代替返回页的实际连续性与重叠校验。同 timestamp 的 overlap row 只用于连接校验，绝不能冒充“更晚 successor”。
+项目唯一请求方式为 since＋limit；需要最新边界时只取一次 since=None、limit=1 得到 S。LatestLimit 用固定 interval 推导 start 后复用同一个 S 的内部查询；不使用项目 until/to/endTime、倒序或自动分页。续页始终从真实末根含首请求，不用 tail＋interval。
 
-单个 network method 内部可有多个 page，但 Client 只在完整合并和校验后向 cache/Route 返回一个 result。不存在“每页 pending tail 落盘”。
+非空短页有合法进展时继续；Kraken Futures SDK 可能将 since＋limit 转为有限时间窗口，不能把短页直接当作历史结束。数量查询只含重叠点的短页可正常结束；固定快照查询尚未到 S 时无进展、空页或缺连接点均失败。完整算法见[查询规范](ohlcv_cache_resolution.md)。
 
-## 尾根完成证据
+## 尾根持久化资格
 
-唯一正面证据是同一已验证 Provider sequence 中存在：
+三个普通查询均不为尾根额外请求后继。网络成功结果裁到本次边界后，目标末根统一 unknown：非空 metadata=false，空结果 null。网络窗口前面的每根由同序列更晚行证明可以持久化；分页只在整体结果上排除一次末根。
 
-```text
-successor.time > response_tail.time
-```
-
-这证明尾根已不再是 active interval，不保证 Provider 永不修订历史数值。
-
-### SinceLimit
-
-对用户目标 N 根做 one-row lookahead。由于 request 从 target tail 含首 overlap，底层容量至少为 `anchor + 1`。去重后存在严格更晚 row 则 metadata 为 `true`；否则为 `false`。
-
-### SinceLatest
-
-请求开始时先固定 `snapshot_tail`，分页只追到它。到达后再以 snapshot tail 含首 lookahead；严格更晚 row 只作证据，不追加到已固定 response。
-
-### LatestLimit
-
-Provider 可确认返回尾根是查询当时的 latest，但无法证明它已完成，因此非空结果 metadata 为 `false`。此路由的 `limit + 1` 只会多取一根更老 row，不能作为 successor。
-
-休盘时尾根可能实际已完成，但没有 successor 仍标记 `false`；response 正常返回它，cache 不保存它。下次开盘出现 successor 后旧尾根自然进入 cache。
-
-## 证明后继数据的用途
-
-Proof row：
-
-- 不计入用户 limit；
-- 不返回用户；
-- 不作为本次新的未证明 cache tail 保存。
-
-Cache 使用 metadata 选择：
-
-```python
-cache_rows = rows if confirmed else rows[:-1]
-```
-
-Route 始终返回完整 `rows` 与对应 metadata。Cache 是否保存尾根与用户是否消费尾根是两个维度；调用方可根据 `last_bar_completion_confirmed` 自行决定如何使用最后一根。
-
-缓存排除的是本次结果未确认尾根的新增持久化，不删除库内已经可信的同时间戳行。分页连接需要的重叠行、用于完成证明的后继行和预算溢出检测行各有职责，不能混为用户响应数量。
+纯可信缓存命中返回 metadata=true，不重新去尾或写回。未知网络末根若已在库中，不删除、降级或用未确认新值覆盖旧行。响应始终保留完整目标窗口。
 
 ## 完整响应
 
@@ -166,9 +130,13 @@ Provider/Client 生成完整目标窗口
 | Binance Spot | best-effort | best-effort | best-effort | 按当前 Route policy，无可用性承诺 |
 | Kraken Spot live | Provider window 内 best-effort thin-forward | `NOT_SUPPORTED` | best-effort thin-forward | 否 |
 | Kraken Spot sandbox | 配置身份不允许 | 配置身份不允许 | 配置身份不允许 | 否 |
-| TQ | 不属于 CCXT Route | 不属于 CCXT Route | 不属于 CCXT Route | 否 |
+| TQ | 不属于 CCXT Route | 不属于 CCXT Route | 不属于 CCXT Route | 单独规范 |
 
 Binance Futures 仅支持 linear symbols，例如 `BTC/USDT:USDT`；`BTC/USD:BTC` 等 COIN-M/inverse symbol 明确拒绝。Binance/Kraken Futures 的完整分页只承诺上述连续 crypto 数据域；校验失败是显式错误，不返回 partial rows。Kraken Spot nonempty response 的 completion metadata 保守返回 `false`，空结果为 `null`。
+
+重点维护周线及以下固定周期。Provider 已声明的 >1w 周期（含 1M），SinceLimit/LatestLimit 只允许单页且 limit 不超单页上限，不使用缓存；SinceLatest 返回 NOT_SUPPORTED。Kraken Spot 保持原能力。
+
+项目不重点维护上市前数据。普通链路自然获得合法短历史则返回，不能完成时明确拒绝；不新增上市时间查询、起点搜索、空窗推进。LatestLimit 推导非法负起点返回 422 INVALID_PROVIDER_REQUEST，不用当前合约上市日裁掉主连历史。
 
 ## 错误契约
 

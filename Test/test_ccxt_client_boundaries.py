@@ -228,7 +228,7 @@ def test_binance_variants_reach_provider_and_use_separate_cache_series(
 
     assert exchange.ohlcv_calls[0]["params"]["price"] == variant
     series = client._series("BTC/USDT:USDT", "1m", variant)
-    assert len(client.cache.read_best_prefix(series.key, MINUTE, None)) == 2
+    assert len(client.cache.read_best_prefix(series.key, MINUTE, None)) == 1
 
 
 def test_client_close_is_idempotent(temp_dir):

@@ -13,11 +13,11 @@ def _cached_rows(client, since: int = MINUTE):
 def test_client_reuses_leading_gap_proof_for_a_later_since(temp_dir):
     client, exchange = _client(temp_dir, times=_minutes(3, 4, 5))
 
-    first = client.fetch_ohlcv_since_limit(SYMBOL, "1m", MINUTE, 2)
+    first = client.fetch_ohlcv_since_limit(SYMBOL, "1m", MINUTE, 3)
     calls_after_first = len(exchange.ohlcv_calls)
     second = client.fetch_ohlcv_since_limit(SYMBOL, "1m", 2 * MINUTE, 2)
 
-    assert [row[0] for row in first.rows] == _minutes(3, 4)
+    assert [row[0] for row in first.rows] == _minutes(3, 4, 5)
     assert [row[0] for row in second.rows] == _minutes(3, 4)
     assert len(exchange.ohlcv_calls) == calls_after_first
 
@@ -49,7 +49,7 @@ def test_partial_extension_does_not_cache_unconfirmed_network_tail(temp_dir):
 
 def test_since_latest_overlap_failure_discards_prefix_and_refetches(temp_dir):
     client, exchange = _client(temp_dir, times=_minutes(1, 2, 3, 4, 5))
-    client.fetch_ohlcv_since_limit(SYMBOL, "1m", MINUTE, 2)
+    client.fetch_ohlcv_since_limit(SYMBOL, "1m", MINUTE, 3)
     original_fetch = exchange.fetch_ohlcv
     omitted = False
 

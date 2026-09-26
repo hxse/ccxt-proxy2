@@ -20,7 +20,7 @@
 
 获取层负责 Provider 参数、分页和有效结果；缓存只消费已成立的证据，负责持久化筛选、片段连接、修订与事务。HTTP 路由不操作缓存底层表，不自行更改 segment_id 或 covered_from。
 
-尾根返回与落盘相互独立。CCXT 响应保留目标窗口，缓存根据完成证据选择可保存行；数据库读出的末行已可信，不因它是响应最后一行再去尾。当前 since-limit 和 since-latest 仍有专门的后继确认请求，具体流程见 [查询算法](ohlcv_cache_resolution.md)。
+尾根返回与落盘相互独立。CCXT 响应保留目标窗口，缓存根据完成证据选择可保存行；数据库读出的末行已可信，不因它是响应最后一行再去尾。CCXT 三种普通查询都取消专门后继确认，网络目标末根只返回不新增落盘；纯缓存末根保持可信，具体流程见 [查询算法](ohlcv_cache_resolution.md)。
 
 segment_id 是逻辑关系，不是单次请求编号。一个片段可由多个完整批次通过重叠合并形成；同一片段不自动证明所有行来自一次 Provider 调用。
 
@@ -32,7 +32,7 @@ covered_from 表示已证明的查询下界，first_time 表示实际首行，�
 
 当前 CCXT OHLCV 和缓存 time 使用整数 Unix 毫秒，TQ datetime 使用整数 Unix 纳秒，日历 date 表示中国期货自然日。代码与示例必须明确单位，不能通过浮点转换丢失精度，也不能把自然日期当作 UTC 零点时刻。
 
-缓存不使用 interval 推断连接。当前 CCXT 完整分页对固定周期检查相邻时间戳；Kraken Futures 的倒序请求还使用 interval 构造查询范围。向后续页仍从真实末端含首请求，不使用 tail＋interval 代替重叠点。
+缓存不使用 interval 推断连接。当前 CCXT 完整分页对固定周期检查相邻时间戳；LatestLimit 以一次固定 S 配合 interval 计算起点，再复用相同 S 的内部查询。向后续页仍从真实末端含首请求，不使用 tail＋interval 代替重叠点。
 
 TQ 的 duration_seconds 只指定 SDK 周期，休盘、周末和节假日不能被固定时间差判成缺失。日历通过标准日期运算检查逐自然日齐全，与用 K 线周期推算行情连续性是两种行为。
 

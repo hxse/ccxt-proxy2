@@ -25,3 +25,7 @@ params:query {
 assert {
   res.status: eq 200
 }
+
+docs {
+  固定周期查询复用单片段缓存和 since＋limit 分页；最新类只固定一次快照。普通网络末根返回但不新增落盘。
+}
