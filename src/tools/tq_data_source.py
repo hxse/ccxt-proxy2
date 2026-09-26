@@ -55,6 +55,7 @@ def normalize_tq_serial_frame(frame: pd.DataFrame, kind: TqSerialKind) -> pd.Dat
     if (
         trimmed_datetime.isna().any()
         or trimmed_datetime.le(0).any()
+        or trimmed_datetime.mod(1).ne(0).any()
         or trimmed_datetime.diff().dropna().le(0).any()
     ):
         raise TqDataFrameError()
@@ -66,6 +67,16 @@ def normalize_tq_serial_frame(frame: pd.DataFrame, kind: TqSerialKind) -> pd.Dat
     if trimmed_prices.isna().all(axis=1).any():
         raise TqDataFrameError()
     trimmed["datetime"] = trimmed_datetime.astype("int64")
+    if kind == "kline" and "id" in trimmed:
+        ids = pd.to_numeric(trimmed["id"], errors="coerce")
+        if (
+            ids.isna().any()
+            or ids.lt(0).any()
+            or ids.mod(1).ne(0).any()
+            or ids.diff().dropna().ne(1).any()
+        ):
+            raise TqDataFrameError()
+        trimmed["id"] = ids.astype("int64")
     return trimmed
 
 

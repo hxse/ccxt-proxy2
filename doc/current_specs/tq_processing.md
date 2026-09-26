@@ -113,11 +113,11 @@ NaN, +Infinity, -Infinity
 
 输出类型应是 JSON-safe Python scalars，不得泄漏 `np.int64/np.float64/Timestamp` 等不稳定 serialization object。Date 转 `YYYY-MM-DD` string，nanosecond `datetime` 保持 integer。
 
-## 多合约 K 线
+## 普通 K 线校验与缓存
 
-多 symbol serial 保留 TQ 的宽列，例如 `open1/close1/symbol1`。Placeholder 判断必须使用对应 primary price columns，不随意删动态列。
+OHLCV 拒绝多值 symbol；合法 SDK id 转为非负整数，批次内相邻 id 差一。真实时间严格递增，但不检查固定时间差，因此午休、周末、节假日允许。纳秒直接整数转换，不先转 float。
 
-当前接口不将多 symbol Kline 拆为 CCXT rows，也不将其写入 DuckDB cache。
+写缓存前和最终返回前均校验：已知 OHLC 大小关系、非负数量/持仓、字段身份和顺序；nullable 不放过已知数值矛盾。非法值为 422 TQ_INVALID_OHLCV_VALUES，非法 id/时间为 422 TQ_INVALID_TIME_AXIS。缓存只收核心完整的整批可持久化行，未知网络末根只响应不新增落盘。
 
 ## 主连历史的宽表转长表
 
@@ -142,7 +142,7 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 | 401 | 现有鉴权层 | Bearer token 缺失/无效 |
 | 400 | `TQ_INVALID_SYMBOL` | symbol 空/显著非法 |
 | 400 | `TQ_INVALID_DURATION_SECONDS` | duration 非正 |
-| 400 | `TQ_INVALID_DATA_LENGTH` | 不在 `1..10000` |
+| 400 | `TQ_INVALID_DATA_LENGTH` | OHLCV 不在 1..100000，Tick 不在 1..10000 |
 | 400 | `TQ_INVALID_ADJ_TYPE` | adj type 不支持 |
 | 400 | `TQ_INVALID_DATE_RANGE` | calendar 起点晚于终点 |
 | 422 | `TQ_INVALID_TIME_AXIS` | time 非正/重复/倒序/中间 placeholder |
@@ -153,6 +153,7 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 | 503 | `SERVICE_NOT_ENABLED` / `SERVICE_NOT_READY` | HTTP 服务白名单或启动门禁拒绝 |
 | 500 | `TQ_NOT_CONFIGURED` | 内部客户端缺少配置；正常 HTTP 入口先检查服务白名单 |
 | 502 | `TQ_NETWORK_UNAVAILABLE` | TQ 网络/登录失败 |
+| 502 | `TQ_UPSTREAM_ERROR` | 普通 OHLCV 的未知 SDK 错误，不允许休市缓存兜底 |
 | 502 | `TQ_CALENDAR_INCOMPLETE` | calendar 未逐日完整覆盖请求闭区间 |
 
 批量 underlying 查询中任一 symbol 无效时整个请求返回 422，detail 带失败 symbol。
@@ -162,18 +163,18 @@ Pandas 可用 `melt()` 完成。空 mapping 在序列化前清理，不将 symbo
 默认测试不创建真实 `TqApi`，使用 fake API/Pandas DataFrame。覆盖：
 
 - `data_length`/duration/adj type/symbol validation；
-- 重复 `symbol` query 聚合；
+- OHLCV 重复 `symbol` query 拒绝；映射此阶段保留原聚合；
 - Kline/Tick 前置 placeholder trim；
 - 可用 rows 少于 request length；
 - 中间 placeholder、非正/重复/倒序 time 报错；
 - NaN/Infinity 到 `null`；
-- multi-symbol fields 保留；
+- OHLCV 单合约 id 连续性、合法 nullable、价格矛盾；
 - underlying current mapping 和 history melt；
 - calendar ISO date range、date/bool conversion、顺序/唯一性与完整覆盖；
 - `n=None` 不调 history API；
 - 专用 SDK 线程持续推进消息，业务任务间也推进一次；状态 HTTP 读取不进入 SDK 队列；
 - FileLock/singleton lifecycle；
-- TQ path 不 import/use DuckDB cache 或 Polars。
+- SDK 原始获取层不操作数据库；业务层只使用缓存高级接口，Tick 无缓存；不使用 Polars。
 
 ## 在线与调试入口
 
@@ -193,5 +194,7 @@ Online tests 默认 skip，只在显式提供 TQ credentials/network 时运行�
 - `src/tools/tq_data_source.py` 无 `import polars`。
 - `pandas` 是 direct dependency。
 - TQ 仍使用现有 `FileLock`，不改成 CCXT/DuckDB lock。
-- 不调 `get_ohlcv_with_cache`/`DuckDbOhlcvCache`。
+- 不重新引入 get_ohlcv_with_cache 或平行片段机制。
 - SDK 的消息处理、状态断线失效和实例关闭须有离线回归覆盖。
+
+新增离线验证覆盖：单次 SDK 固定窗口 N=1/5000/10000/20000、两万根连续复用、无重叠、缓存关闭、大周期薄转发、网络成功不查状态、休市/竞价/未知/无权限、纳秒精度、排队过期和在途关闭。线上只用独立临时库，最后手动运行独立 just test-online，不访问 sandbox。

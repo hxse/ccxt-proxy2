@@ -1,10 +1,12 @@
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from fastapi import HTTPException
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from loguru import logger
 
 from src.responses_tq import (
@@ -14,6 +16,8 @@ from src.responses_tq import (
 )
 from src.tools import tq_data_source
 from src.tools.config_types import TqConfig
+from src.tools.tq_ohlcv_validation import validate_records
+from src.tools.tq_serial import get_serial, get_underlying, require_budget
 from src.tools.tq_status_snapshot import TqStatusSnapshot
 from src.types_tq import (
     TqOhlcvRequest,
@@ -79,24 +83,49 @@ class TqClient:
                 symbol, error.status_code, str(error.detail)
             )
 
-    def fetch_ohlcv(self, request: TqOhlcvRequest) -> list[dict[str, Any]]:
-        with self._lock:
+    def fetch_ohlcv(
+        self,
+        request: TqOhlcvRequest,
+        *,
+        deadline: float | None = None,
+        stop: Event | None = None,
+    ) -> list[dict[str, Any]]:
+        end = deadline if deadline is not None else time.monotonic() + 10
+        with self._bounded_lock(end, stop):
             api = self._get_api()
             try:
-                frame = api.get_kline_serial(
-                    request.symbol,
-                    request.duration_seconds,
-                    request.data_length,
-                    adj_type=request.adj_type,
+                frame = get_serial(
+                    api,
+                    request,
+                    end,
+                    stop,
                 )
-                self._wait_update_once(api)
-                return tq_data_source.clean_tq_serial_records(frame, "kline")
+                records = tq_data_source.clean_tq_serial_records(frame, "kline")
+                validate_records(records, request.symbol, request.duration_seconds)
+                return records
             except tq_data_source.TqDataFrameError as exc:
                 raise HTTPException(status_code=422, detail=exc.detail) from exc
             except HTTPException:
                 raise
             except Exception as exc:
+                raise self._map_tq_exception(exc, ohlcv=True) from exc
+
+    def resolve_underlying(self, symbol: str, deadline: float, stop: Event) -> str:
+        with self._bounded_lock(deadline, stop):
+            try:
+                return get_underlying(self._get_api(), symbol, deadline, stop)
+            except HTTPException:
+                raise
+            except Exception as exc:
                 raise self._map_tq_exception(exc) from exc
+
+    @contextmanager
+    def _bounded_lock(self, deadline: float, stop: Event | None):
+        try:
+            with self._lock.acquire(timeout=require_budget(deadline, stop)):
+                yield
+        except Timeout as exc:
+            raise HTTPException(504, detail="TQ_DATA_TIMEOUT") from exc
 
     def fetch_tick(self, request: TqTickRequest) -> list[dict[str, Any]]:
         with self._lock:
@@ -267,11 +296,24 @@ class TqClient:
             product_id=item.product_id,
         )
 
-    def _map_tq_exception(self, exc: Exception) -> HTTPException:
+    def _map_tq_exception(self, exc: Exception, *, ohlcv=False) -> HTTPException:
         message = str(exc)
         logger.bind(error_type=type(exc).__name__).warning(
             "TQ call failed: {}", message
         )
+        if any(
+            text in message
+            for text in (
+                "权限",
+                "账户不支持",
+                "认证失败",
+                "密码错误",
+                "无权",
+                "permission",
+                "grants",
+            )
+        ):
+            return HTTPException(403, detail="TQ_PERMISSION_DENIED")
         if "adj_type" in message or "复权" in message:
             return HTTPException(status_code=400, detail="TQ_INVALID_ADJ_TYPE")
         if "交易日历可以处理的范围为" in message:
@@ -285,6 +327,21 @@ class TqClient:
             return HTTPException(status_code=400, detail="TQ_INVALID_DATA_LENGTH")
         if "不能为空" in message or "参数错误" in message:
             return HTTPException(status_code=400, detail="TQ_INVALID_SYMBOL")
+        if ohlcv:
+            from requests.exceptions import ConnectionError as HttpConnectionError
+            from requests.exceptions import Timeout as HttpTimeout
+            from tqsdk.exceptions import TqTimeoutError
+            from websockets.exceptions import ConnectionClosed
+
+            if "代码" in message and "不存在" in message:
+                return HTTPException(400, "TQ_INVALID_SYMBOL")
+            if isinstance(exc, (TimeoutError, HttpTimeout, TqTimeoutError)):
+                return HTTPException(504, "TQ_DATA_TIMEOUT")
+            if not isinstance(
+                exc, (ConnectionError, HttpConnectionError, ConnectionClosed)
+            ):
+                # 未知 SDK/内部错误不能伪装为断网，再用休市缓存掩盖。
+                return HTTPException(502, "TQ_UPSTREAM_ERROR")
         return HTTPException(status_code=502, detail="TQ_NETWORK_UNAVAILABLE")
 
 

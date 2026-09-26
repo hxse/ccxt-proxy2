@@ -1,3 +1,4 @@
+import asyncio
 import math
 from datetime import date
 
@@ -24,12 +25,25 @@ from src.types_tq import (
 class FakeTqApi:
     def __init__(self):
         self.calls: list[str] = []
+        self.loop = asyncio.new_event_loop()
+
+    def create_task(self, operation):
+        return self.loop.create_task(operation)
+
+    def is_serial_ready(self, frame):
+        return True
+
+    def close(self):
+        self.loop.close()
 
     def get_kline_serial(self, symbol, duration_seconds, data_length, adj_type=None):
+        assert self.loop.is_running()
         self.calls.append("get_kline_serial")
         return pd.DataFrame(
             {
                 "datetime": [1718000000000000000],
+                "id": [100.0],
+                "volume": [10],
                 "open": [3600.0],
                 "high": [3605.0],
                 "low": [3599.0],
@@ -53,6 +67,7 @@ class FakeTqApi:
 
     def wait_update(self, deadline=None):
         self.calls.append("wait_update")
+        self.loop.run_until_complete(asyncio.sleep(0))
         assert deadline is not None
         return False
 
@@ -221,8 +236,8 @@ def test_fetch_ohlcv_and_tick_advance_tq_message_loop(temp_dir):
     manager.fetch_tick(TqTickRequest(symbol="SHFE.rb2505", data_length=10))
 
     assert fake_api.calls == [
-        "get_kline_serial",
         "wait_update",
+        "get_kline_serial",
         "get_tick_serial",
         "wait_update",
     ]
@@ -309,10 +324,16 @@ def test_tq_exception_mapping_prefers_adj_type_over_generic_param_error(temp_dir
     assert exc.detail == "TQ_INVALID_ADJ_TYPE"
 
 
-def test_tq_request_models_keep_thin_forward_fields_only():
+def test_tq_ohlcv_model_exposes_only_latest_count_and_cache():
     fields = set(TqOhlcvRequest.model_fields)
 
-    assert fields == {"symbol", "duration_seconds", "data_length", "adj_type"}
+    assert fields == {
+        "symbol",
+        "duration_seconds",
+        "data_length",
+        "adj_type",
+        "enable_cache",
+    }
     assert "since" not in fields
     assert "limit" not in fields
-    assert "enable_cache" not in fields
+    assert TqOhlcvRequest.model_fields["enable_cache"].default is True

@@ -167,6 +167,7 @@ def test_config_file_changes_do_not_change_running_whitelist_or_credentials(tmp_
         "SECRET='old'\n[tq]\nusername='old'\npassword='old'\n[[service_whitelist]]\nservice='tq'\n"
     )
     config = load_config(path)
+    config.ohlcv_cache.database_path = str(tmp_path / "cache.duckdb")
     runtime = ServiceRuntime(config)
     manager = TqManager(config.tq)
     path.write_text("SECRET='new'\nservice_whitelist=[]\n")
@@ -191,7 +192,7 @@ def test_lifespan_waits_for_startup_and_always_releases_resources(
     entered, release = threading.Event(), threading.Event()
     original = fake_tq.initialize
 
-    def initialize():
+    def initialize(*args):
         entered.set()
         assert release.wait(3)
         original()

@@ -2,17 +2,9 @@
 
 ## 边界
 
-TQ 是独立 thin-forward data source，不是 CCXT OHLCV Provider adapter。
+TQ 获取算法独立于 CCXT；普通 K 线只使用最新数量窗口，Tick 不落项目缓存。OHLCV 单次请求 min(N,10000)，成功后复用共享缓存的原有时间戳交集与片段证明；不用 since、interval 推算或窗口试探。
 
-- 不支持 `since`。
-- 不支持 CCXT `limit/enable_cache` 语义。
-- 不接入 `DuckDbOhlcvCache`。
-- 不做 window estimator、snapshot anchor、successor proof 或外层磁盘 cache。
-- 复用 TqSdk 同一 `TqApi` 实例中的 realtime serial。
-- 只做 HTTP validation、placeholder trim、time-axis validation 和 JSON serialization。
-- 未声明的 query 参数返回 422，不静默忽略拼写错误。
-
-已否决方案曾考虑将 TQ 适配为 `LatestLimit/SinceLimit/SinceLatest` 以及 `AfterCount/BeforeCount`，并通过逐级扩大 `data_length` 读取 cache gaps。决策背景见 [TQ cached Route 历史档案](../archive/design_history/04_tq_cached_routes_rejected.md)。
+普通行情详情见下文，片段身份和持久化规则见[共享缓存规范](ohlcv_cache_storage.md)。主连映射和日历此时仍使用各自原入口。
 
 ## HTTP 路由
 
@@ -38,7 +30,7 @@ api.query_his_cont_quotes(symbol, n=n)
 api.get_trading_calendar(start_dt, end_dt)
 ```
 
-`data_length` 范围是 `1..10000`，默认 10000。它是固定宽度滚动窗口的上限，不保证响应一定有该数量。服务运行更久不会让同一 serial 返回超过 `data_length` 的 rows。
+SDK `data_length` 范围为 `1..10000`，默认 10000；项目 OHLCV 请求可指定最多 100000，超出的连续历史由项目缓存补充。它是固定宽度滚动窗口的上限，不保证响应一定有该数量。服务运行更久不会让同一 serial 返回超过 `data_length` 的 rows。
 
 因此现有 `/tq/fetch_ohlcv` 不能证明“某个指定历史起点到终点是否完整覆盖”：请求本身没有日期边界，短于 `data_length` 也是已定义的正常结果。若未来必须对任意久远旧合约窗口提供覆盖证明，需要单独增加带 `start_dt/end_dt` 的历史数据能力；不能把短 serial 一律改成错误，也不能由交易日历替代 K 线 coverage proof。
 
@@ -67,33 +59,33 @@ TQ symbol 本身表达数据类型，不增加 `data_type`：
 - 主连：`KQ.m@SHFE.rb`；
 - 指数/加权：`KQ.i@SHFE.rb`。
 
-调用方传完整 symbol，服务端不拼接。`symbol: str | list[str]` 的 HTTP 表达使用重复同名 query parameter：
-
-```text
-?symbol=SHFE.au2508&symbol=CFFEX.IF2506
-```
-
-服务只聚合 `symbol`，不提供平行 `symbols` 参数。
+普通 OHLCV 只接受一个完整 symbol，重复同名参数（含相同值）返回 400 TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED；内部列表也拒绝。当前主连映射仍保留其单/多合约输入。
 
 TQ 行情没有 live/sandbox 参数，不受交易账户环境配置影响。主连与加权都是行情身份，不能据名称解释成可以直接下单的实际合约。
 
 ## `/tq/fetch_ohlcv`
 
-| 参数 | 类型 | 必填 | 语义 |
-| --- | --- | --- | --- |
-| `symbol` | `str \| list[str]` | 是 | 透传 TQ symbol |
-| `duration_seconds` | positive `int` | 是 | K 线周期，秒 |
-| `data_length` | `1..10000` | 否 | 默认 10000 |
-| `adj_type` | supported string/`None` | 否 | `F/B/FORWARD/BACK` 或空 |
+| 参数 | 类型/默认 | 语义 |
+| --- | --- | --- |
+| symbol | 必填 str | 单个完整主连、加权或实际合约 |
+| duration_seconds | 必填正整数 | 秒；超过一天为整天倍数 |
+| data_length | 1..100000，默认 10000 | 最多响应数量；SDK 取 min(N,10000) |
+| adj_type | None 或 F/B/FORWARD/BACK | 空按 None |
+| enable_cache | true | false 禁项目读写和休市兜底 |
 
-响应保留 TQ 字段名，不转成 CCXT six-column rows。单 symbol 常见字段：
+响应保留 records、整数纳秒 datetime、SDK id 和秒制 duration，以及 open/high/low/close/volume/open_oi/close_oi。合法 nullable 值可返回，核心缺值的可持久化批次整批不写；不能删掉中间坏行求连续。
+
+SDK 在所属线程取得稳定副本；数据库和响应合并在其锁外。网络窗口完整提交，缓存内部排除未知末根；SDK 已满足 N 时直接返回，不为响应再读库。不足 N 时用 read_connected_history 获取相连历史，网络同时间值胜出，裁至本次窗口上界并取最新 N 根。纯网络与合并结果最终再次验证。
+
+SDK 空/短结果均为成功，不检查交易状态，不补第二个窗口。无交集保持独立片段；未知末根不能单独连接。可自然复用超过一万根历史。
+
+仅网络/服务失败且缓存启用时检查一次状态：实际合约检查自身，主连解析本次当前标的，加权通过同品种主连解析。只有 raw_status=NOTRADING 且 is_open=false 返回原序列最新连续缓存（空库可 []）；竞价/开市返回原错误，未知/解析失败为 502 TQ_TRADING_STATUS_UNAVAILABLE，权限错误保持 403。缓存读失败为 500 TQ_CACHE_READ_FAILED。正常缓存读写错误不丢成功网络响应；容量失败为 507。
+
+不按日历、时间段或行情不变化推算休市。大于一周的普通行情只作 SDK 单窗口薄转发，无项目缓存和休市兜底。
 
 ```text
-id, datetime(ns), open, high, low, close, volume,
-open_oi, close_oi, symbol, duration
+GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&enable_cache=true
 ```
-
-多 symbol 保留 TQ 原始 `open1/close1/symbol1...` 字段。
 
 ## `/tq/fetch_tick`
 
@@ -158,9 +150,9 @@ History 原始 Pandas 宽表必须转为长表，不将 symbol 作为动态 JSON
 
 ## TqManager 生命周期与锁
 
-只有 `service_whitelist` 中包含 `service="tq"` 时，启动协调器才调用 `TqManager.initialize()`。它等待专用 SDK 线程创建 `TqApi` 并完成初始化，然后开始提供 HTTP 服务。请求始终复用实例，不触发初始化。
+只有 `service_whitelist` 中包含 `service="tq"` 时，启动协调器才调用 `TqManager.initialize(cache)`。它等待专用 SDK 线程创建 `TqApi` 并完成初始化，然后开始提供 HTTP 服务。请求始终复用实例，不触发初始化。
 
-专用线程串行执行 TQ SDK 调用，空闲时持续调用 `wait_update()` 处理网络消息；每个业务任务结束后，也以立即到期的 deadline 推进一次订阅和消息处理，避免持续排队的查询阻塞状态更新，且不额外等待网络。单个正在执行的 SDK 调用仍需完成后才能处理下一轮消息。关闭时停止接收新任务，等待在途调用完成，拒绝排队任务，并在同一线程关闭 `TqApi`。数据转换仍由 TqClient 薄转发。
+专用线程串行执行 TQ SDK 调用，空闲时持续调用 `wait_update()` 处理网络消息；每个业务任务结束后，也以立即到期的 deadline 推进一次订阅和消息处理，避免持续排队的查询阻塞状态更新，且不额外等待网络。单个正在执行的 SDK 调用仍需完成后才能处理下一轮消息。关闭时停止接收新任务，等待在途调用完成，拒绝排队任务，并在同一线程关闭 `TqApi`。SDK 副本清洗在 TqClient 完成，缓存编排在 SDK 线程外；关闭等待在途业务退出后才由应用关闭共享库。
 
 `TqApi` 是状态客户端，所有访问继续通过 TQ 自己的 `FileLock`。这是独立于 CCXT `threading.Lock` 和 DuckDB write lock 的锁域。
 
@@ -213,3 +205,7 @@ TQ 交易状态使用独立的 `ts` 连接。服务只保存这个连接收到�
 连接初始化等待发生在启动阶段。HTTP 读取不调用 SDK、不经过行情操作队列，也不等待网络；使用独立短锁读取快照。首次查询只登记一次订阅意向，立即返回 null/not_received；SDK 线程在业务任务之间或空闲时通过协程发起订阅，避开同步 get_trading_status 的 30 秒等待分支。订阅完成前的重复查询不重复登记，收到推送后查询返回新状态。后台订阅错误在后续查询中明确返回。没有新状态变化不代表休市，也不设置状态年龄阈值。节假日或断网时仅报告未知，不推算交易日/品种时段，不保证固定 HTTP 响应时限。TQ SDK 尚未检测到的网络故障也无法提前识别。
 
 状态路由使用异步 HTTP 入口；内存鉴权及参数校验也不占用同步线程池，因此不会排在耗时行情查询后。订单、持仓、资金及其他行情查询仍走各自原有 SDK 队列。
+
+## 普通 K 线等待预算
+
+队列等待与 serial 就绪共用单调时钟 10 秒预算。get_kline_serial 在 SDK 协程内登记，避免其同步长等待；再短 wait_update 至 is_serial_ready。超时返回 504 TQ_DATA_TIMEOUT，排队到期的操作不启动，退出业务不迟到写库。只取消本次外层登记任务，SDK 共享 serial 保留。停止服务通知等待退出，消息观察钩子与 Tick 原职责保持。

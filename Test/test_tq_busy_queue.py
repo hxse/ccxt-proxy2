@@ -59,8 +59,8 @@ def test_status_advances_between_queued_jobs(change, operation_fails):
     worker = TqWorker(Client())
     first, observed = Future(), Future()
     # 预先填入两个任务，确保从第一个完成到第二个读取时队列始终非空。
-    worker._queue.put((first_job, first))
-    worker._queue.put((lambda: snapshot.read(SYMBOL), observed))
+    worker._queue.put((first_job, first, None))
+    worker._queue.put((lambda: snapshot.read(SYMBOL), observed, None))
     try:
         worker.start()
         if operation_fails:

@@ -67,7 +67,7 @@ class ServiceRuntime:
                 if item.service == "ccxt":
                     ccxt.initialize(self._config, item, self.cache.get())
                 elif item.service == "tq":
-                    tq.initialize()
+                    tq.initialize(self.cache.get())
                 else:
                     ctp.initialize(item.mode)
                 self.initialized.append(item.identity)

@@ -166,6 +166,6 @@ WAL 是 crash recovery log，不是时间旅行/历史备份。保留默认 WAL/
 
 ## TQ 类型承载与升级
 
-TqOhlcvSeries 固定 provider=tq、mode=live、market=future，完整 symbol 独立成序列；timeframe 为秒数加 s。空复权为 default，FORWARD/F 为 F，BACK/B 为 B。TqOhlcvBatch 提交稳定 records 和末根资格；SDK id 非负整数，同一批次严格递增且相邻 id 差一；nullable OI 可落盘，核心价格/volume 不完整时整批不写。普通 TQ HTTP 尚未接入此存储能力。
+TqOhlcvSeries 固定 provider=tq、mode=live、market=future，完整 symbol 独立成序列；timeframe 为秒数加 s。空复权为 default，FORWARD/F 为 F，BACK/B 为 B。TqOhlcvBatch 提交稳定 records 和末根资格；SDK id 非负整数，同一批次严格递增且相邻 id 差一；nullable OI 可落盘，核心价格/volume 不完整时整批不写。普通 TQ HTTP 通过高级接口接入此存储能力。
 
 schema 1→2 在一个事务内增列并补旧片段为 ohlcv/ms，保留全部旧行、segment_id、covered_from、索引及 sequence；失败回滚，未知版本拒绝，不自动删库重建。series_key 的 kind/unit 冲突拒绝提交。所有普通行情计数、合并、刷新、淘汰限定 ohlcv，不能触碰其他数据类型。

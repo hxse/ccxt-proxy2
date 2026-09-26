@@ -1,44 +1,60 @@
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import HTTPException, Query, Request
+from fastapi import Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.router.query_validation import reject_unknown_query_params
-
-TqAdjType = Literal["F", "B", "FORWARD", "BACK"]
-
-DEFAULT_TQ_DATA_LENGTH = 10000
-MAX_TQ_DATA_LENGTH = 10000
-TQ_ADJ_TYPE_QUERY_ENUM = ["", "F", "B", "FORWARD", "BACK"]
+from src.tq_validation import (
+    DEFAULT_TQ_DATA_LENGTH,
+    TqAdjType,
+    _http_validation_error,
+    _normalize_duration_seconds,
+    _normalize_symbol,
+    _normalize_symbol_input,
+    _validate_adj_type,
+    _validate_calendar_range,
+    _validate_data_length,
+    _validate_duration_seconds,
+    _validate_n,
+    _validate_symbol,
+    _validate_symbols,
+)
+from src.tq_validation import (
+    MAX_TQ_DATA_LENGTH as MAX_TQ_DATA_LENGTH,
+)
+from src.tq_validation import (
+    MAX_TQ_OHLCV_LENGTH as MAX_TQ_OHLCV_LENGTH,
+)
+from src.tq_validation import (
+    TQ_ADJ_TYPE_QUERY_ENUM as TQ_ADJ_TYPE_QUERY_ENUM,
+)
 
 
 class TqOhlcvRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    symbol: str | list[str] = Field(..., title="TQ symbol")
+    symbol: str = Field(..., title="TQ symbol")
     duration_seconds: int = Field(..., gt=0, title="K线周期，单位秒")
     data_length: int = Field(
         DEFAULT_TQ_DATA_LENGTH,
         ge=1,
-        le=MAX_TQ_DATA_LENGTH,
-        title="TQ serial 窗口宽度",
+        le=MAX_TQ_OHLCV_LENGTH,
+        title="最多响应 K 线数量",
     )
     adj_type: TqAdjType | None = Field(None, title="TQ 复权参数")
 
+    enable_cache: bool = Field(True, title="启用项目磁盘缓存")
+
     @field_validator("symbol")
     @classmethod
-    def validate_symbol(cls, symbol: str | list[str]) -> str | list[str]:
-        return _normalize_symbol_input(symbol)
+    def validate_symbol(cls, symbol: str) -> str:
+        return _normalize_symbol(symbol)
 
     @field_validator("duration_seconds")
     @classmethod
     def validate_duration_seconds(cls, duration_seconds: int) -> int:
         return _normalize_duration_seconds(duration_seconds)
-
-    @property
-    def symbol_list(self) -> list[str]:
-        return self.symbol if isinstance(self.symbol, list) else [self.symbol]
 
 
 class TqTickRequest(BaseModel):
@@ -113,92 +129,6 @@ class TqTradingStatusRequest(BaseModel):
         return _normalize_symbol(symbol)
 
 
-def _normalize_symbol_input(symbol: str | list[str]) -> str | list[str]:
-    if isinstance(symbol, list):
-        return _normalize_symbols(symbol)
-    return _normalize_symbol(symbol)
-
-
-def _normalize_symbols(symbols: list[str]) -> list[str]:
-    normalized = [symbol.strip() for symbol in symbols]
-    if not normalized or any(not symbol for symbol in normalized):
-        raise ValueError("TQ_INVALID_SYMBOL")
-    return normalized
-
-
-def _normalize_symbol(symbol: str) -> str:
-    normalized = symbol.strip()
-    if not normalized:
-        raise ValueError("TQ_INVALID_SYMBOL")
-    return normalized
-
-
-def _normalize_duration_seconds(duration_seconds: int) -> int:
-    if duration_seconds <= 0:
-        raise ValueError("TQ_INVALID_DURATION_SECONDS")
-    if duration_seconds > 86400 and duration_seconds % 86400 != 0:
-        raise ValueError("TQ_INVALID_DURATION_SECONDS")
-    return duration_seconds
-
-
-def _http_validation_error(code: str) -> HTTPException:
-    return HTTPException(status_code=400, detail=code)
-
-
-def _validate_symbols(symbols: list[str]) -> list[str]:
-    try:
-        return _normalize_symbols(symbols)
-    except ValueError as exc:
-        raise _http_validation_error(str(exc)) from exc
-
-
-def _validate_symbol(symbol: str) -> str:
-    try:
-        return _normalize_symbol(symbol)
-    except ValueError as exc:
-        raise _http_validation_error(str(exc)) from exc
-
-
-def _validate_duration_seconds(duration_seconds: int) -> int:
-    try:
-        return _normalize_duration_seconds(duration_seconds)
-    except ValueError as exc:
-        raise _http_validation_error(str(exc)) from exc
-
-
-def _validate_data_length(data_length: int) -> int:
-    if data_length < 1 or data_length > MAX_TQ_DATA_LENGTH:
-        raise _http_validation_error("TQ_INVALID_DATA_LENGTH")
-    return data_length
-
-
-def _validate_adj_type(adj_type: str | None) -> TqAdjType | None:
-    if adj_type == "":
-        return None
-    if adj_type is None:
-        return None
-    if adj_type == "F":
-        return "F"
-    if adj_type == "B":
-        return "B"
-    if adj_type == "FORWARD":
-        return "FORWARD"
-    if adj_type == "BACK":
-        return "BACK"
-    raise HTTPException(status_code=400, detail="TQ_INVALID_ADJ_TYPE")
-
-
-def _validate_n(n: int | None) -> int | None:
-    if n is not None and n <= 0:
-        raise _http_validation_error("TQ_INVALID_DATA_LENGTH")
-    return n
-
-
-def _validate_calendar_range(start_date: date, end_date: date) -> None:
-    if start_date > end_date:
-        raise _http_validation_error("TQ_INVALID_DATE_RANGE")
-
-
 def tq_ohlcv_request(
     request: Request,
     symbol: Annotated[
@@ -206,8 +136,7 @@ def tq_ohlcv_request(
         Query(
             title="TQ symbol",
             description=(
-                "完整 TQ symbol。单合约传一个 symbol；多合约 K 线用重复 query "
-                "参数传多个同名 symbol。普通合约示例 SHFE.rb2505，主连示例 "
+                "完整单个 TQ symbol；重复 symbol 参数拒绝。普通合约示例 SHFE.rb2505，主连示例 "
                 "KQ.m@SHFE.rb，指数/加权示例 KQ.i@SHFE.rb。"
             ),
             examples=["SHFE.rb2505", "KQ.m@SHFE.rb", "KQ.i@SHFE.rb"],
@@ -230,12 +159,11 @@ def tq_ohlcv_request(
         Query(
             title="TQ serial 窗口宽度",
             description=(
-                "透传 TQ data_length，默认 10000，范围 1..10000。它是请求 "
-                "TQ 实时序列的窗口宽度上限，不保证响应至少返回这么多行；"
+                "最多返回数量，默认 10000，范围 1..100000；SDK 单次取 min(N,10000)，不足时复用相连缓存；"
                 "有效历史不足或前置占位行被裁剪时，响应数量允许少于该值。"
             ),
             examples=[10000],
-            json_schema_extra={"minimum": 1, "maximum": MAX_TQ_DATA_LENGTH},
+            json_schema_extra={"minimum": 1, "maximum": MAX_TQ_OHLCV_LENGTH},
         ),
     ] = DEFAULT_TQ_DATA_LENGTH,
     adj_type: Annotated[
@@ -250,17 +178,23 @@ def tq_ohlcv_request(
             json_schema_extra={"enum": TQ_ADJ_TYPE_QUERY_ENUM},
         ),
     ] = None,
+    enable_cache: Annotated[
+        bool, Query(description="同时控制项目缓存读写与休市兜底")
+    ] = True,
 ) -> TqOhlcvRequest:
     reject_unknown_query_params(
-        request, {"symbol", "duration_seconds", "data_length", "adj_type"}
+        request,
+        {"symbol", "duration_seconds", "data_length", "adj_type", "enable_cache"},
     )
     symbols = _validate_symbols(symbol)
-    request_symbol: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
+    if len(symbols) != 1:
+        raise _http_validation_error("TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED")
     return TqOhlcvRequest(
-        symbol=request_symbol,
+        symbol=symbols[0],
         duration_seconds=_validate_duration_seconds(duration_seconds),
-        data_length=_validate_data_length(data_length),
+        data_length=_validate_data_length(data_length, MAX_TQ_OHLCV_LENGTH),
         adj_type=_validate_adj_type(adj_type),
+        enable_cache=enable_cache,
     )
 
 

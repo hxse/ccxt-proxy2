@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from src.tools.cache_resource import CacheResource
 from src.tools.shared import config
 from src.tools.tq_manager import TqManager
 from src.types_tq import (
@@ -25,14 +26,19 @@ pytestmark = [
 
 
 @pytest.fixture(scope="module", autouse=True)
-def initialized_tq():
+def initialized_tq(tmp_path_factory):
     if not any(item.service == "tq" for item in config.service_whitelist):
         pytest.skip("tq is not enabled in service_whitelist")
+    cache_path = tmp_path_factory.mktemp("tq-online") / "ohlcv.duckdb"
+    resource = CacheResource(
+        config.ohlcv_cache.model_copy(update={"database_path": str(cache_path)})
+    )
     try:
-        tq_manager.initialize()
+        tq_manager.initialize(resource.get())
         yield
     finally:
         tq_manager.close()
+        resource.close()
 
 
 def test_tq_online_fetch_ohlcv_smoke():

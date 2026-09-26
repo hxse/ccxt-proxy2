@@ -14,6 +14,7 @@ from src.tools.tq_client import TqClient
 from src.tools.tq_manager import tq_manager
 from src.types_tq import (
     MAX_TQ_DATA_LENGTH,
+    MAX_TQ_OHLCV_LENGTH,
     TQ_ADJ_TYPE_QUERY_ENUM,
     TqOhlcvRequest,
     TqTickRequest,
@@ -64,19 +65,16 @@ def _build_tq_dependency_app() -> FastAPI:
     return app
 
 
-def test_tq_ohlcv_request_preserves_repeated_symbol_params():
-    request = tq_ohlcv_request(
-        _query_request(),
-        symbol=["SHFE.au2508", "CFFEX.IF2506"],
-        duration_seconds=60,
-        data_length=3000,
-        adj_type="FORWARD",
-    )
-
-    assert request.symbol == ["SHFE.au2508", "CFFEX.IF2506"]
-    assert request.duration_seconds == 60
-    assert request.data_length == 3000
-    assert request.adj_type == "FORWARD"
+@pytest.mark.parametrize(
+    "symbols", [["SHFE.au2508", "CFFEX.IF2506"], ["SHFE.rb2610", "SHFE.rb2610"]]
+)
+def test_tq_ohlcv_request_rejects_repeated_symbols(symbols):
+    with pytest.raises(HTTPException) as error:
+        tq_ohlcv_request(_query_request(), symbol=symbols, duration_seconds=60)
+    assert error.value.status_code == 400
+    assert error.value.detail == "TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED"
+    with pytest.raises(ValidationError):
+        TqOhlcvRequest(symbol=symbols, duration_seconds=60)
 
 
 def test_tq_request_validation_uses_documented_http_errors():
@@ -129,7 +127,7 @@ def test_tq_openapi_query_schema_documents_bounds_and_adj_type_enum():
 
     assert ohlcv["duration_seconds"]["exclusiveMinimum"] == 0
     assert ohlcv["data_length"]["minimum"] == 1
-    assert ohlcv["data_length"]["maximum"] == MAX_TQ_DATA_LENGTH
+    assert ohlcv["data_length"]["maximum"] == MAX_TQ_OHLCV_LENGTH
     assert ohlcv["adj_type"]["enum"] == TQ_ADJ_TYPE_QUERY_ENUM
     assert tick["data_length"]["minimum"] == 1
     assert tick["data_length"]["maximum"] == MAX_TQ_DATA_LENGTH

@@ -7,7 +7,7 @@ ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所
 | 能力 | 正式链路 | 职责 |
 | --- | --- | --- |
 | CCXT 行情、账户与交易 | Route → ExchangeManager → CcxtClient → CCXT | 管理长期实例、交易所能力、分页与错误转换 |
-| CCXT OHLCV 缓存 | CcxtClient → DuckDbOhlcvCache → DuckDB | 读取一个最佳前缀，按完成证据写入和合并 |
+| 共享 OHLCV 缓存 | CcxtClient / TqManager → DuckDbOhlcvCache → DuckDB | 独立获取算法，复用同一尾根筛选、重叠与片段证明 |
 | TQ 行情、日历和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |
 | CTP 交易与查询 | Route → CtpManager → session/SPI → vnpy_ctp 交易扩展 | 原生请求、回调关联和账户生命周期 |
 | CFB 业务接口 | Route → CfbProxy → cn-futures-bridge HTTP | 原样转发参数、状态码与正文，只增加鉴权和超时 |
@@ -47,7 +47,7 @@ DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/T
 5. 每次最多复用一个最佳缓存前缀，进入网络阶段后不读取第二段缓存。
 6. 历史修订只在后续网络查询重新覆盖该时间戳时发现，不保证主动同步交易所删除或回填。
 
-当前缓存没有旧 Parquet/proof-log 兼容读、通用多缺口解析器、中位数估算、自适应补拉、TQ 外层缓存或多进程写入路径。容量限制针对逻辑行数，不承诺精确磁盘字节上限。
+当前缓存没有旧 Parquet/proof-log 兼容读、通用多缺口解析器、中位数估算、自适应补拉、多进程写入路径。容量限制针对逻辑行数，不承诺精确磁盘字节上限。
 
 ## 模块规范
 

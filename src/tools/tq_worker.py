@@ -1,6 +1,7 @@
 """TQ 的单一 SDK 线程：启动、请求、消息循环与关闭都在同一线程。"""
 
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future
 from queue import Empty, Queue
@@ -17,7 +18,9 @@ class TqWorker:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._ready: Future[None] = Future()
-        self._queue: Queue[tuple[Callable[[], Any], Future[Any]]] = Queue()
+        self._queue: Queue[tuple[Callable[[], Any], Future[Any], float | None]] = (
+            Queue()
+        )
         self._accepting = False
 
     def start(self) -> None:
@@ -31,13 +34,26 @@ class TqWorker:
                 self._thread.start()
         self._ready.result()
 
-    def call[T](self, operation: Callable[[], T]) -> T:
+    @property
+    def stop_event(self) -> threading.Event:
+        return self._stop
+
+    def call[T](
+        self, operation: Callable[[], T], *, deadline: float | None = None
+    ) -> T:
         result: Future[T] = Future()
         with self._lock:
             if not self._accepting or self._stop.is_set():
                 raise HTTPException(503, detail="TQ_NOT_READY")
-            self._queue.put((operation, result))
-        return result.result()
+            self._queue.put((operation, result, deadline))
+        try:
+            timeout = None if deadline is None else max(0, deadline - time.monotonic())
+            return result.result(timeout=timeout)
+        except TimeoutError as exc:
+            if result.done():
+                raise
+            result.cancel()
+            raise HTTPException(504, detail="TQ_DATA_TIMEOUT") from exc
 
     def close(self) -> None:
         with self._lock:
@@ -58,12 +74,14 @@ class TqWorker:
             self._ready.set_result(None)
             while not self._stop.is_set():
                 try:
-                    operation, result = self._queue.get_nowait()
+                    operation, result, deadline = self._queue.get_nowait()
                 except Empty:
                     self.client.pump()
                     continue
                 if result.set_running_or_notify_cancel():
                     try:
+                        if deadline is not None and time.monotonic() >= deadline:
+                            raise HTTPException(504, detail="TQ_DATA_TIMEOUT")
                         result.set_result(operation())
                     except BaseException as exc:
                         result.set_exception(exc)
@@ -83,10 +101,11 @@ class TqWorker:
                 self._stop.set()
                 while True:
                     try:
-                        _, pending = self._queue.get_nowait()
+                        _, pending, _ = self._queue.get_nowait()
                     except Empty:
                         break
-                    pending.set_exception(HTTPException(503, detail="TQ_NOT_READY"))
+                    if not pending.done():
+                        pending.set_exception(HTTPException(503, detail="TQ_NOT_READY"))
             try:
                 self.client.close()
             except Exception:

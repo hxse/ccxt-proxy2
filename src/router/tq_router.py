@@ -48,7 +48,9 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
             "TQ_CALENDAR_RANGE_UNAVAILABLE。"
         )
     },
-    500: {"description": "服务端未配置 TQ，detail 为 TQ_NOT_CONFIGURED。"},
+    500: {"description": "TQ_NOT_CONFIGURED 或无成功网络结果时的 TQ_CACHE_READ_FAILED。"},
+    504: {"description": "行情队列与序列就绪超过 10 秒预算：TQ_DATA_TIMEOUT。"},
+    507: {"description": "CACHE_CAPACITY_EXCEEDED：缓存容量保护失败并回滚。"},
     503: {
         "model": ServiceUnavailableResponse,
         "description": "SERVICE_NOT_ENABLED：tq 未列入 service_whitelist；SERVICE_NOT_READY / TQ_NOT_READY：尚未就绪或已关闭。请求不会触发初始化。",
@@ -62,28 +64,16 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 TQ_OHLCV_DESCRIPTION = """
-薄转发 TQ `get_kline_serial(symbol, duration_seconds, data_length, adj_type)`。
+单合约 TQ 最新 K 线；没有 live/sandbox 参数，属于 live 行情。
 
-能力边界：
-
-- 不支持 `since`、`limit`、`enable_cache`。
-- 不接入本项目 `cache_tool`，不做历史窗口估算，也不保证返回覆盖某个起始时间。
-- `data_length` 是传给 TQ 的实时序列窗口宽度上限，不是最小返回数量；有效历史不足时允许返回少于 `data_length` 的记录。
-- TQ symbol 必须由调用方完整传入。普通合约、主连、指数/加权合约都通过 symbol 表达，不提供额外 `data_type` 参数。
-
-TQ 进程内缓存提示：
-
-- 同一个 `TqApi` 实例会按 `symbol + duration_seconds + data_length + adj_type` 复用 serial。
-- 为复用 TQ 自身缓存，请避免对同一个 `symbol + duration_seconds + adj_type` 频繁变化 `data_length`。
-- 不同 symbol、不同周期可以使用不同 `data_length`。
-
-响应说明：
-
-- 返回 TQ K 线 serial records，字段名保留 TQ 原始命名，例如 `datetime/open/high/low/close/volume/open_oi/close_oi`。
-- 多 symbol K 线会保留 TQ 原始多合约字段，例如 `open1/close1/symbol1`。
-- `datetime` 是 TQ 返回的纳秒时间戳。
-- `NaN`、`inf`、`-inf` 会序列化为 JSON `null`。
-- 只裁剪连续前置占位行；中间或尾部异常行不会被静默删除，会返回 422。
+- data_length 为最多响应数量，默认 10000，上限 100000。仅请求一次 SDK min(N,10000) 窗口。
+- enable_cache 默认 true；通过项目原有时间戳重叠机制保存并补充连续历史，可能返回超过一万根。
+- 成功不检查交易状态；网络失败只有真实合约 NOTRADING 状态才允许返回最新连续缓存。
+- 不支持 since、limit、多 symbol 或重复 symbol；不以 interval 推算连续性，不试探窗口。
+- 普通网络尾根照常返回，但不新增持久化。读取缓存中的末根不重复删尾。
+- 同一 TqApi 按 symbol + duration_seconds + data_length + adj_type 复用 serial；不同长度可能创建新订阅。
+- datetime 保留整数纳秒，duration 为秒；NaN/Infinity 转 null，前置占位可裁剪，中间坏行报错。
+- 大于一周只作 SDK 单窗口薄转发，无项目缓存或休市兜底。
 """
 
 TQ_TICK_DESCRIPTION = """
