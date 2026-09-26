@@ -143,7 +143,9 @@
 
 ## 只读在线检查
 
-`just test-ccxt-online` 只调用 whitelist 中已启用的 Binance/Kraken Futures live identity，并覆盖三种 OHLCV 模式、Binance `mark/index/premiumIndex` 和 ticker。它只验证无需账户权限的 public live market data，不把 API key 权限、IP whitelist、balance、positions 或账户订单/成交历史作为普通 online suite 的通过条件，也不初始化或访问 sandbox identity。OHLCV 强制 `enable_cache=false`，测试进程使用独立临时 DuckDB，不争用运行中服务的 cache file。该入口不调用下单、撤单、平仓、设置杠杆或设置保证金模式；Online test 不进入默认 CI。
+`just test-ccxt-online` 只使用 whitelist 中已启用的 Binance/Kraken Futures live identity，覆盖三种 OHLCV 模式、Binance `mark/index/premiumIndex`、网络尾根与可信缓存命中。只验证无需账户权限的公共行情，不查询账户/订单，不初始化或访问 sandbox。
+
+`just test-online` 自动按数据源启动独立 Uvicorn HTTP 测试服务，使用临时端口、临时配置及临时 DuckDB、临时 HTTP 登录用户，启动前关闭生产后台计划。请求通过正式鉴权和路由；测试结束关闭进程并删除临时私有配置。不修改真实配置，不争用生产库，不触发清理。HTTP 就绪等待最多 60 秒，业务等待最多 55 秒；一次服务端错误后停止该服务的后续请求，不循环寻找成功样本。TQ 覆盖主连/加权、日历、真实映射节点与可取得的过渡；旧窗口不能证明过渡时明确 skip，该项不算通过。Online test 不进入默认 CI。
 
 ## 验证入口边界
 
@@ -173,6 +175,8 @@ TQ 的数据验证见 [TQ 数据处理](tq_processing.md)，CTP 的假前置与�
 元数据验证覆盖 schema 2→3 保留、日期交集连接、完整范围 miss、数据/上下文/核验事实原子提交；新旧转换等价性限于同一已生效区间。运行时和 AST 双重证明旧 SDK 元数据入口退出；预公告、真实参考日、在线时间失败、首次和再次刷新、下载合并与取消都用离线 fixture。详细要求见 [TQ 元数据](tq_metadata.md)。
 
 TQ 映射回归还覆盖仅当前查询与历史查询统一源、每请求下载、摘要未变且完整命中不重写、历史修订不能被另一片段的新摘要掩盖；query_symbol_info 运行时硬禁，第一方 Quote/GraphQL 旁路由 AST 拒绝。主连/加权休市兜底使用历史源的实际合约，不能沿用 SDK 当前标的。
+
+schema 5 还须验证旧 schema 3/4 缺少 roll_date 的真实结构：空及有数据的日表均能升级，原行、片段和覆盖保持；旧关联按 miss 重新核验，不能猜测节点；已有关联不降级。覆盖结构/版本一起回滚，以及未重新获取前清理仍保留必要上下文。
 
 维护验证只用临时库；覆盖跨片段最新 K、0 清零、覆盖下界重置、独立日期/映射/过渡、部分失败、实际概况、维护不重入、HTTP 取消后门禁保持和关闭身份边界。清理 POST 不进入 live 只读在线聚合。
 

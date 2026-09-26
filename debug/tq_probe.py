@@ -1,8 +1,11 @@
 import argparse
 import asyncio
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
+from src.tools.cache_resource import CacheResource
 from src.tools.shared import config
 from src.tools.tq_manager import TqManager
 from src.types_tq import TqOhlcvRequest, TqTickRequest, TqUnderlyingSymbolRequest
@@ -33,15 +36,28 @@ def main() -> None:
     underlying.add_argument("--symbol", required=True)
     underlying.add_argument("--start-time", type=int, default=None)
     underlying.add_argument("--end-time", type=int, default=None)
+    underlying.add_argument("--transition-timeframe", default=None)
+    underlying.add_argument("--transition-bars", type=int, default=10)
 
     args = parser.parse_args()
     if not any(item.service == "tq" for item in config.service_whitelist):
         parser.error("tq is not enabled in service_whitelist")
-    try:
-        tq_manager.initialize()
-        asyncio.run(_query(args))
-    finally:
-        tq_manager.close()
+    with (
+        TemporaryDirectory(prefix="tq-probe-") as directory,
+        asyncio.Runner() as runner,
+    ):
+        resource = CacheResource(
+            config.ohlcv_cache.model_copy(
+                update={"database_path": str(Path(directory) / "probe.duckdb")}
+            )
+        )
+        try:
+            tq_manager.initialize(resource.get())
+            runner.run(_query(args))
+        finally:
+            runner.run(tq_manager.close_metadata())
+            tq_manager.close()
+            resource.close()
 
 
 async def _query(args):
@@ -72,7 +88,11 @@ async def _query(args):
     try:
         result = await tq_manager.fetch_underlying_symbol(
             TqUnderlyingSymbolRequest(
-                symbol=args.symbol, start_time=args.start_time, end_time=args.end_time
+                symbol=args.symbol,
+                start_time=args.start_time,
+                end_time=args.end_time,
+                transition_timeframe=args.transition_timeframe,
+                transition_bars=args.transition_bars,
             )
         )
         _print_json(result.model_dump())

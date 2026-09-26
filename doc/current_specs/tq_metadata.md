@@ -64,6 +64,8 @@ schema 2→3 原子增加 calendar_rows、mapping_rows、mapping_context、metad
 
 逐日映射保存真实 roll_date，并关联同片段的确切合约节点。官方修订移动/撤销节点时更新该关联；部分新旧记录矛盾则完整读取 miss，不用剩余首日伪造节点。上下文随日表原子保存，不构成另一份事件数据库。
 
+schema 5 为缺少 roll_date 关联的旧 schema 3/4 补齐结构；旧日行和上下文保留，未证明关联的日行按完整读取 miss，正常源查询成功后原子补齐。清理保留未重新核验行所需的旧上下文，不将结构升级当成新的源事实；详见[缓存存储](ohlcv_cache_storage.md)。
+
 身份为 provider=tq/mode=live；日映射另含完整 symbol，与 OHLCV 周期无关。只有实际日期交集可连接片段，日期相邻不自动连接。源未出现旧记录不等于删除。
 
 高级入口为 read_calendar_range、submit_calendar、read_mapping_range、read_matching_mapping、submit_mapping、read_metadata_facts。返回完整命中或 miss；读事务覆盖选择、数据、节点与事实，写事务覆盖数据、上下文与事实，失败回滚。

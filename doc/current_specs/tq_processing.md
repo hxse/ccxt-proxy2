@@ -167,12 +167,12 @@ OHLCV 拒绝多值 symbol；合法 SDK id 转为非负整数，批次内相邻 i
 Online tests 默认 skip，只在显式提供 TQ credentials/network 时运行。最小闭环：
 
 - Kline serial 返回 list；
-- Tick serial 返回 list；
-- CONT underlying 返回 mapping；
+- 主连和加权经过 HTTP 并保存确认前缀，响应保留网络末根；
+- CONT underlying 返回真实节点和可取得的过渡；
 - 中国期货交易日历返回完整的逐日 records；
 - 结束时正确关闭 TqApi。
 
-建议入口继续使用 `just test-tq-online` 和 `debug/tq_probe.py`；默认 `just test` 只收集 offline tests。
+入口为 `just test-tq-online`，测试自行启停隔离 HTTP 服务；Tick 的离线回归和显式 debug/tq_probe.py 调试入口保留。默认 `just test` 只收集 offline tests。
 
 ## 持续保持的实现约束
 

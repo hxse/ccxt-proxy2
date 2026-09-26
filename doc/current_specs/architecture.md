@@ -10,7 +10,8 @@ ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所
 | 缓存概况与清理 | Cache Route → 缓存高级 API → DuckDB | 不初始化 Provider，取时在写锁外，清理按身份原子执行 |
 | CCXT 行情、账户与交易 | Route → ExchangeManager → CcxtClient → CCXT | 管理长期实例、交易所能力、分页与错误转换 |
 | 共享 OHLCV 缓存 | CcxtClient / TqManager → DuckDbOhlcvCache → DuckDB | 独立获取算法，复用同一尾根筛选、重叠与片段证明 |
-| TQ 行情、日历和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |
+| TQ 行情和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |
+| TQ 日历、历史映射与过渡 | Route → TqMetadataQuery → 自有源转换/SDK 原始窗口 → 缓存高级 API | 每请求固定可信时间，禁用旧 SDK 元数据入口，过渡仅保存完整目标窗 |
 | CTP 交易与查询 | Route → CtpManager → session/SPI → vnpy_ctp 交易扩展 | 原生请求、回调关联和账户生命周期 |
 | CFB 业务接口 | Route → CfbProxy → cn-futures-bridge HTTP | 原样转发参数、状态码与正文，只增加鉴权和超时 |
 | Telegram 文本消息 | Route → TelegramManager → Telegram Bot API | 从配置解析目标 chat，逐目标返回发送结果 |
@@ -43,7 +44,7 @@ DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/T
 三个 OHLCV 路由保持以下不变量：
 
 1. 分页从上一页尾部时间戳包含起点地继续请求，按时间去重，新数据覆盖同时间旧值。
-2. 固定周期用于支持范围内的网络数据连续性校验；当前 Kraken Futures 倒序请求还用它构造起点范围。向后续页使用真实尾部含首游标，不计算下一根游标，也不结合本机时间推断尾根完成。
+2. CCXT 固定周期用于最新快照 S 推导起点及网络连续性校验；项目只使用 since＋limit 获取。向后续页使用真实尾部含首游标，不计算下一根游标，也不结合本机时间推断尾根完成。
 3. 响应始终保留目标窗口；是否可写缓存由尾根完成证据单独决定。
 4. 持久缓存中的每一根数据都获得过严格更晚的数据作为完成证据。
 5. 每次最多复用一个最佳缓存前缀，进入网络阶段后不读取第二段缓存。
@@ -65,6 +66,9 @@ DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/T
 | 单前缀查询与网络续接 | [缓存查询算法](ohlcv_cache_resolution.md) |
 | TQ 路由、订阅和实时状态 | [TQ 行情](tq_data.md) |
 | TQ DataFrame 清洗、错误和验证 | [TQ 数据处理](tq_processing.md) |
+| TQ 元数据源、真实节点和已生效日期 | [TQ 元数据](tq_metadata.md) |
+| 旧合约过渡窗口和单次 N＋1 证据 | [TQ 换月过渡](tq_transition.md) |
+| 缓存概况、显式保留与辅助清理 | [缓存维护](cache_maintenance.md) |
 | CTP 原生交易、回调和状态 | [CTP 交易](ctp_trading.md) |
 | 独立完整 VeighNa 联调入口 | [CTP 联调脚本](ctp_assessment.md) |
 | CFB 转发、配置与自动文档 | [CFB 代理](cfb_proxy.md) |

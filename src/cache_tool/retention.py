@@ -58,7 +58,8 @@ def _refresh_date(connection, segment, table, column, kind):
         connection.execute(
             """DELETE FROM mapping_context c WHERE c.segment_id=? AND NOT EXISTS (
                 SELECT 1 FROM mapping_rows r WHERE r.segment_id=c.segment_id
-                AND r.roll_date=c.roll_date AND r.underlying_symbol=c.underlying_symbol
+                AND ((r.roll_date=c.roll_date AND r.underlying_symbol=c.underlying_symbol)
+                     OR (r.roll_date IS NULL AND c.roll_date<=r.trading_date))
             )""",
             [segment],
         )

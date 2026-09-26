@@ -144,8 +144,8 @@ debug-tq-tick symbol data_length="10000":
     uv run --no-sync python debug/tq_probe.py tick --symbol "{{symbol}}" --data-length "{{data_length}}"
 
 # 调试 TQ 主连当前标的和历史映射
-debug-tq-underlying symbol n="":
-    uv run --no-sync python debug/tq_probe.py underlying --symbol "{{symbol}}" --n "{{n}}"
+debug-tq-underlying symbol *args:
+    uv run --no-sync python debug/tq_probe.py underlying --symbol "{{symbol}}" {{args}}
 
 # 发送 Telegram 测试消息，需要服务端已配置 telegram
 debug-telegram-send chat text:

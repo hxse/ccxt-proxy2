@@ -122,7 +122,7 @@ OPENAPI_TAGS = [
     },
     {
         "name": "TQ DATA",
-        "description": "TqSdk 实时序列与主连标的的 thin-forward 查询。",
+        "description": "单合约行情与连续历史缓存、可信时间核验的日历和主连节点、旧合约过渡及实时交易状态。",
     },
     {"name": "TELEGRAM", "description": "向配置的 chat aliases 发送 Telegram 消息。"},
     {

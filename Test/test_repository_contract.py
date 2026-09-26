@@ -236,11 +236,16 @@ def test_python_files_stay_within_the_400_line_limit():
     assert oversized == {}
 
 
-def test_documentation_files_stay_within_the_500_line_limit():
+def test_formal_documentation_uses_real_directories_and_documented_line_limits():
+    files = [PROJECT_ROOT / "README.md"]
+    for name in ("current_specs", "task_specs", "guides"):
+        files.extend((PROJECT_ROOT / "doc" / name).rglob("*.md"))
+    assert any(file.parent.name == "current_specs" for file in files)
+    assert any(file.name == "meta.md" for file in files)
     oversized = {
         str(file.relative_to(PROJECT_ROOT)): len(file.read_text().splitlines())
-        for file in (PROJECT_ROOT / "docs").rglob("*.md")
-        if len(file.read_text().splitlines()) > 500
+        for file in files
+        if len(file.read_text().splitlines()) > (60 if file.name == "meta.md" else 400)
     }
     assert oversized == {}
 

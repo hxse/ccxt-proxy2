@@ -46,7 +46,7 @@ CTP 后台仅安装、加载固定补丁版本的 VeighNa 交易扩展，完整 
 just test
 ```
 
-显式只读在线入口为 `just test-online`，按模块可使用 `just test-ccxt-online`、`just test-tq-online`。测试使用的配置、缓存隔离和各入口的副作用边界见[验证规范](doc/current_specs/verification.md)。
+显式只读在线入口为 `just test-online`，会自行启动并关闭独立 HTTP 服务，无需先运行 just serve。按模块可使用 `just test-ccxt-online`、`just test-tq-online`。测试只启用已配置的 live 行情，关闭后台计划并隔离缓存；详细边界见[验证规范](doc/current_specs/verification.md)。
 
 Bruno 位于 [bruno](bruno)，复用本项目登录配置。单个请求用 `just bru-run`，例如：
 
