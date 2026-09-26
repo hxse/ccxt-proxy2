@@ -145,9 +145,15 @@ class TqManager:
             raise HTTPException(503, "TQ_NOT_READY")
         if self._metadata is None:
             self._metadata = TqMetadataQuery(
-                self._cache, self._metadata_headers, self._mapping_reference
+                self._cache,
+                self._metadata_headers,
+                self._mapping_reference,
+                self._transition_raw,
             )
         return self._metadata
+
+    async def _transition_raw(self, request, deadline):
+        return await asyncio.to_thread(self.fetch_raw_ohlcv, request, deadline=deadline)
 
     async def _metadata_headers(self):
         deadline = monotonic() + 10

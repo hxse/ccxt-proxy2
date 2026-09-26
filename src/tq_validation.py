@@ -1,5 +1,6 @@
 """TQ 请求的共用参数校验；不获取行情。"""
 
+import re
 from datetime import date
 from typing import Literal
 
@@ -85,3 +86,16 @@ def _validate_adj_type(adj_type: str | None) -> TqAdjType | None:
 def _validate_calendar_range(start_date: date, end_date: date) -> None:
     if start_date > end_date:
         raise _http_validation_error("TQ_INVALID_DATE_RANGE")
+
+
+def transition_duration(timeframe: str) -> int:
+    match = re.fullmatch(r"([1-9][0-9]*)([smhdw])", timeframe)
+    if not match:
+        raise ValueError("TQ_INVALID_TRANSITION_TIMEFRAME")
+    duration = (
+        int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[match[2]]
+    )
+    try:
+        return _normalize_duration_seconds(duration)
+    except ValueError as exc:
+        raise ValueError("TQ_INVALID_TRANSITION_TIMEFRAME") from exc

@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import asdict, replace
+from time import monotonic
 
 from fastapi import HTTPException
 from loguru import logger
@@ -21,14 +22,18 @@ from src.tools.tq_metadata_conversion import (
     trading_candidate,
 )
 from src.tools.tq_metadata_source import MetadataSource
+from src.tools.tq_transition import attach_transitions
+
+TRANSITION_TIMEOUT_SECONDS = 45.0
 
 
 class TqMetadataQuery:
-    def __init__(self, cache, headers, reference):
+    def __init__(self, cache, headers, reference, raw_fetch=None):
         self.cache = cache
         self.source = MetadataSource()
         self._headers = headers
         self._reference = reference
+        self.raw_fetch = raw_fetch
 
     async def _read(self, method: str, *args):
         if self.cache is None:
@@ -39,11 +44,11 @@ class TqMetadataQuery:
             logger.bind(operation=method).warning("TQ metadata cache read failed")
             return None
 
-    async def _write(self, method: str, result):
+    async def _write(self, method: str, *args):
         if self.cache is None:
             return
         try:
-            await asyncio.to_thread(getattr(self.cache, method), result)
+            await asyncio.to_thread(getattr(self.cache, method), *args)
         except Exception:
             logger.bind(operation=method).exception("TQ metadata cache write failed")
 
@@ -57,6 +62,10 @@ class TqMetadataQuery:
     async def fetch_calendar_range(
         self, start_date, end_date, context: MetadataContext, *, enable_cache=True
     ):
+        if context.calendar is not None:
+            return calendar_range(
+                start_date, end_date, context.calendar, context.server_time
+            )
         if enable_cache:
             facts = await self._read("read_metadata_facts", "calendar")
             if (
@@ -125,6 +134,17 @@ class TqMetadataQuery:
     async def mapping(self, request):
         if not request.symbol.startswith("KQ.m@"):
             raise HTTPException(422, "TQ_NOT_CONT_SYMBOL")
+        if request.transition_timeframe is None:
+            return await self._mapping(request, None)
+        try:
+            async with asyncio.timeout(TRANSITION_TIMEOUT_SECONDS):
+                return await self._mapping(
+                    request, monotonic() + TRANSITION_TIMEOUT_SECONDS
+                )
+        except TimeoutError:
+            raise HTTPException(504, "TQ_TRANSITION_TIMEOUT") from None
+
+    async def _mapping(self, request, deadline):
         context = MetadataContext((await fetch_public_time()).serverTime)
         context.mapping = await self.source.fetch("mapping", await self._headers())
         if request.symbol not in context.mapping.events:
@@ -141,12 +161,12 @@ class TqMetadataQuery:
             if request.end_time is not None
             else reference_day
         )
-        result = await self.fetch_main_mapping_range(
+        mapping_result = await self.fetch_main_mapping_range(
             request.symbol, start, end, context, enable_cache=request.enable_cache
         )
         item = TqUnderlyingItem(
             symbol=request.symbol,
-            underlying_symbol=result.facts.underlying_symbol,
+            underlying_symbol=mapping_result.facts.underlying_symbol,
             ins_class="CONT",
             exchange_id="KQ",
             product_id="",
@@ -158,9 +178,12 @@ class TqMetadataQuery:
                 symbol=request.symbol,
                 **(asdict(node) | {"date": node.date.isoformat()}),
             )
-            for node in result.nodes
+            for node in mapping_result.nodes
         ]
-        return TqUnderlyingSymbolResponse(items=[item], history=history)
+        result = TqUnderlyingSymbolResponse(items=[item], history=history)
+        if request.transition_timeframe is not None:
+            return await attach_transitions(self, result, request, context, deadline)
+        return result
 
     async def close(self):
         await self.source.close()

@@ -17,6 +17,7 @@ from src.tq_validation import (
     _validate_duration_seconds,
     _validate_symbol,
     _validate_symbols,
+    transition_duration,
 )
 from src.tq_validation import (
     MAX_TQ_DATA_LENGTH as MAX_TQ_DATA_LENGTH,
@@ -92,6 +93,15 @@ class TqUnderlyingSymbolRequest(BaseModel):
         description="包含式历史终点，整数 Unix 纳秒",
     )
     enable_cache: bool = True
+    transition_timeframe: str | None = None
+    transition_bars: int = Field(10, strict=True, ge=1, le=MAX_TQ_DATA_LENGTH - 1)
+
+    @field_validator("transition_timeframe")
+    @classmethod
+    def validate_transition_timeframe(cls, value: str | None):
+        if value is not None:
+            transition_duration(value)
+        return value
 
     @field_validator("symbol")
     @classmethod
@@ -107,6 +117,8 @@ class TqUnderlyingSymbolRequest(BaseModel):
             and self.end_time is not None
             and self.start_time > self.end_time
         ):
+            raise ValueError("TQ_INVALID_DATE_RANGE")
+        if self.transition_timeframe is not None and self.start_time is None:
             raise ValueError("TQ_INVALID_DATE_RANGE")
         return self
 
@@ -286,10 +298,37 @@ def tq_underlying_symbol_request(
     enable_cache: Annotated[
         bool, Query(description="项目缓存读写；自动核验仍执行")
     ] = True,
+    transition_timeframe: Annotated[
+        str | None, Query(description="可选旧价格周期，s/m/h/d/w；不支持 M")
+    ] = None,
+    transition_bars: Annotated[
+        int,
+        Query(
+            description="过渡数量，默认十根",
+            json_schema_extra={"minimum": 1, "maximum": MAX_TQ_DATA_LENGTH - 1},
+        ),
+    ] = 10,
 ) -> TqUnderlyingSymbolRequest:
     reject_unknown_query_params(
-        request, {"symbol", "start_time", "end_time", "enable_cache"}
+        request,
+        {
+            "symbol",
+            "start_time",
+            "end_time",
+            "enable_cache",
+            "transition_timeframe",
+            "transition_bars",
+        },
     )
+    if not 1 <= transition_bars < MAX_TQ_DATA_LENGTH:
+        raise _http_validation_error("TQ_INVALID_TRANSITION_BARS")
+    if transition_timeframe is not None:
+        try:
+            transition_duration(transition_timeframe)
+        except ValueError as exc:
+            raise _http_validation_error(str(exc)) from exc
+        if start_time is None:
+            raise _http_validation_error("TQ_INVALID_DATE_RANGE")
     symbols = _validate_symbols(symbol)
     if len(symbols) != 1:
         raise _http_validation_error("TQ_MULTIPLE_SYMBOLS_NOT_SUPPORTED")
@@ -302,6 +341,8 @@ def tq_underlying_symbol_request(
         start_time=start_time,
         end_time=end_time,
         enable_cache=enable_cache,
+        transition_timeframe=transition_timeframe,
+        transition_bars=transition_bars,
     )
 
 

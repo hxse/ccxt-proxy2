@@ -44,7 +44,7 @@ provider / mode / market / symbol / timeframe / variant
 
 它必须编入所有影响数据内容的参数，例如 Binance mark/index/premium-index variant。不同 series 在同 timestamp 上的 rows 是不同 identity。
 
-Canonical encoding 使用字段排序、无多余空白的 JSON；schema version 为 `3`。编码 deterministic，且不包含与数据无关的用户请求参数。
+Canonical encoding 使用字段排序、无多余空白的 JSON；schema version 为 `4`。编码 deterministic，且不包含与数据无关的用户请求参数。
 
 ## 逻辑表结构
 
@@ -171,3 +171,5 @@ TqOhlcvSeries 固定 provider=tq、mode=live、market=future，完整 symbol 独
 schema 1→2 在一个事务内增列并补旧片段为 ohlcv/ms，保留全部旧行、segment_id、covered_from、索引及 sequence；失败回滚，未知版本拒绝，不自动删库重建。series_key 的 kind/unit 冲突拒绝提交。所有普通行情计数、合并、刷新、淘汰限定 ohlcv，不能触碰其他数据类型。
 
 日期片段由 schema 2→3 新增，继续共享片段选择、事务、读写生命周期；表结构与类型化证明见 [TQ 元数据](tq_metadata.md)。旧版不能写新版 schema，升级失败不删库重建。
+
+过渡窗口由 schema 3→4 增加独立类型化表，与普通行情共享尾根筛选，但采用整窗原子替换，不通过普通片段吸收拼长。字段和证据见 [TQ 换月过渡](tq_transition.md)。

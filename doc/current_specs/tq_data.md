@@ -98,7 +98,7 @@ GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&e
 
 `/tq/fetch_underlying_symbol` 保留当前 items；历史改用成对 start_time/end_time 整数纳秒，返回真实换月节点和 old_symbol，旧 n 与多 symbol 退出。`/tq/fetch_trading_calendar` 保留自然日闭区间。两者 enable_cache 默认 true；映射无论是否带范围都取在线时间、最新单根参考时间并重新获取官方历史源，当前 items 与历史使用同一来源。
 
-详细输入、输出、刷新、D 上界和缓存规则统一见[元数据规范](tq_metadata.md)。这些请求的 HTTP 下载不占 SDK 线程，生命周期先取消/等待元数据任务，再关闭 SDK 和共享缓存。
+详细输入、输出、刷新、D 上界和缓存规则统一见[元数据规范](tq_metadata.md)；可选旧合约价格见[换月过渡](tq_transition.md)。这些请求的 HTTP 下载不占 SDK 线程，生命周期先取消/等待元数据任务，再关闭 SDK 和共享缓存。
 
 ## TqManager 生命周期与锁
 

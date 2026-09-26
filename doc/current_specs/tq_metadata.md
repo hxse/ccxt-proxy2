@@ -56,6 +56,8 @@ GET /tq/fetch_underlying_symbol?symbol=KQ.m@SHFE.rb&start_time=17901252000000000
 
 前驱未知但节点日期已知时 old_symbol=null，无法确定真实节点为 TQ_MAPPING_CONTEXT_UNAVAILABLE。未上市前明确连续空白简单裁掉，合法全非交易范围可返回空 history；内部坏值/缺失报错。旧 n、多个 symbol、now、refresh_source 均退出。
 
+可选 transition_timeframe/transition_bars 在真实节点附带旧合约价格，详见[换月过渡](tq_transition.md)；不传周期时省略 transition。
+
 ## 日期存储与事实
 
 schema 2→3 原子增加 calendar_rows、mapping_rows、mapping_context、metadata_source_facts，保留普通行情。日期片段 data_kind 为 calendar/main_mapping、time_unit=date，片段边界为 date.toordinal，业务列使用 DATE。

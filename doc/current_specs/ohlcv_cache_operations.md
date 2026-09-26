@@ -224,3 +224,7 @@ read_calendar_range(start,end) 返回 CalendarSourceResult 或 miss；submit_cal
 日期读取在同一 reader scope 和只读事务中选择片段、读取数据及上下文；写入使用与普通行情相同的路径写锁与事务。完整规则见 [TQ 元数据](tq_metadata.md)。
 
 read_matching_mapping(result) 接收本次有效 MappingSourceResult，在同一读事务中核对源摘要、D 和目标范围的完整日记录及真实节点/前驱。仅完整相同返回 CachedMapping，否则 miss；全局摘要相同不能替其他未修订的旧片段背书。业务通过该高级入口复用映射，不在路由另造连续性判断。
+
+## 过渡窗口接口
+
+read_transition_prefix(identity,count) 返回已确认窗口前 N 根或 miss；submit_transition_window(identity,target_count,batch) 接受同次目标 N＋1 根、unknown 末根，验证整批后共用 eligible_rows 保存 N 根。写锁内比较实际 K，只允许同长修订或完整扩长；不与普通行情或其他来源逐行补长。完整资格见 [TQ 换月过渡](tq_transition.md)。

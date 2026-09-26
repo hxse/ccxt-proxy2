@@ -59,6 +59,16 @@ class TqUnderlyingItem(BaseModel):
     product_id: str | None = Field(None, title="品种")
 
 
+class TqTransitionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    datetime: int = Field(strict=True, gt=0, description="旧合约 K 线开盘纳秒")
+    old_open: float
+    old_high: float
+    old_low: float
+    old_close: float
+    old_volume: float = Field(ge=0)
+
+
 class TqUnderlyingHistoryItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -68,6 +78,7 @@ class TqUnderlyingHistoryItem(BaseModel):
     old_symbol: str | None = Field(
         None, title="节点之前的不同实际合约，缺少可靠前驱时为 null"
     )
+    transition: list[TqTransitionRecord] | None = None
 
 
 class TqUnderlyingSymbolResponse(BaseModel):

@@ -113,6 +113,7 @@ TQ_UNDERLYING_DESCRIPTION = """
 - history 只返回真实换月节点，含 date/symbol/underlying_symbol/old_symbol；解释左边界的节点可早于请求起点。
 - 缺少前驱时 old_symbol=null；无法证明节点时明确报错。旧 n、多 symbol、refresh_source、now 不支持。
 - SDK 当前标的可能滞后于历史源和行情；query_symbol_info 与两个旧日历/历史入口硬禁，不以 Quote 当前标的核对或回退。
+- 可选 transition_timeframe 和默认 transition_bars=10，在真实节点附加旧合约 old_ 价格；同次取得 N＋1 才缓存前 N，无周期省略 transition。
 """
 
 TQ_TRADING_CALENDAR_DESCRIPTION = """
@@ -159,6 +160,7 @@ def fetch_tick(params: TqTickRequest = Depends(tq_tick_request)):
 @tq_router.get(
     "/fetch_underlying_symbol",
     response_model=TqUnderlyingSymbolResponse,
+    response_model_exclude_unset=True,
     summary="查询 TQ 主连当前标的",
     description=TQ_UNDERLYING_DESCRIPTION,
     response_description="主连当前实际合约以及可选的历史映射。",

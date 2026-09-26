@@ -6,6 +6,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from src.tq_validation import MAX_TQ_DATA_LENGTH
+
 
 def require_budget(deadline: float, stop: Event | None = None) -> float:
     if stop is not None and stop.is_set():
@@ -23,7 +25,7 @@ def get_serial(api: Any, request, deadline: float, stop: Event | None):
         return api.get_kline_serial(
             request.symbol,
             request.duration_seconds,
-            min(request.data_length, 10000),
+            min(request.data_length, MAX_TQ_DATA_LENGTH),
             adj_type=request.adj_type,
         )
 

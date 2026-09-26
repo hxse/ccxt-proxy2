@@ -7,7 +7,7 @@ from typing import Any
 
 import duckdb
 
-from src.cache_tool import metadata_store, ohlcv_readers
+from src.cache_tool import metadata_store, ohlcv_readers, transition_store
 from src.cache_tool.duckdb_schema import ensure_schema
 from src.cache_tool.metadata_models import CalendarSourceResult, MappingSourceResult
 from src.cache_tool.models import (
@@ -21,6 +21,7 @@ from src.cache_tool.models import (
 )
 from src.cache_tool.ohlcv_capacity import OhlcvCapacity
 from src.cache_tool.segments import select_segment
+from src.cache_tool.transition_store import TransitionIdentity
 from src.domain_errors import CacheCapacityExceeded
 
 
@@ -224,6 +225,16 @@ class DuckDbOhlcvCache(OhlcvCapacity):
     def read_metadata_facts(self, kind: str, symbol: str | None = None):
         with self._reader_scope():
             return metadata_store.read_facts(self._connection(), kind, symbol)
+
+    def read_transition_prefix(self, identity: TransitionIdentity, count: int):
+        with self._reader_scope():
+            return transition_store.read_prefix(self._connection(), identity, count)
+
+    def submit_transition_window(
+        self, identity: TransitionIdentity, target_count: int, batch: TqOhlcvBatch
+    ) -> None:
+        with self._transaction() as connection:
+            transition_store.submit(connection, identity, target_count, batch)
 
     def close(self) -> None:
         with self._write_lock:

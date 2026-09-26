@@ -1,6 +1,7 @@
 from src.cache_tool.metadata_schema import upgrade_metadata
+from src.cache_tool.transition_store import upgrade_transition
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 
 def _ensure_schema(connection) -> None:
@@ -15,7 +16,7 @@ def _ensure_schema(connection) -> None:
     version = connection.execute(
         "SELECT value FROM cache_meta WHERE key='schema_version'"
     ).fetchone()[0]
-    if version not in ("1", "2", SCHEMA_VERSION):
+    if version not in ("1", "2", "3", SCHEMA_VERSION):
         raise RuntimeError(f"unsupported cache schema version: {version}")
     connection.execute("""
         CREATE TABLE IF NOT EXISTS cache_segments (
@@ -51,6 +52,9 @@ def _ensure_schema(connection) -> None:
         version = "2"
     if version == "2":
         upgrade_metadata(connection)
+        version = "3"
+    if version == "3":
+        upgrade_transition(connection)
     connection.execute(
         "UPDATE cache_meta SET value=? WHERE key='schema_version'", [SCHEMA_VERSION]
     )

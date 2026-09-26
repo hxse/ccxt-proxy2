@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/tq/fetch_underlying_symbol?symbol=KQ.m@SHFE.rb&start_time=1790125200000000000&end_time=1790211600000000000
+  url: {{baseUrl}}/tq/fetch_underlying_symbol?symbol=KQ.m@SHFE.rb&start_time=1790125200000000000&end_time=1790211600000000000&transition_timeframe=5m&transition_bars=10
   body: none
   auth: inherit
 }
@@ -14,6 +14,8 @@ params:query {
   symbol: KQ.m@SHFE.rb
   start_time: 1790125200000000000
   end_time: 1790211600000000000
+  transition_timeframe: 5m
+  transition_bars: 10
 }
 
 assert {
