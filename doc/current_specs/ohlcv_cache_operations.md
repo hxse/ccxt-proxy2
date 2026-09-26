@@ -29,7 +29,7 @@ class DuckDbOhlcvCache:
     def close(self) -> None: ...
 ```
 
-不公开 `clear`、`prune`、`compact` 或通用 SQL/DSL。Capacity eviction 是 `write_segment()` 内部 transaction step，不是 Route 可调用能力。
+不公开 clear/compact 或通用 SQL/DSL。原容量淘汰仍在写事务内；按显式策略的维护使用独立高级 prune 入口，见[概况和清理](cache_maintenance.md)。
 
 ## 可读候选片段
 
@@ -228,3 +228,5 @@ read_matching_mapping(result) 接收本次有效 MappingSourceResult，在同一
 ## 过渡窗口接口
 
 read_transition_prefix(identity,count) 返回已确认窗口前 N 根或 miss；submit_transition_window(identity,target_count,batch) 接受同次目标 N＋1 根、unknown 末根，验证整批后共用 eligible_rows 保存 N 根。写锁内比较实际 K，只允许同长修订或完整扩长；不与普通行情或其他来源逐行补长。完整资格见 [TQ 换月过渡](tq_transition.md)。
+
+list_series_summaries(filters) 单快照报告实际片段；prune(policy,trusted_cutoff_date) 固定待处理身份，逐身份短事务维护。关闭开始即阻止新事务，当前事务完成后停止剩余身份。网络与维护门禁在业务层，详细规则见 [概况和清理](cache_maintenance.md)。

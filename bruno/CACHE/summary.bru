@@ -1,0 +1,19 @@
+meta {
+  name: cache summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/cache/summary
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  查看实际最新连续片段与总行数，不取在线时间或触发行情 SDK。
+}

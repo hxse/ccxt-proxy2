@@ -146,3 +146,31 @@ def read_summary(connection, series_key: str) -> SeriesSummary:
         [series_key],
     ).fetchone()
     return SeriesSummary(row[0], row[1], row[2] or 0, row[4], row[5], row[3])
+
+
+def read_best_prefix(connection, series_key: str, since: int, max_rows: int | None):
+    limit_sql = "" if max_rows is None else " LIMIT ?"
+    parameters: list[Any] = [series_key, since, since, since, since]
+    if max_rows is not None:
+        parameters.append(max_rows)
+    query = f"""
+        WITH best AS (
+            SELECT s.segment_id
+            FROM cache_segments AS s
+            WHERE s.data_kind='ohlcv' AND s.time_unit='ms' AND s.series_key = ?
+              AND s.covered_from <= ?
+              AND s.last_time >= ?
+            ORDER BY (
+                SELECT COUNT(*) FROM ohlcv_rows AS c
+                WHERE c.segment_id = s.segment_id AND c.time >= ?
+            ) DESC, s.updated_at DESC, s.segment_id ASC
+            LIMIT 1
+        )
+        SELECT r.time, r.open, r.high, r.low, r.close, r.volume
+        FROM ohlcv_rows AS r
+        JOIN best ON best.segment_id = r.segment_id
+        WHERE r.time >= ?
+        ORDER BY r.time{limit_sql}
+    """
+    raw = connection.execute(query, parameters).fetchall()
+    return [canonical_row(row) for row in raw]

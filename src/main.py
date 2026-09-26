@@ -20,6 +20,7 @@ from src.responses_system import (  # noqa: E402
     ReadyResponse,
 )
 from src.router.auth_handler import auth_router  # noqa: E402
+from src.router.cache_router import cache_router  # noqa: E402
 from src.router.cfb_docs import install_cfb_openapi  # noqa: E402
 from src.router.cfb_router import cfb_router  # noqa: E402
 from src.router.ctp_router import ctp_router  # noqa: E402
@@ -38,6 +39,7 @@ app.include_router(file_router)
 app.include_router(tq_router)
 app.include_router(telegram_router)
 app.include_router(system_router)
+app.include_router(cache_router)
 
 
 @app.get(

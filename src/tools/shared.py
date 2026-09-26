@@ -92,6 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 OPENAPI_TAGS = [
+    {
+        "name": "Cache",
+        "description": "本地缓存概况及显式保留清理；清理会删除本地历史。",
+    },
     {"name": "General", "description": "服务首页与基础访问入口。"},
     {"name": "Health", "description": "区分进程存活与统一服务白名单初始化状态。"},
     {"name": "System", "description": "公共时间等基础查询；复用项目 Bearer 鉴权。"},

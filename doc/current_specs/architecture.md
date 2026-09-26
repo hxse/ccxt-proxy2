@@ -6,6 +6,7 @@ ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所
 
 | 能力 | 正式链路 | 职责 |
 | --- | --- | --- |
+| 缓存概况与清理 | Cache Route → 缓存高级 API → DuckDB | 不初始化 Provider，取时在写锁外，清理按身份原子执行 |
 | CCXT 行情、账户与交易 | Route → ExchangeManager → CcxtClient → CCXT | 管理长期实例、交易所能力、分页与错误转换 |
 | 共享 OHLCV 缓存 | CcxtClient / TqManager → DuckDbOhlcvCache → DuckDB | 独立获取算法，复用同一尾根筛选、重叠与片段证明 |
 | TQ 行情、日历和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |

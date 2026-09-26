@@ -289,6 +289,8 @@ def test_cache_public_api_stays_io_only_and_callback_free():
         "read_metadata_facts",
         "read_transition_prefix",
         "submit_transition_window",
+        "list_series_summaries",
+        "prune",
         "close",
     }
 

@@ -1,0 +1,19 @@
+meta {
+  name: [STATEFUL] prune local cache
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/cache/prune
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {"providers":["tq","ccxt"],"modes":{"live":30000,"sandbox":0},"auxiliary":{"keep_years":10}}
+}
+
+docs {
+  会删除本地缓存；sandbox=0 表示清零。HTTP 200 仍需检查 status/errors，不能放入只读批量请求。
+}

@@ -1,7 +1,7 @@
 """统一服务启动与访问控制；只使用进程启动时取得的配置快照。"""
 
 from collections.abc import Callable
-from threading import Event
+from threading import Event, Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -17,6 +17,7 @@ class ServiceRuntime:
         self._enabled = frozenset(
             item.identity for item in self._config.service_whitelist
         )
+        self.cache_maintenance_lock = Lock()
         self.ready = False
         self.initialized: list[str] = []
         self._closers: dict[str, Callable[[], None]] = {}
