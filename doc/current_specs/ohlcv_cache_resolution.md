@@ -1,5 +1,7 @@
 # OHLCV 单前缀缓存查询算法
 
+本文只规定当前 CCXT 查询编排。存储片段本身不包含网络分页算法，TQ 当前也不进入此链路。共同证据与返回/落盘分界见[行情数据契约](market_data_contract.md)。
+
 ## 共同原则
 
 ```text
@@ -12,7 +14,7 @@ read at most one cache prefix
 
 - 一旦进入 network 阶段，不再搜索第二个 cache segment。
 - Network 从已有 tail timestamp 含首请求，不计算 `tail + timeframe`。
-- Binance/Kraken Futures 的 fixed interval 只用于 network page fail-fast validation，不用于 cursor 或 cache proof。
+- Binance/Kraken Futures 的 fixed interval 用于 network page fail-fast validation；当前 Kraken Futures 倒序取数另用它构造范围。向后续页 cursor 使用真实重叠点，interval 不参与 cache proof。
 - Merge 按 time 去重，network row 在相同 timestamp 胜出。
 - 完整 network operation 成功才能返回或缓存；中途 partial 必须丢弃。
 - 所有用户 rows 最多 100,000，proof/overlap rows 不占用户计数。
@@ -126,6 +128,8 @@ snapshot_tail
 ```
 
 分页期间出现更晚 rows 不追加到 response。如果 lookahead 存在严格更晚 successor，snapshot tail metadata 为 `true`；否则 `false`。
+
+snapshot 固定的是本次响应的时间终点；同一时间戳在后续合法网络结果中发生修订，仍按原覆盖顺序采用，不承诺冻结首次取得的价格内容。
 
 去重后出现第 100,001 个用户 row 时立即失败，不返回/缓存 partial result。不增加 streaming 或后台任务。
 

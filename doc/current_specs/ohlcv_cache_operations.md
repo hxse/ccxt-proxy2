@@ -80,14 +80,14 @@ if not result.rows:
 cache_rows = result.rows if result.last_bar_completion_confirmed else result.rows[:-1]
 ```
 
-`false` 是 unknown，不是 confirmed-open。`null` 只对应空 rows。去尾后无 rows 时整个 write no-op，不创建空 segment。
+`false` 是 unknown，不是 confirmed-open。`null` 只对应空 rows。去尾后无 rows 时整个 write no-op，不创建空 segment。调用方提交完整结果，持久化去尾只在缓存内部执行；已从数据库读出的末行不再去尾。
 
 ## 写入事务
 
 ```text
-acquire per-database write lock
+选择并验证可缓存 rows 与 coverage
+→ acquire per-database write lock
 → BEGIN
-→ validate canonical cache_rows/coverage
 → 查找与 incoming 有 exact timestamp 交集的所有 segments
 → 无 overlap：新建 segment_id
 → 有 overlap：选 canonical segment
@@ -138,6 +138,8 @@ new timestamp                   → insert
 ```
 
 Cache 不根据“network 没有返回”生成 tombstone，因为自然休盘和 Provider 历史删除无法仅从缺行区分。
+
+非空合法可缓存批次继续进入事务与 upsert。当前没有内容相同即零写入的保证；不能在调用方用“没有新时间戳”跳过片段桥接、价格修订或覆盖起点扩展。完整缓存命中只读返回，不因读取而重复写回。
 
 ## 容量定义
 

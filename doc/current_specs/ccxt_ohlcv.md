@@ -99,7 +99,7 @@ Binance 和 Kraken Futures 的完整分页明确以“正常 crypto OHLCV 在固
 
 Client 先检查 `timeframe in exchange.timeframes`。`1M` 是自然月，长度不固定；只有 Provider 本身支持时才可请求，且不做固定毫秒邻接校验。当前 Kraken Futures/Spot 均不支持 `1M`。
 
-`timeframe` 只用于上述 fail-fast validation，不用 `tail + timeframe_ms` 构造下一页 cursor，也不用于证明尾根完成。同 timestamp 的 overlap row 只用于连接校验，绝不能冒充“更晚 successor”。
+向后分页不使用 `tail + timeframe_ms` 构造下一页 cursor，timeframe 也不用于证明尾根完成。当前 latest-limit 仍有项目倒序分支：Binance 以真实首部时间传 until，Kraken Futures 用 interval 计算起点并传 to；这些计算不能代替返回页的实际连续性与重叠校验。同 timestamp 的 overlap row 只用于连接校验，绝不能冒充“更晚 successor”。
 
 单个 network method 内部可有多个 page，但 Client 只在完整合并和校验后向 cache/Route 返回一个 result。不存在“每页 pending tail 落盘”。
 
@@ -142,6 +142,8 @@ cache_rows = rows if confirmed else rows[:-1]
 ```
 
 Route 始终返回完整 `rows` 与对应 metadata。Cache 是否保存尾根与用户是否消费尾根是两个维度；调用方可根据 `last_bar_completion_confirmed` 自行决定如何使用最后一根。
+
+缓存排除的是本次结果未确认尾根的新增持久化，不删除库内已经可信的同时间戳行。分页连接需要的重叠行、用于完成证明的后继行和预算溢出检测行各有职责，不能混为用户响应数量。
 
 ## 完整响应
 

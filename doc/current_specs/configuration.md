@@ -99,6 +99,8 @@ max_rows_total = 20000000
 
 省略时使用上述默认值。容量要求 `100000 < max_rows_per_series <= max_rows_total`；它与单次响应预算分开，具体事务与淘汰规则见[缓存操作](ohlcv_cache_operations.md)。
 
+当前缓存由 ExchangeManager 在创建首个 CCXT 客户端时建立，由其关闭流程释放；仅启用 TQ 不会创建这份 OHLCV 缓存。上述容量是写入事务中的大容量保护，不是每小时保留目标。当前没有 market_data.toml、market_data_client 或内置行情采集/清理计划，不应将任务设计中的新配置加入现行运行文件。
+
 ## 部署入口
 
 本地先复制并填写配置，再执行 `uv sync --locked` 和 `just serve`。Windows 开发优先使用 127.0.0.1，避免 localhost 与 reload 带来的额外延迟。CTP 的可选依赖和独立 GUI 联调见对应模块规范。

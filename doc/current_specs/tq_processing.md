@@ -15,6 +15,8 @@ TqSdk 返回 Pandas DataFrame。Adapter 负责：
 
 不做 CCXT six-column normalization，不强行删除 TQ raw fields。
 
+合法 JSON、完整自然日范围与行情连续性是不同校验。当前 serial 只证明其 SDK 窗口及时间轴符合下述规则；日历范围完整性不为 K 线提供固定 interval 或完成性证据，见[行情数据契约](market_data_contract.md)。
+
 ## 占位行来源
 
 Realtime serial 是固定宽度窗口。`data_length` 大于当前可用历史时，TqSdk 在前段放对象默认值，而不是返回一个纯短表。

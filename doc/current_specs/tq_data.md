@@ -44,6 +44,8 @@ api.get_trading_calendar(start_dt, end_dt)
 
 专业版历史接口 `get_kline_data_series/get_tick_data_series` 不属于当前实现能力，也不依赖其 `~/.tqsdk/data_series_1` 磁盘 cache。
 
+当前日历和历史主连表由 SDK 首次下载后在进程内静态复用；反复调用路由不等于每次重新取得官方源。历史 n 查询还使用 SDK 当前时间；项目目前未将其替换为公共在线时间。日历源的最后节假日、SDK 展开的有效年份范围和请求结果末日是不同概念，不能混称为缓存覆盖终点。
+
 ## TqApi 序列复用
 
 同一 `TqApi` 中，serial identity 包含 request length：
@@ -72,6 +74,8 @@ TQ symbol 本身表达数据类型，不增加 `data_type`：
 ```
 
 服务只聚合 `symbol`，不提供平行 `symbols` 参数。
+
+TQ 行情没有 live/sandbox 参数，不受交易账户环境配置影响。主连与加权都是行情身份，不能据名称解释成可以直接下单的实际合约。
 
 ## `/tq/fetch_ohlcv`
 

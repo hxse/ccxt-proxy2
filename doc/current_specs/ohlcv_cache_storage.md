@@ -91,7 +91,7 @@ ID 不要求连续，正常运行不主动复用。
 
 ## 逻辑片段
 
-一个 segment 代表一条经过 Client 分页、inclusive overlap 和完整性校验的 fetch chain。Cache schema 本身不编码 `timeframe` 邻接证明，只信任 Client 交付的 rows。
+一个 segment 代表经过验证且可以连续复用的数据链，可能由多次完整获取通过 inclusive overlap 合并形成。它不是单次请求身份；仅贴上同一个 segment_id 不能为任意输入补上完整性证据。Cache schema 本身不编码 `timeframe` 邻接证明，只信任 Client 交付的有效 rows。三类证据的分界见[行情数据契约](market_data_contract.md)。
 
 当前可写 Cache 的 Binance/Kraken Futures 完整分页会在 Client 层拒绝 `m/h/d/w` 内部异常 gap。Cache 不重复校验、不解释 gap 原因，也不使用 `timeframe` 修复 rows。
 
@@ -154,5 +154,7 @@ incoming batch 含 NULL/invalid row → 整批不写，旧值不变
 DuckDB 是 embedded library，不需要后台 process/container。当前使用 native database file，不使用 Parquet 作 online cache。
 
 WAL 是 crash recovery log，不是时间旅行/历史备份。保留默认 WAL/automatic checkpoint，不启用 `RECOVERY_MODE no_wal_writes`；关闭 WAL 会失去崩溃恢复，且不解决主文件的空间回收。
+
+自动 checkpoint 可回收部分删除空间供后续写入复用；这不保证每次删除后主文件立即缩至最小。逻辑保留数量、实际文件占用与运行空闲空间预算须分开说明，不把预留空间计成常驻 WAL 开销。当前容量淘汰不执行整库复制或自动物理压缩。
 
 参考：[DuckDB concurrency](https://duckdb.org/docs/stable/connect/concurrency.html)、[checkpoint](https://duckdb.org/docs/current/sql/statements/checkpoint)、[reclaiming space](https://duckdb.org/docs/current/operations_manual/footprint_of_duckdb/reclaiming_space)。
