@@ -19,6 +19,8 @@ import os
 import sys
 from pathlib import Path
 from fastapi.testclient import TestClient
+from src.tools import market_data_config
+market_data_config.PLAN_PATH = Path("Test/fixtures/market_data.toml").resolve()
 from src.main import app
 
 with TestClient(app) as client:

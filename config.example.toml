@@ -122,3 +122,12 @@ max_rows_total = 20000000
 # CFB 启动时创建 HTTP 客户端；不触发上游登录，不按 mode 限制转发。
 # [[service_whitelist]]
 # service = "cfb"
+
+# 文件：现有私有 config.toml；以下只是新增片段，不是完整文件。
+[market_data_client]
+# 后台脚本实际访问的本项目服务地址；容器内运行时按容器监听端口填写。
+base_url = "http://127.0.0.1:5123"
+# 引用已有 [users.admin] 的 HTTP 登录账号；示例名须换成本地实际配置的键。
+user = "admin"
+# 后台单次 HTTP 请求的等待上限，单位秒；不覆盖路由或 SDK 自身超时。
+request_timeout_seconds = 60

@@ -13,3 +13,9 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ./market_data.toml
+        target: /app/market_data.toml
+        read_only: true
+        bind:
+          create_host_path: false

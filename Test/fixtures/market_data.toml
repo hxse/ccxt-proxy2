@@ -1,0 +1,5 @@
+# 离线及在线测试均禁用生产采集/清理计划。
+[tq_collection]
+enabled = false
+[retention]
+enabled = false

@@ -9,6 +9,8 @@ from loguru import logger
 
 from src.tools.cache_resource import CacheResource
 from src.tools.config_types import AppConfig
+from src.tools.market_data_config import load_market_data_plan, validate_client
+from src.tools.market_data_pipeline import MarketDataScheduler
 
 
 class ServiceRuntime:
@@ -23,6 +25,7 @@ class ServiceRuntime:
         self._closers: dict[str, Callable[[], None]] = {}
         self.cache = CacheResource(self._config.ohlcv_cache)
         self._stopped = False
+        self.jobs: MarketDataScheduler | None = None
 
     def require(self, identity: str) -> None:
         if identity not in self._enabled:
@@ -51,6 +54,9 @@ class ServiceRuntime:
         self.initialized = []
         managers = {"ccxt": ccxt, "tq": tq, "ctp": ctp}
         try:
+            plan = load_market_data_plan()
+            validate_client(plan, self._config)
+            self.jobs = MarketDataScheduler(plan, self._config)
             for item in self._config.service_whitelist:
                 # 取消不能中断正在运行的 SDK；只停止后续初始化，清理需等待本方法结束。
                 if stop is not None and stop.is_set():

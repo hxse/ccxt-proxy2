@@ -1,0 +1,81 @@
+# 文件：项目根目录 market_data.toml；只控制后台请求计划。
+# 调度器依次执行采集和清理，两类脚本分开维护。
+[pipeline]
+# 整轮任务间隔，单位秒；不表示官方元数据每小时强制刷新。
+interval_seconds = 3600
+
+# TQ 后台采集计划；这些值不会成为用户路由的默认参数。
+[tq_collection]
+# 是否自动执行 TQ 采集；关闭不影响用户调用路由或自动清理。
+enabled = true
+# 后台主动请求的行情周期；可从这四种周期中选择。
+timeframes = ["5m", "1h", "1d", "1w"]
+# 每次 OHLCV 请求的固定数量；默认 10000，不逐级扩大或重试凑数。
+data_length = 10000
+# 是否请求原始主连行情；不改写或复权主连价格。
+save_main = true
+# 是否请求对应的加权行情；与主连使用不同缓存序列。
+save_weighted = true
+# 是否根据指定周期主连响应的实际范围请求映射；须同时启用 save_main。
+save_mapping = true
+# 后台哪些行情周期触发映射；启用映射时必须非空且属于 timeframes。
+mapping_timeframes = ["5m"]
+# 是否在映射请求中附带过渡周期；后台启用此项须同时启用 save_mapping。
+save_transition = true
+# 是否每轮单独请求日历；关闭不禁止映射路由内部使用日历。
+save_calendar = true
+# 已触发映射的哪些周期附带过渡；启用过渡时必须非空且属于 mapping_timeframes。
+transition_timeframes = ["5m"]
+# 后台单独请求日历时，按可信在线日期向前取多少个日历年。
+calendar_lookback_years = 10
+
+# 后台主动采集的主连清单；左侧是别名，右侧完整代码才是数据身份。
+# 加权代码按同交易所、同品种生成；保留大小写，不限制用户请求清单外品种。
+[tq_collection.symbols]
+rb = "KQ.m@SHFE.rb"  # 螺纹钢主连。
+hc = "KQ.m@SHFE.hc"  # 热轧卷板主连。
+ma = "KQ.m@CZCE.MA"  # 甲醇主连。
+bu = "KQ.m@SHFE.bu"  # 沥青主连。
+fu = "KQ.m@SHFE.fu"  # 燃料油主连。
+l = "KQ.m@DCE.l"     # 聚乙烯主连。
+pp = "KQ.m@DCE.pp"   # 聚丙烯主连。
+ta = "KQ.m@CZCE.TA"  # PTA 主连。
+v = "KQ.m@DCE.v"     # 聚氯乙烯主连。
+m = "KQ.m@DCE.m"     # 豆粕主连。
+rm = "KQ.m@CZCE.RM"  # 菜籽粕主连。
+a = "KQ.m@DCE.a"     # 黄大豆一号主连。
+b = "KQ.m@DCE.b"     # 黄大豆二号主连。
+c = "KQ.m@DCE.c"     # 玉米主连。
+cs = "KQ.m@DCE.cs"   # 玉米淀粉主连。
+y = "KQ.m@DCE.y"     # 豆油主连。
+sr = "KQ.m@CZCE.SR"  # 白糖主连。
+cf = "KQ.m@CZCE.CF"  # 棉花主连。
+ag = "KQ.m@SHFE.ag"  # 白银主连，仅保留一个条目。
+au = "KQ.m@SHFE.au"  # 黄金主连。
+cu = "KQ.m@SHFE.cu"  # 铜主连。
+ru = "KQ.m@SHFE.ru"  # 天然橡胶主连。
+jm = "KQ.m@DCE.jm"   # 焦煤主连。
+j = "KQ.m@DCE.j"     # 焦炭主连。
+al = "KQ.m@SHFE.al"  # 铝主连。
+zn = "KQ.m@SHFE.zn"  # 锌主连。
+i = "KQ.m@DCE.i"     # 铁矿石主连。
+p = "KQ.m@DCE.p"     # 棕榈油主连。
+
+# 后台清理请求计划；脚本将以下保留规则明确传给维护路由。
+[retention]
+# 是否自动请求清理；关闭不禁止用户自行调用清理路由。
+enabled = true
+# 本次清理的数据源类别；扫描其全部缓存，不限于上面的采集清单。
+providers = ["tq", "ccxt"]
+
+# 每条完整 OHLCV 序列跨所有片段的保留根数，不是用户响应上限。
+[retention.modes]
+# live 行情每条序列保留最新 30000 根；TQ 行情按 live 处理。
+live = 30000
+# sandbox 行情每轮清理到 0 根；两轮之间仍可正常写缓存。
+sandbox = 0
+
+# 辅助数据独立按年限保留，不套 OHLCV 根数限制。
+[retention.auxiliary]
+# 日历、逐日映射和过渡默认保留十年；必要节点上下文和整窗规则仍生效。
+keep_years = 10

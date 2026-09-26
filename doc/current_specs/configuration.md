@@ -15,6 +15,10 @@ SECRET = "replace-with-a-random-secret"
 
 [users.admin]
 password = "replace-with-your-password"
+
+# 默认公开计划启用后台清理，需要引用已有 HTTP 登录账号。
+[market_data_client]
+user = "admin"
 ```
 
 `SECRET` 是必填根字段，放在所有分组之前。用户名含点时使用 `[users."alice.dev"]`。字符串采用 TOML 引号和转义；密码中的美元符号及带美元符号的变量表达式原样保留。TOML 没有 null，未配置的可选分组直接省略或保持注释。
@@ -99,18 +103,21 @@ max_rows_total = 20000000
 
 省略时使用上述默认值。容量要求 `100000 < max_rows_per_series <= max_rows_total`；它与单次响应预算分开，具体事务与淘汰规则见[缓存操作](ohlcv_cache_operations.md)。
 
-缓存由 ServiceRuntime 持有的 CacheResource 延迟创建并统一关闭；CCXT 只接收注入资源，关闭单个 Provider 不关闭共享库。仅 TQ 或空白名单也可取得同一缓存资源，取缓存不初始化 Provider。上述容量是写入事务中的大容量保护，不是每小时保留目标。当前没有 market_data.toml、market_data_client 或内置行情采集/清理计划，不应将任务设计中的新配置加入现行运行文件。
+缓存由 ServiceRuntime 持有的 CacheResource 延迟创建并统一关闭；CCXT 只接收注入资源，关闭单个 Provider 不关闭共享库。仅 TQ 或空白名单也可取得同一缓存资源，取缓存不初始化 Provider。上述容量是写入事务中的大容量保护，不是每小时保留目标。
+
+公开 market_data.toml 默认启用 TQ 固定窗口采集和缓存清理；私有 market_data_client 指定地址、已有 HTTP 用户和超时。需要在原配置中补齐 user，或显式关闭公开计划中的采集、清理两个 enabled。启动前验证，HTTP 可用后才执行后台首轮；退出先停止后台再关闭 SDK/缓存。参数作用域、默认值、单轮入口及失败规则见[后台任务](market_data_jobs.md)。
 
 ## 部署入口
 
 本地先复制并填写配置，再执行 `uv sync --locked` 和 `just serve`。Windows 开发优先使用 127.0.0.1，避免 localhost 与 reload 带来的额外延迟。CTP 的可选依赖和独立 GUI 联调见对应模块规范。
 
-`docker compose up -d --build` 将本地 config.toml 只读挂载到容器，不写入镜像。直接运行镜像可采用：
+`docker compose up -d --build` 将本地 config.toml 与 market_data.toml 只读挂载到容器；私有配置不写入镜像。容器客户端 base_url 应使用 http://127.0.0.1:8000，与容器内监听一致。直接运行镜像可采用：
 
 ```bash
 docker run -d -p 5123:8000 \
   -v ~/ccxt-proxy2:/app/data \
   -v "$PWD/config.toml:/app/config.toml:ro" \
+  -v "$PWD/market_data.toml:/app/market_data.toml:ro" \
   -e PYTHONUNBUFFERED=1 \
   --name ccxt-proxy2 \
   --restart=always \

@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from src.base_types import ExchangeName, MarketType, ModeType
+from src.tools.market_data_types import MarketDataClientConfig
 
 CHAT_ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -230,6 +231,9 @@ class AppConfig(BaseModel):
     ctp: CtpConfig | None = None
     cfb: CfbConfig | None = None
     ohlcv_cache: OhlcvCacheConfig = Field(default_factory=OhlcvCacheConfig)
+    market_data_client: MarketDataClientConfig = Field(
+        default_factory=MarketDataClientConfig
+    )
     telegram: TelegramConfig | None = None
     service_whitelist: list[ServiceWhitelistItem] = Field(default_factory=list)
 

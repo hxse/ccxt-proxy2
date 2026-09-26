@@ -34,6 +34,18 @@ serve host="127.0.0.1" port="5123":
 serve-ctp host="127.0.0.1" port="5123":
     uv run --extra ctp uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
 
+# 通过正式路由执行一轮 TQ 采集，使用 market_data.toml 计划
+market-data-collect:
+    uv run --no-sync python scripts/collect_market_data.py
+
+# 按计划删除本地缓存；不能放进只读在线测试
+market-data-prune:
+    uv run --no-sync python scripts/prune_market_data.py
+
+# 顺序执行采集和清理；会删除超出保留规则的本地缓存
+market-data-once:
+    uv run --no-sync python scripts/market_data_pipeline.py
+
 # 直接从 CFB 自动文档同步固定八条路由的参数、响应与说明；之后重启代理
 [positional-arguments]
 sync-cfb-docs url="http://127.0.0.1:45173/openapi.json":

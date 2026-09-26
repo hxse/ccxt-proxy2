@@ -37,7 +37,11 @@ async def _finish_lifespan(
 
     try:
         try:
-            await tq_manager.close_metadata()
+            try:
+                if service_runtime.jobs is not None:
+                    await service_runtime.jobs.close()
+            finally:
+                await tq_manager.close_metadata()
         finally:
             await run_in_threadpool(service_runtime.close)
     finally:
@@ -82,6 +86,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     try:
         await asyncio.shield(startup)
+        if service_runtime.jobs is not None:
+            service_runtime.jobs.start()
         yield
     finally:
         stop.set()

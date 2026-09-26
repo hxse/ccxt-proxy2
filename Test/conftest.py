@@ -20,6 +20,12 @@ if (
             os.environ.pop(name)
 
 
+# 在应用/测试模块导入之前隔离后台计划，不改动真实公开文件。
+from src.tools import market_data_config  # noqa: E402
+
+market_data_config.PLAN_PATH = Path(__file__).parent / "fixtures" / "market_data.toml"
+
+
 @pytest.fixture
 def temp_dir() -> Iterator[Path]:
     with tempfile.TemporaryDirectory() as directory:

@@ -16,6 +16,8 @@ COPY --from=dependencies /app/.venv /app/.venv
 COPY pyproject.toml uv.lock ./
 # 拷贝 src 目录
 COPY ./src/ ./src/
+COPY ./market_data.toml ./market_data.toml
+COPY ./scripts/collect_market_data.py ./scripts/prune_market_data.py ./scripts/market_data_pipeline.py ./scripts/
 COPY ./script/ctp_assessment.py ./script/ctp_assessment.py
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
