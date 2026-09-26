@@ -22,6 +22,7 @@ def configured(tmp_path):
     return AppConfig.model_validate(
         {
             "SECRET": "offline",
+            "ohlcv_cache": {"database_path": str(tmp_path / "cache.duckdb")},
             "tq": {"username": "test", "password": "test"},
             "ctp": ctp_config(tmp_path),
             "binance": {"test": {"api_key": "test", "secret": "test"}},
@@ -128,10 +129,10 @@ def test_disabled_services_do_not_initialize_even_with_credentials_and_http_acce
     }
     assert not (tmp_path / "unused").exists() and factory.apis == []
     monkeypatch.setattr(
-        "src.tools.exchange_manager.DuckDbOhlcvCache",
+        "src.tools.cache_resource.DuckDbOhlcvCache",
         lambda *args: pytest.fail("disabled CCXT opened cache"),
     )
-    ExchangeManager().init_from_config(config)
+    ExchangeManager().init_from_config(config, None)
 
 
 def test_ctp_is_authenticated_before_first_request_and_disabled_mode_stays_disabled(

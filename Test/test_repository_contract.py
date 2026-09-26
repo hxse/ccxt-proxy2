@@ -274,7 +274,15 @@ def test_cache_public_api_stays_io_only_and_callback_free():
         if not name.startswith("_") and callable(value)
     }
 
-    assert public_methods == {"read_best_prefix", "write_segment", "close"}
+    assert public_methods == {
+        "read_best_prefix",
+        "write_segment",
+        "write_tq_segment",
+        "read_contiguous_before",
+        "read_connected_history",
+        "read_latest_summary",
+        "close",
+    }
 
 
 def test_online_test_suite_contains_read_only_operations_only():

@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from src.tools.cache_resource import CacheResource
 from src.tools.exchange_manager import exchange_manager
 from src.tools.shared import config
 
@@ -38,7 +39,8 @@ def live_future_clients(tmp_path_factory):
             ),
         }
     )
-    exchange_manager.init_from_config(online_config)
+    resource = CacheResource(online_config.ohlcv_cache)
+    exchange_manager.init_from_config(online_config, resource.get())
     clients = [
         (
             item.exchange,
@@ -52,6 +54,7 @@ def live_future_clients(tmp_path_factory):
         yield clients
     finally:
         exchange_manager.close()
+    resource.close()
 
 
 def _assert_rows(rows, expected_count: int | None = None) -> None:

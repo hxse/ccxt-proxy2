@@ -1,19 +1,19 @@
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
-def ensure_schema(connection) -> None:
+def _ensure_schema(connection) -> None:
     connection.execute("CREATE SEQUENCE IF NOT EXISTS cache_segment_id_seq START 1")
     connection.execute(
         "CREATE TABLE IF NOT EXISTS cache_meta (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)"
     )
     connection.execute(
         "INSERT OR IGNORE INTO cache_meta VALUES ('schema_version', ?)",
-        [SCHEMA_VERSION],
+        ["1"],
     )
     version = connection.execute(
         "SELECT value FROM cache_meta WHERE key='schema_version'"
     ).fetchone()[0]
-    if version != SCHEMA_VERSION:
+    if version not in ("1", SCHEMA_VERSION):
         raise RuntimeError(f"unsupported cache schema version: {version}")
     connection.execute("""
         CREATE TABLE IF NOT EXISTS cache_segments (
@@ -35,3 +35,27 @@ def ensure_schema(connection) -> None:
     connection.execute(
         "CREATE INDEX IF NOT EXISTS cache_segments_series ON cache_segments(series_key)"
     )
+
+    if version == "1":
+        connection.execute(
+            "ALTER TABLE cache_segments ADD COLUMN data_kind VARCHAR DEFAULT 'ohlcv'"
+        )
+        connection.execute(
+            "ALTER TABLE cache_segments ADD COLUMN time_unit VARCHAR DEFAULT 'ms'"
+        )
+        connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN sdk_id BIGINT")
+        connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN open_oi DOUBLE")
+        connection.execute("ALTER TABLE ohlcv_rows ADD COLUMN close_oi DOUBLE")
+        connection.execute(
+            "UPDATE cache_meta SET value=? WHERE key='schema_version'", [SCHEMA_VERSION]
+        )
+
+
+def ensure_schema(connection) -> None:
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        _ensure_schema(connection)
+        connection.execute("COMMIT")
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise

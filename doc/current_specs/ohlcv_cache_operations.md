@@ -18,6 +18,14 @@ class DuckDbOhlcvCache:
         verified_covered_from: int | None,
     ) -> None: ...
 
+    def write_tq_segment(self, series: TqOhlcvSeries, batch: TqOhlcvBatch) -> None: ...
+
+    def read_contiguous_before(self, series_key: str, end_time: int, max_rows: int) -> CachedHistory: ...
+
+    def read_connected_history(self, series_key: str, batch: OhlcvResult | TqOhlcvBatch, max_rows: int) -> CachedHistory: ...
+
+    def read_latest_summary(self, series_key: str) -> SeriesSummary: ...
+
     def close(self) -> None: ...
 ```
 
@@ -167,7 +175,7 @@ Global 不得 `COUNT(DISTINCT time)`，因为各 symbol/timeframe 会共享 time
 合并后在同一 transaction 中按顺序执行：
 
 1. Current series 超限：按 `(time,segment_id)` 删除最旧 rows，直到 `floor(per_series_limit * 0.9)`。
-2. Global 超限：按同一优先级跨 series 删除最旧 rows，直到 `floor(total_limit * 0.9)`。
+2. Global 超限：毫秒先转 HUGEINT 再乘一百万，纳秒转 HUGEINT 原值，按精确时间与 segment_id 跨 series 删除最旧 rows，直到 `floor(total_limit * 0.9)`。
 3. 删空的 segment 删 metadata；只删部分的 segment 重算 metadata。
 
 只能删 segment 前缀，不制造中间缺口。被截断的 segment 必须：
@@ -191,7 +199,7 @@ Eviction 成功不影响 Route response。Eviction SQL/transaction 失败或处�
 - Read 不加 application write lock，依赖 DuckDB snapshot isolation。
 - Write 持锁并使用 transaction。
 - 不使用 `FileLock`规避 DuckDB 的 single-writer-process 约束。
-- Cache 跟踪本实例创建的全部 thread-local connections。Public read 进入 reader lifecycle scope；`close()` 先阻止新 reader，再等待 active readers 退出，最后关闭 connections。Write/close 继续由同一 per-database write lock 串行。`close()` 幂等，并在 application shutdown 或 `ExchangeManager` reinitialize 时执行；关闭后的 Cache object 不得重新使用。
+- Cache 跟踪本实例创建的全部 thread-local connections。Public read 进入 reader lifecycle scope；`close()` 先阻止新 reader，再等待 active readers 退出，最后关闭 connections。Write/close 继续由同一 per-database write lock 串行。`close()` 幂等，由应用持有的 CacheResource 在所有消费者关闭后执行；ExchangeManager reinitialize 只关闭其客户端；关闭后的 Cache object 不得重新使用。
 
 ## 失败规则
 
@@ -202,3 +210,9 @@ Eviction 成功不影响 Route response。Eviction SQL/transaction 失败或处�
 - Eviction/capacity failure：rollback 并返回 507。
 
 Capacity 只限制 logical rows，不是严格 database byte 上限。不增加 RSS 监控、JSON byte 估算或自动物理 compact；需要完全重置时在停止进程后删除精确 cache DB。
+
+## 向前历史、连接历史与概况
+
+read_contiguous_before 在包含式 end_time 之前选择最新实际行所在片段，取其末 max_rows 根并升序返回；不证明缓存已经追上 end_time。read_connected_history 仅用本批次可持久化行的真实时间戳交集选一个可向前复用最多的片段，平局按更新时间、ID；未知尾根不能独自建立连接。读取裁至网络批次上界，无连接返回空，不跨独立片段拼接。
+
+新增读取的 max_rows 为 1..100000 整数，不改变 read_best_prefix 原有 100001 根溢出检测能力。CachedHistory.rows 保持 CCXT tuple 或 TQ records 类型；TQ 读取不再次去尾。read_latest_summary 单快照返回 start/end/count、total_count、segment_count、time_unit；端点为原生单位，start 为实际首行，空库为 null/null/0；不暴露片段 ID。所有查询在同一 SQL 快照及 reader scope 内完成。

@@ -7,9 +7,10 @@ from fastapi import HTTPException
 from src.base_types import ExchangeName, MarketType, ModeType
 from src.tools.ccxt_client import CcxtClient
 from src.tools.exchange_manager import exchange_manager
-from src.tools.shared import config
+from src.tools.shared import config, service_runtime
 
 
+atexit.register(service_runtime.cache.close)
 atexit.register(exchange_manager.close)
 
 
@@ -24,7 +25,7 @@ def get_debug_client(
     except HTTPException as exc:
         if exc.status_code != 503:
             raise
-        exchange_manager.init_from_config(config)
+        exchange_manager.init_from_config(config, service_runtime.cache.get())
         return exchange_manager.get_client(exchange_name, market, mode)
 
 

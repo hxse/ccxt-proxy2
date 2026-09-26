@@ -67,7 +67,7 @@ class InitializingExchange:
 
 
 def test_registry_initialization_failure_closes_every_partial_resource(
-    temp_dir, monkeypatch
+    temp_dir, monkeypatch, cache_resource_factory
 ):
     binance = InitializingExchange()
     kraken = InitializingExchange(fail_load=True)
@@ -105,11 +105,12 @@ def test_registry_initialization_failure_closes_every_partial_resource(
             },
         }
     )
+    resource = cache_resource_factory(config.ohlcv_cache)
     manager = ExchangeManager()
     manager.close()
 
     with pytest.raises(RuntimeError, match="load markets failed"):
-        manager.init_from_config(config)
+        manager.init_from_config(config, resource.get())
 
     assert binance.closed == 1
     assert kraken.closed == 1

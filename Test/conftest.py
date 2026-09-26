@@ -24,3 +24,19 @@ if (
 def temp_dir() -> Iterator[Path]:
     with tempfile.TemporaryDirectory() as directory:
         yield Path(directory)
+
+
+@pytest.fixture
+def cache_resource_factory():
+    from src.tools.cache_resource import CacheResource
+
+    resources = []
+
+    def create(config):
+        resource = CacheResource(config)
+        resources.append(resource)
+        return resource
+
+    yield create
+    for resource in resources:
+        resource.close()

@@ -8,7 +8,7 @@
 - parameterized SQL；
 - 查找/读取最佳 prefix segment；
 - 按 exact timestamp overlap 新建/合并 segment；
-- successor-aware row selection；
+- 统一尾根资格筛选；
 - transaction、capacity 和 eviction。
 
 禁止：
@@ -22,7 +22,7 @@
 ## 标准数据行
 
 ```text
-time: BIGINT      # UTC epoch milliseconds, K-line open time
+time: BIGINT      # K-line open time；CCXT 毫秒，TQ 纳秒
 open: DOUBLE
 high: DOUBLE
 low: DOUBLE
@@ -30,7 +30,7 @@ close: DOUBLE
 volume: DOUBLE
 ```
 
-不保存 Provider raw response、`__batch_id__`、动态列或 TQ open-interest 字段。`time` 在 segment 内唯一，读取结果严格升序。
+TQ 另存可空 sdk_id、open_oi、close_oi；symbol 和秒制 duration 从序列身份恢复。不保存 Provider raw response、`__batch_id__` 或任意动态 JSON 列。`time` 在 segment 内唯一，读取结果严格升序。
 
 仅接受全部 rows 均完整合法的 incoming batch。如新 row 与旧 row 同 timestamp，新 row 原子覆盖全部 OHLCV；不逐字段 coalesce。batch 中出现 NULL/NaN/Infinity/invalid row 时，本次 cache write 整体 no-op，旧值不变，避免为被拒绝的真实 row 建立虚假 gap proof。
 
@@ -44,7 +44,7 @@ provider / mode / market / symbol / timeframe / variant
 
 它必须编入所有影响数据内容的参数，例如 Binance mark/index/premium-index variant。不同 series 在同 timestamp 上的 rows 是不同 identity。
 
-Canonical encoding 使用字段排序、无多余空白的 JSON；schema version 为 `1`。编码 deterministic，且不包含与数据无关的用户请求参数。
+Canonical encoding 使用字段排序、无多余空白的 JSON；schema version 为 `2`。编码 deterministic，且不包含与数据无关的用户请求参数。
 
 ## 逻辑表结构
 
@@ -59,6 +59,8 @@ last_time: BIGINT
 row_count: BIGINT
 created_at: TIMESTAMP
 updated_at: TIMESTAMP
+data_kind: VARCHAR  # 普通行情为 ohlcv
+time_unit: VARCHAR  # ms 或 ns
 ```
 
 ### `ohlcv_rows`
@@ -71,6 +73,9 @@ high: DOUBLE
 low: DOUBLE
 close: DOUBLE
 volume: DOUBLE
+sdk_id: BIGINT NULL
+open_oi: DOUBLE NULL
+close_oi: DOUBLE NULL
 PRIMARY KEY(segment_id, time)
 ```
 
@@ -158,3 +163,9 @@ WAL 是 crash recovery log，不是时间旅行/历史备份。保留默认 WAL/
 自动 checkpoint 可回收部分删除空间供后续写入复用；这不保证每次删除后主文件立即缩至最小。逻辑保留数量、实际文件占用与运行空闲空间预算须分开说明，不把预留空间计成常驻 WAL 开销。当前容量淘汰不执行整库复制或自动物理压缩。
 
 参考：[DuckDB concurrency](https://duckdb.org/docs/stable/connect/concurrency.html)、[checkpoint](https://duckdb.org/docs/current/sql/statements/checkpoint)、[reclaiming space](https://duckdb.org/docs/current/operations_manual/footprint_of_duckdb/reclaiming_space)。
+
+## TQ 类型承载与升级
+
+TqOhlcvSeries 固定 provider=tq、mode=live、market=future，完整 symbol 独立成序列；timeframe 为秒数加 s。空复权为 default，FORWARD/F 为 F，BACK/B 为 B。TqOhlcvBatch 提交稳定 records 和末根资格；SDK id 非负整数，同一批次严格递增且相邻 id 差一；nullable OI 可落盘，核心价格/volume 不完整时整批不写。普通 TQ HTTP 尚未接入此存储能力。
+
+schema 1→2 在一个事务内增列并补旧片段为 ohlcv/ms，保留全部旧行、segment_id、covered_from、索引及 sequence；失败回滚，未知版本拒绝，不自动删库重建。series_key 的 kind/unit 冲突拒绝提交。所有普通行情计数、合并、刷新、淘汰限定 ohlcv，不能触碰其他数据类型。

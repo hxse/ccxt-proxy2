@@ -82,10 +82,11 @@ def test_lifespan_initializes_only_enabled_cfb_from_startup_snapshot_and_closes_
     asyncio.run(run())
 
 
-def test_later_sdk_startup_failure_also_closes_cfb_client(monkeypatch):
+def test_later_sdk_startup_failure_also_closes_cfb_client(monkeypatch, tmp_path):
     config = AppConfig.model_validate(
         {
             "SECRET": "offline",
+            "ohlcv_cache": {"database_path": str(tmp_path / "cache.duckdb")},
             "cfb": {},
             "binance": {"test": {"api_key": "offline", "secret": "offline"}},
             "service_whitelist": [

@@ -22,7 +22,7 @@ class FakeExchange:
 
 
 def test_exchange_manager_returns_long_lived_client_not_raw_exchange(
-    temp_dir, monkeypatch
+    temp_dir, monkeypatch, cache_resource_factory
 ):
     raw = FakeExchange()
     monkeypatch.setattr(
@@ -49,9 +49,10 @@ def test_exchange_manager_returns_long_lived_client_not_raw_exchange(
             },
         }
     )
+    resource = cache_resource_factory(config.ohlcv_cache)
     manager = ExchangeManager()
 
-    manager.init_from_config(config)
+    manager.init_from_config(config, resource.get())
     first = manager.get_client("binance", "future", "sandbox")
     second = manager.get_client("binance", "future", "sandbox")
 
@@ -61,7 +62,9 @@ def test_exchange_manager_returns_long_lived_client_not_raw_exchange(
     assert raw.loaded == 1
 
 
-def test_exchange_manager_rejects_non_whitelisted_identity(temp_dir):
+def test_exchange_manager_rejects_non_whitelisted_identity(
+    temp_dir, cache_resource_factory
+):
     config = AppConfig.model_validate(
         {
             "SECRET": "secret",
@@ -72,8 +75,9 @@ def test_exchange_manager_rejects_non_whitelisted_identity(temp_dir):
             },
         }
     )
+    resource = cache_resource_factory(config.ohlcv_cache)
     manager = ExchangeManager()
-    manager.init_from_config(config)
+    manager.init_from_config(config, resource.get())
 
     with pytest.raises(HTTPException) as exc_info:
         manager.get_client("kraken", "spot", "live")
@@ -101,7 +105,7 @@ def test_config_rejects_kraken_spot_sandbox():
 
 
 def test_exchange_manager_closes_clients_during_reinitialize_and_shutdown(
-    temp_dir, monkeypatch
+    temp_dir, monkeypatch, cache_resource_factory
 ):
     exchanges = [FakeExchange(), FakeExchange()]
     monkeypatch.setattr(
@@ -127,17 +131,19 @@ def test_exchange_manager_closes_clients_during_reinitialize_and_shutdown(
             },
         }
     )
+    resource = cache_resource_factory(config.ohlcv_cache)
     manager = ExchangeManager()
 
-    manager.init_from_config(config)
+    manager.init_from_config(config, resource.get())
     first = manager.get_client("binance", "future", "sandbox").exchange
-    manager.init_from_config(config)
+    manager.init_from_config(config, resource.get())
     second = manager.get_client("binance", "future", "sandbox").exchange
 
     assert first.closed == 1
     assert second.closed == 0
     manager.close()
     assert second.closed == 1
+    assert resource.get().read_latest_summary("still usable").total_count == 0
 
 
 def test_config_rejects_duplicate_whitelist_identity():

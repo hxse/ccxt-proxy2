@@ -34,6 +34,8 @@ CCXT 正式保证的交易所范围是 Binance USDⓈ-M linear Futures 和 Krake
 
 只有 CcxtClient 是路由可用的 CCXT 入口。它编排缓存读取、完整网络查询、缓存写入和返回转换；私有 mixin 不构成第二套公开调用链。ExchangeManager 不向路由返回裸 CCXT 实例。
 
+ServiceRuntime 持有唯一 CacheResource，延迟创建缓存并在各消费者退出后关闭。ExchangeManager 不创建或关闭库，直接构造 Manager 的调用方也需显式注入应用资源。
+
 DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/TqSdk/FastAPI，不持有 Provider，不接受网络 callback，不决定分页或重试。
 
 三个 OHLCV 路由保持以下不变量：

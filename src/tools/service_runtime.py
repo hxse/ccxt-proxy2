@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 from loguru import logger
 
+from src.tools.cache_resource import CacheResource
 from src.tools.config_types import AppConfig
 
 
@@ -19,6 +20,8 @@ class ServiceRuntime:
         self.ready = False
         self.initialized: list[str] = []
         self._closers: dict[str, Callable[[], None]] = {}
+        self.cache = CacheResource(self._config.ohlcv_cache)
+        self._stopped = False
 
     def require(self, identity: str) -> None:
         if identity not in self._enabled:
@@ -41,6 +44,9 @@ class ServiceRuntime:
     ) -> None:
         if self.ready:
             return
+        if self._stopped:
+            self.cache = CacheResource(self._config.ohlcv_cache)
+            self._stopped = False
         self.initialized = []
         managers = {"ccxt": ccxt, "tq": tq, "ctp": ctp}
         try:
@@ -59,7 +65,7 @@ class ServiceRuntime:
                 self._closers.setdefault(item.service, managers[item.service].close)
                 logger.bind(service=item.identity).info("initializing service")
                 if item.service == "ccxt":
-                    ccxt.initialize(self._config, item)
+                    ccxt.initialize(self._config, item, self.cache.get())
                 elif item.service == "tq":
                     tq.initialize()
                 else:
@@ -73,6 +79,7 @@ class ServiceRuntime:
 
     def close(self) -> None:
         self.ready = False
+        self._stopped = True
         closers, self._closers = self._closers, {}
         for service, close in reversed(list(closers.items())):
             try:
@@ -80,3 +87,4 @@ class ServiceRuntime:
             except Exception:
                 logger.bind(service=service).exception("service shutdown failed")
         self.initialized = []
+        self.cache.close()

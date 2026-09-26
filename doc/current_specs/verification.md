@@ -118,7 +118,7 @@
 
 ### 生命周期与错误映射
 
-- `ExchangeManager` reinitialize/shutdown 关闭旧 Client 和 DuckDB connections；close 幂等。
+- `ExchangeManager` reinitialize/shutdown 只关闭旧 Client；应用 CacheResource 在消费者退出后释放 DuckDB connections；关闭幂等，并拒绝关闭后的访问。
 - 重复 whitelist identity 在配置阶段拒绝。
 - CCXT request/order/auth/funds/operation error 映射为稳定、脱敏的 HTTP code；Provider 原文不进入 response。
 - `fetch_market_info.leverage` 没有可靠 position 证据时为 `null`，position fetch 失败不得伪装成 leverage 1。
@@ -165,3 +165,7 @@ TQ 的数据验证见 [TQ 数据处理](tq_processing.md)，CTP 的假前置与�
 非纯文档实现任务按其 spec 约定选择现有 just 验证入口；测试前核对入口是否访问外部服务或产生副作用。纯文档任务只核对文字、示例、链接、行数和差异，不因规范列出测试命令而执行它们。
 
 文档中的待实现设计不属于当前能力。正式任务引用和示例应在对应 revision 自洽，手写文档遵守 AGENTS.md 的 400 行上限，meta 遵守 60 行上限；不能把旧检查脚本的宽松或空扫描结果当作例外许可。
+
+## 共享缓存基础
+
+离线覆盖 schema 1→2 迁移保留与失败回滚、类型/单位隔离、HUGEINT 跨源年龄排序、普通写入不删除辅助片段。向前读取、连接读取和概况不得跨片段，未知尾根不能独自连接；所有选择与行读取来自同一快照。TQ id、OI、symbol/秒制 duration 与身份一致，非法可持久化批次整批不写。应用资源并发首用只有一份实例，Provider 关闭不关闭共享库，所有测试使用隔离数据库。

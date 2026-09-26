@@ -78,7 +78,7 @@ mode = "sandbox"
 
 启动协调器按白名单顺序初始化，全部完成后才接受 HTTP 请求。任一初始化失败，清理已建立的资源并退出。空白名单仍可运行鉴权、文档、健康检查及不依赖该白名单的接口。
 
-启动取消时停止初始化后续实例，等待当前 SDK 初始化结束后统一清理，不强行中断 SDK。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话与缓存，CFB 在应用事件循环关闭 HTTP 客户端，Telegram 关闭自己持有的客户端。
+启动取消时停止初始化后续实例，等待当前 SDK 初始化结束后统一清理，不强行中断 SDK。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话；共享缓存由应用最后关闭，CFB 在应用事件循环关闭 HTTP 客户端，Telegram 关闭自己持有的客户端。
 
 `GET /healthz` 只表示应用进程能处理请求，返回 `{"status":"ok"}`。`GET /readyz` 返回启动就绪及已初始化身份，例如：
 
@@ -99,7 +99,7 @@ max_rows_total = 20000000
 
 省略时使用上述默认值。容量要求 `100000 < max_rows_per_series <= max_rows_total`；它与单次响应预算分开，具体事务与淘汰规则见[缓存操作](ohlcv_cache_operations.md)。
 
-当前缓存由 ExchangeManager 在创建首个 CCXT 客户端时建立，由其关闭流程释放；仅启用 TQ 不会创建这份 OHLCV 缓存。上述容量是写入事务中的大容量保护，不是每小时保留目标。当前没有 market_data.toml、market_data_client 或内置行情采集/清理计划，不应将任务设计中的新配置加入现行运行文件。
+缓存由 ServiceRuntime 持有的 CacheResource 延迟创建并统一关闭；CCXT 只接收注入资源，关闭单个 Provider 不关闭共享库。仅 TQ 或空白名单也可取得同一缓存资源，取缓存不初始化 Provider。上述容量是写入事务中的大容量保护，不是每小时保留目标。当前没有 market_data.toml、market_data_client 或内置行情采集/清理计划，不应将任务设计中的新配置加入现行运行文件。
 
 ## 部署入口
 
