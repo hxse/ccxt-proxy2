@@ -183,14 +183,17 @@ class OrderStructure(BaseModel):
         examples=["open", "closed", "canceled", "expired", "rejected"],
     )
     symbol: str = Field(..., title="交易对", examples=["BTC/USDT:USDT"])
-    type: str = Field(
-        ...,
+    type: str | None = Field(
+        None,
         title="订单类型",
-        description="limit, market, ...",
+        description="limit, market, ...；上游未提供时为 null，不根据查询或撤单请求猜测。",
         examples=["limit", "market", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
     )
-    side: str = Field(
-        ..., title="方向", description="buy, sell", examples=["buy", "sell"]
+    side: str | None = Field(
+        None,
+        title="方向",
+        description="buy, sell；上游未提供时为 null。",
+        examples=["buy", "sell"],
     )
     price: Optional[float] = Field(None, title="委托价格", examples=[42000.0])
     price_adjustment: PriceAdjustment | None = Field(

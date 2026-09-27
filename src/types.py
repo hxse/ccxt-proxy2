@@ -18,13 +18,14 @@ OhlcvVariant = Literal["default", "mark", "index", "premiumIndex"]
 TimeInForce = Literal["GTC", "IOC", "FOK"]
 
 
-def _reject_boolean_price(value):
+def _reject_boolean_number(value):
     if isinstance(value, bool):
-        raise ValueError("价格不能是布尔值")
+        raise ValueError("数值不能是布尔值")
     return value
 
 
-PriceInput = Annotated[float, BeforeValidator(_reject_boolean_price)]
+NonBooleanFloat = Annotated[float, BeforeValidator(_reject_boolean_number)]
+NonBooleanInt = Annotated[int, BeforeValidator(_reject_boolean_number)]
 
 
 class BaseOhlcvRequest(BaseSymbolRequest):
@@ -83,8 +84,13 @@ class LatestLimitOhlcvRequest(BaseOhlcvRequest):
 
 class MarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["buy", "sell"])
-    amount: float = Field(
-        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    amount: NonBooleanFloat = Field(
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="数量",
+        examples=[0.001],
+        description="有限正数；拒绝布尔值，保留可解析的数字字符串。",
     )
     clientOrderId: NonEmptyString | None = Field(
         None, title="客户端自定义ID", examples=["my_order_1"]
@@ -94,10 +100,15 @@ class MarketOrderRequest(BaseSymbolRequest):
 
 class LimitOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["buy", "sell"])
-    amount: float = Field(
-        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    amount: NonBooleanFloat = Field(
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="数量",
+        examples=[0.001],
+        description="有限正数；拒绝布尔值，保留可解析的数字字符串。",
     )
-    price: PriceInput = Field(
+    price: NonBooleanFloat = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
@@ -120,11 +131,16 @@ class LimitOrderRequest(BaseSymbolRequest):
 
 class StopMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
-    amount: float = Field(
-        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    amount: NonBooleanFloat = Field(
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="数量",
+        examples=[0.001],
+        description="有限正数；拒绝布尔值，保留可解析的数字字符串。",
     )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: PriceInput = Field(
+    triggerPrice: NonBooleanFloat = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
@@ -146,11 +162,16 @@ class StopMarketOrderRequest(BaseSymbolRequest):
 
 class TakeProfitMarketOrderRequest(BaseSymbolRequest):
     side: SideType = Field(..., title="方向", examples=["sell", "buy"])
-    amount: float = Field(
-        ..., gt=0, allow_inf_nan=False, title="数量", examples=[0.001]
+    amount: NonBooleanFloat = Field(
+        ...,
+        gt=0,
+        allow_inf_nan=False,
+        title="数量",
+        examples=[0.001],
+        description="有限正数；拒绝布尔值，保留可解析的数字字符串。",
     )
     reduceOnly: bool = Field(True, title="只减仓", examples=[True, False])
-    triggerPrice: PriceInput = Field(
+    triggerPrice: NonBooleanFloat = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
@@ -292,7 +313,7 @@ class FetchPositionsRequest(BaseExchangeRequest):
 
 
 class SetLeverageRequest(BaseExchangeRequest):
-    leverage: int = Field(..., gt=0, description="正整数杠杆倍数")
+    leverage: NonBooleanInt = Field(..., gt=0, description="正整数杠杆倍数，拒绝布尔值")
     symbol: NonEmptyString | None = None
     model_config = {"extra": "allow"}
 

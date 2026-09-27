@@ -193,7 +193,7 @@ def create_market_order(params: MarketOrderRequest):
     "/create_limit_order",
     response_model=OrderResponse,
     summary="创建限价单",
-    description="有状态操作：报价按官方步长买入向下、卖出向上对齐，检查静态范围和适用动态边界；越界拒绝，order.price_adjustment 返回原报价及提交价。timeInForce、postOnly、clientOrderId 等保持原语义；扩展参数不能覆盖价格处理。",
+    description="有状态操作：报价按官方步长买入向下、卖出向上对齐，检查静态范围和适用动态边界；越界拒绝，order.price_adjustment 返回原报价及提交价。Kraken Futures IOC/FOK 显式映射原生类型，与 postOnly 或冲突原生类型组合时拒绝；clientOrderId 等保持原语义，扩展参数不能覆盖价格处理。",
     response_description="Provider 接受后返回的 unified order。",
     responses=CCXT_WRITE_RESPONSES,
 )

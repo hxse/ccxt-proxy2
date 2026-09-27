@@ -103,6 +103,18 @@ CCXT 下单结果的 `order.price_adjustment` 返回本次价格处理信息；�
 
 价格错误使用 422 INVALID_ORDER_PRICE、INVALID_PRICE_PRECISION、PRICE_OUT_OF_RANGE，附加可取得的 price_context。HTTP schema 的基本参数错误仍返回既有 422 校验结构。已识别的 Binance/Kraken 价格拒单额外给出 provider/provider_code 和安全的价格原因；不返回原始签名 URL 或未筛选异常文本。其他错误保持原分类。报价预检的只读失败不会被误标成已发送订单的状态未知。
 
+## 委托有效期与未知回执
+
+Kraken Futures 普通限价单的 IOC/FOK 在 CcxtClient 内显式转成原生 orderType=ioc/fok，并传入相应小写 timeInForce。不能直接依赖 CCXT 4.5.76 对大写字段的处理：该版本只识别小写 ioc，未正确适配 FOK，可能发送 lmt。路由保持通用，不增加交易所分支。
+
+IOC/FOK 与 postOnly=true、冲突 orderType 或 stopLossPrice/takeProfitPrice 组合时，提交前返回 422 INVALID_PROVIDER_REQUEST；不能静默改成普通挂单或覆盖触发语义。默认/GTC、其他 Provider/市场及原生市价保持原流程。只在 Kraken Futures 成功创建回执已明确 type=fok 时修正 SDK 误填的 timeInForce=gtc 为 fok，不据请求参数猜成交状态。
+
+OrderStructure.type/side 允许 null，字段未提供也输出 null。Kraken Futures orders/status 的 type 可未知；Binance 条件单撤单成功回执可能只有订单标识和结果。保留 ID、symbol、info 及已知值，不因这两个字段缺失变成 HTTP 500，不补造类型、方向或追加查询。单笔和列表共用该响应模型。
+
+下单 amount、price、triggerPrice 与 set_leverage 的 leverage 均在模型数值转换前拒绝 bool；true/false 为参数阶段 HTTP 422，尚未查询客户端。正数、有限值、整数约束及原有可解析数字字符串继续保留；不改变数量精度或步长处理。
+
+验证使用真实锁定 SDK 的请求构造、签名与回执解析，通过拦截 fetch 的离线 HTTP 测试检查最终 orderType、价格、数量及未知字段。参考 [Kraken 原生订单类型](https://docs.kraken.com/api/docs/futures-api/trading/send-order/) 和 [Binance 条件单撤单](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade#cancel-algo-order)。
+
 ## 重试边界
 
 当前实现只对 read-only operation 自动 retry：

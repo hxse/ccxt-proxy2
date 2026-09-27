@@ -62,6 +62,7 @@ class _CcxtTradingMixin:
         if price is not None:
             self._require_positive_finite(price, "price")
         extra = dict(params or {})
+        self._translate_limit_time_in_force(order_type, extra)
         adjustment = self._order_prices.prepare(
             self._resolve_market(symbol), order_type, side, price, extra
         )
@@ -75,9 +76,39 @@ class _CcxtTradingMixin:
             adjustment.submitted_price if adjustment else price,
             params=extra,
         )
+        if (
+            self.exchange_name == "kraken"
+            and self.market == "future"
+            and order.get("type") == "fok"
+        ):
+            # CCXT 4.5.76 对已明确为 fok 的原生回执仍会填写 gtc。
+            order = {**order, "timeInForce": "fok"}
         if adjustment:
             order = {**order, "price_adjustment": adjustment.model_dump()}
         return order
+
+    def _translate_limit_time_in_force(self, order_type: str, params: dict) -> None:
+        if (
+            self.exchange_name != "kraken"
+            or self.market != "future"
+            or order_type != "limit"
+        ):
+            return
+        value = params.get("timeInForce")
+        if not isinstance(value, str) or value.upper() not in {"IOC", "FOK"}:
+            return
+        native = value.lower()
+        if params.get("postOnly") or {"stopLossPrice", "takeProfitPrice"}.intersection(
+            params
+        ):
+            raise InvalidProviderRequest(
+                "Kraken IOC/FOK limit orders cannot be post-only or conditional"
+            )
+        if "orderType" in params and params["orderType"] != native:
+            raise InvalidProviderRequest("orderType conflicts with timeInForce")
+        # SDK 只识别小写 ioc，且未将 FOK 转成原生类型；两个字段明确同一意图。
+        params["orderType"] = native
+        params["timeInForce"] = native
 
     def create_stop_market_order(
         self,
