@@ -1,3 +1,6 @@
+import pytest
+from requests.utils import select_proxy
+
 from src.tools.config_types import AppConfig
 from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 
@@ -5,7 +8,7 @@ from src.tools.exchange import get_binance_exchange, get_kraken_exchange
 class FakeExchange:
     def __init__(self, settings):
         self.settings = settings
-        self.httpProxy = None
+        self.proxies = None
         self.demo_enabled = False
         self.sandbox_enabled = False
         self.factory: str | None = None
@@ -54,7 +57,7 @@ def test_binance_future_factory_is_linear_only_and_uses_demo_mode(monkeypatch):
     }
     assert exchange.demo_enabled is True
     assert exchange.sandbox_enabled is False
-    assert exchange.httpProxy == "http://127.0.0.1:7890"
+    assert exchange.proxies == dict.fromkeys(("http", "https"), "http://127.0.0.1:7890")
 
 
 def test_binance_spot_live_factory_does_not_enable_demo(monkeypatch):
@@ -95,4 +98,39 @@ def test_kraken_future_and_spot_use_different_ccxt_classes(monkeypatch):
     assert spot.factory == "spot"
     assert spot.settings["apiKey"] == "kraken-live"
     assert spot.sandbox_enabled is False
-    assert all(item.httpProxy == "http://127.0.0.1:7890" for item in created)
+    assert all(
+        item.proxies == dict.fromkeys(("http", "https"), "http://127.0.0.1:7890")
+        for item in created
+    )
+
+
+@pytest.mark.parametrize(
+    "exchange_name, market",
+    [("binance", "future"), ("kraken", "future"), ("kraken", "spot")],
+)
+@pytest.mark.parametrize("enabled", [True, False])
+def test_real_sdk_applies_proxy_to_both_request_schemes(exchange_name, market, enabled):
+    config = _config()
+    getattr(config, exchange_name).enable_proxy = enabled
+    factory = (
+        get_binance_exchange if exchange_name == "binance" else get_kraken_exchange
+    )
+    exchange = factory(config, market, "live")
+    observed = []
+
+    class Captured(BaseException):
+        pass
+
+    def request(method, url, **kwargs):
+        observed.append(select_proxy(url, kwargs.get("proxies") or {}))
+        raise Captured
+
+    exchange.session.request = request
+    try:
+        for scheme in ("http", "https"):
+            with pytest.raises(Captured):
+                exchange.fetch(scheme + "://example.invalid/time")
+    finally:
+        exchange.session.close()
+    assert observed == [config.proxy.effective_http if enabled else None] * 2
+    assert exchange.httpProxy is None and exchange.httpsProxy is None

@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from src.base_types import ExchangeName, MarketType, ModeType
+from src.tools.deployment_types import DeploymentConfig
 from src.tools.market_data_types import MarketDataClientConfig
 
 CHAT_ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -235,6 +236,7 @@ class AppConfig(BaseModel):
         default_factory=MarketDataClientConfig
     )
     telegram: TelegramConfig | None = None
+    deployment: DeploymentConfig | None = None
     service_whitelist: list[ServiceWhitelistItem] = Field(default_factory=list)
 
     @model_validator(mode="after")

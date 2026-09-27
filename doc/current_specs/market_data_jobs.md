@@ -9,7 +9,7 @@
 ```toml
 # 以下放在私有 config.toml；引用已有 HTTP 用户，不是 TQ 用户。
 [market_data_client]
-# 本地默认监听端口；容器内部通常改为 8000。
+# 本地及容器均使用 5123；这是后台访问本服务的地址。
 base_url = "http://127.0.0.1:5123"
 # 使用已有 users.admin.password 登录，不另存密码。
 user = "admin"
@@ -67,6 +67,6 @@ just market-data-once
 
 分别对应 scripts/collect_market_data.py、scripts/prune_market_data.py、scripts/market_data_pipeline.py。全部读取相同配置并尊重 enabled；后两者会删除超出规则的本地缓存，不能加入只读在线测试。
 
-两个后台开关都关闭且没有工作时不创建 HTTP 客户端。用户直接调用路由不受这些开关影响。容器只读挂载公开计划与私有配置；按容器实际监听设置 base_url，例如 http://127.0.0.1:8000。
+两个后台开关都关闭且没有工作时不创建 HTTP 客户端。用户直接调用路由不受这些开关影响。容器只读挂载公开计划与私有配置，二者都不进入镜像；base_url 使用 http://127.0.0.1:5123。
 
 默认测试在应用导入前选择明确关闭调度的 fixture；在线测试也关闭生产计划并使用隔离库。配置、真实请求参数、一次重登、超时不重发、单调调度和关闭顺序以离线 HTTP 替身验证。

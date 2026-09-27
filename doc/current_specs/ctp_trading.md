@@ -2,9 +2,9 @@
 
 ## 安装与配置
 
-CTP 是可选原生依赖，使用上游提供的 Linux/Windows x86-64 SDK。源码构建需要 C++ 编译器，Linux 运行需要 libstdc++。项目 Docker 的构建阶段安装编译工具，运行镜像只保留依赖和应用代码。项目仅构建、安装和加载交易扩展，不安装 vnpy 框架、Qt 或行情扩展。
+CTP 是可选原生依赖，使用上游提供的 Linux/Windows x86-64 SDK。源码构建需要 C++ 编译器，Linux 运行需要 libstdc++。Podman 多阶段构建将编译工具和依赖缓存留在构建阶段，运行镜像只保留依赖和应用代码。项目仅构建、安装和加载交易扩展，不安装 vnpy 框架、Qt 或行情扩展。
 
-依赖固定到项目内的补丁源码包，修复退出时持有 GIL 等待回调线程导致的死锁、积压回调的内存泄漏，以及精简系统上的中文解码。本地和 Docker 使用相同版本；安装未包含这些修复的版本时 CTP 接口返回 `CTP_SDK_UNAVAILABLE` 并提示同步依赖。补丁、来源校验及重建说明见 [vendor/vnpy_ctp](../../vendor/vnpy_ctp/README.md)。
+依赖固定到项目内的补丁源码包，修复退出时持有 GIL 等待回调线程导致的死锁、积压回调的内存泄漏，以及精简系统上的中文解码。本地和容器使用相同版本；安装未包含这些修复的版本时 CTP 接口返回 `CTP_SDK_UNAVAILABLE` 并提示同步依赖。补丁、来源校验及重建说明见 [vendor/vnpy_ctp](../../vendor/vnpy_ctp/README.md)。
 
 ```bash
 uv sync --locked --extra ctp

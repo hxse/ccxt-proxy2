@@ -5,15 +5,25 @@ data
 .env.*
 config.toml
 config.toml.*
+market_data.toml
 
 .venv
 **/modules
 **/__pycache__
 
 .git
+.jj
+.container
+.cache
+.pytest_cache
+.ruff_cache
+.agents
+.codex
+doc
+Test
+debug
 .vscode/
 
 Dockerfile
 .gitignore
 .dockerignore
-docker-compose.yml

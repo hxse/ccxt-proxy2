@@ -57,6 +57,8 @@ DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/T
 | 主题 | 现行规范 |
 | --- | --- |
 | TOML、鉴权、白名单、健康与部署 | [配置与生命周期](configuration.md) |
+| Just 入口、宿主环境与参数透传 | [命令规范](commands.md) |
+| Podman 动作、SSH 准备版本与实例控制 | [容器部署](container_deployment.md) |
 | 后台采集清理、公开计划与小时调度 | [后台任务](market_data_jobs.md) |
 | 行情证据、时间单位和职责分界 | [行情数据契约](market_data_contract.md) |
 | CCXT 能力、交易、重试及并发 | [CCXT 客户端](ccxt_client.md) |

@@ -31,7 +31,11 @@ def get_binance_exchange(
             },
         }
     )
-    binance_exchange.httpProxy = http_proxy if binance_config.enable_proxy else None
+    binance_exchange.proxies = (
+        {"http": http_proxy, "https": http_proxy}
+        if binance_config.enable_proxy
+        else None
+    )
     if mode == "sandbox":
         # 币安test模式已废弃, 改用demo模式
         # https://www.binance.com/zh-CN/support/faq/detail/9be58f73e5e14338809e3b705b9687dd
@@ -63,7 +67,11 @@ def get_kraken_exchange(
                 "enableRateLimit": True,
             }
         )
-        kraken_exchange.httpProxy = http_proxy if kraken_config.enable_proxy else None
+        kraken_exchange.proxies = (
+            {"http": http_proxy, "https": http_proxy}
+            if kraken_config.enable_proxy
+            else None
+        )
         if mode == "sandbox":
             kraken_exchange.set_sandbox_mode(True)
     else:
@@ -74,7 +82,11 @@ def get_kraken_exchange(
                 "enableRateLimit": True,
             }
         )
-        kraken_exchange.httpProxy = http_proxy if kraken_config.enable_proxy else None
+        kraken_exchange.proxies = (
+            {"http": http_proxy, "https": http_proxy}
+            if kraken_config.enable_proxy
+            else None
+        )
         if mode == "sandbox":
             kraken_exchange.set_sandbox_mode(True)
 

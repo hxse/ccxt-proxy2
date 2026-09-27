@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.tools.config_types import AppConfig
+from src.tools.deployment_types import DeploymentConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH_VARIABLE = "CCXT_PROXY_CONFIG_PATH"
@@ -27,10 +28,7 @@ def resolve_config_path(environ: Mapping[str, str] | None = None) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
-def load_config(
-    path: Path | None = None, *, environ: Mapping[str, str] | None = None
-) -> AppConfig:
-    """只从 TOML 读取配置；环境变量仅用于选择配置文件，不覆盖账号字段。"""
+def _read_payload(path: Path | None, environ: Mapping[str, str] | None = None):
     selected = resolve_config_path(environ) if path is None else Path(path)
     try:
         with selected.open("rb") as stream:
@@ -48,6 +46,25 @@ def load_config(
         raise ConfigError(
             "Cannot read TOML config; check file path and permissions"
         ) from None
+    return payload
+
+
+def load_deployment_config(path: Path | None = None) -> DeploymentConfig:
+    """控制远端实例只需部署目标，不要求本机交易账号或应用白名单有效。"""
+    payload = _read_payload(path)
+    try:
+        return DeploymentConfig.model_validate(payload.get("deployment"))
+    except ValidationError:
+        raise ConfigError(
+            "Invalid or missing [deployment]; check ssh_host and remote_dir; values hidden"
+        ) from None
+
+
+def load_config(
+    path: Path | None = None, *, environ: Mapping[str, str] | None = None
+) -> AppConfig:
+    """只从 TOML 读取配置；环境变量仅用于选择文件，不覆盖账号字段。"""
+    payload = _read_payload(path, environ)
     try:
         if "exchange_whitelist" in payload:
             raise ConfigError(

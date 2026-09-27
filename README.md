@@ -9,7 +9,7 @@
 首次将 [config.example.toml](config.example.toml) 复制为项目根目录 config.toml，填写需要的配置；已有配置时直接编辑原文件。
 
 ```bash
-uv sync --locked
+just sync
 just serve
 ```
 
@@ -30,7 +30,7 @@ CCXT、TQ、CTP 和 CFB 由统一 service_whitelist 启用，只在启动时读�
 
 - CCXT 行情与交易：[客户端规范](doc/current_specs/ccxt_client.md)、[OHLCV 查询](doc/current_specs/ccxt_ohlcv.md)。
 - 中国期货行情、交易日历与开市状态：[TQ 规范](doc/current_specs/tq_data.md)。
-- 原生期货交易：`uv sync --locked --extra ctp` 后使用 `just serve-ctp`；见 [CTP 规范](doc/current_specs/ctp_trading.md)。
+- 原生期货交易：`just sync --extra=ctp` 后使用 `just serve`；见 [CTP 规范](doc/current_specs/ctp_trading.md)。
 - 期货公司 GUI 联调：`just ctp-assessment` 临时安装完整 VeighNa；见[联调规范](doc/current_specs/ctp_assessment.md)。
 - 独立 CFB 服务：八条同名 /cfb 路由薄转发，`just sync-cfb-docs` 同步上游自动文档；见 [CFB 规范](doc/current_specs/cfb_proxy.md)。
 - 文本通知：[Telegram 规范](doc/current_specs/telegram.md)。
@@ -57,15 +57,22 @@ just bru-cfb-readonly
 
 下单、撤单、设置和发送消息示例标记 [STATEFUL]，按需单独运行。
 
-## 容器部署
+## Podman 构建与部署
 
 ```bash
-docker compose up -d --build
+just deploy --target=local --build          # 分阶段构建并隔离验证
+just deploy --target=local --start          # 本地启动或复用
+just deploy --target=remote --upload --build --start # 上传源码、配置，在远端构建并启动
+just deploy --target=remote --upload --build --start --keep-remote-config # 本次保留远端配置
 ```
 
-配置通过只读挂载提供，当前使用单 Uvicorn 进程。镜像运行方式和 CFB 容器连接地址分别见[配置规范](doc/current_specs/configuration.md)与 [CFB 规范](doc/current_specs/cfb_proxy.md)。
+开发和测试继续使用宿主 uv 环境。运行镜像使用 Podman（本地优先 rootless，远端沿用现有登录账号），宿主只发布 `127.0.0.1:5123`。远端无需安装 Python，只需 SSH、Podman 和常规系统工具。配置不进入镜像，数据独立挂载；不再通过 GitHub Actions 发布镜像。
 
-容器同时只读挂载 market_data.toml；market_data_client.base_url 使用容器内部监听地址 http://127.0.0.1:8000。手动单轮采集用 just market-data-collect；just market-data-prune 和 just market-data-once 会按规则删除本地缓存。
+远程操作需在私有 `config.toml` 添加 `[deployment]`，填写 `ssh_host = "rn"`、`remote_dir = "dev/ccxt-proxy2"`；用 `--config=config.toml.vps` 选择目标及上传配置。每次上传默认完整覆盖 `config.toml` 和 `market_data.toml`；只有显式 `--keep-remote-config` 才沿用远端已有配置，首次部署不能使用。可单独 `--upload` 保存源码及配置，之后在远端 `--build` 构建，再 `--start` 启用；`--stop`、`--status`、`--logs` 用于控制和查看。后台自身地址为 `http://127.0.0.1:5123`。动作组合、失败恢复和 SSH 隧道见[容器部署规范](doc/current_specs/container_deployment.md)。
+
+默认远端上传会自动将配置副本中 Binance、Kraken 的 `enable_proxy` 打开，使用已填写的 `[proxy]` 地址；本地原件、代理地址及其他字段不变。本地启动按原配置运行；使用 `--keep-remote-config` 时也不执行补丁。
+
+源码启动可用 `just serve --config=config.toml --host=127.0.0.1 --port=5123`；启动不再隐式同步依赖。完整命令职责和参数透传规则见 [Just 命令规范](doc/current_specs/commands.md)。
 
 ## 文档维护
 

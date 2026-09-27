@@ -8,7 +8,7 @@ just ctp-assessment
 
 该命令通过 uv 在独立环境中准备 Python 3.13、完整 `vnpy==4.4.0`、官方 `vnpy_ctp==6.7.11.4` 和 `vnpy_riskmanager==2.0.0`，随后打开 VeighNa Trader。首次会下载并可能编译依赖，后续复用 uv 的包缓存；不会把完整框架写入项目的 `pyproject.toml`、`uv.lock` 或后台 `.venv`。
 
-核心命令封装在 [justfile](../../justfile) 中：
+环境准备和核心命令封装在 [ctp_assessment.sh](../../scripts/ctp_assessment.sh) 中，Just 仅透传参数：
 
 ```bash
 uv run --no-project --no-config --isolated --python 3.13 \

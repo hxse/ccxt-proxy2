@@ -8,31 +8,37 @@ default:
 # ==================== 调试工具 (Debug Tools) ====================
 
 # 运行 debug 目录下的脚本
-# 例: just debug cleanup
+# 例: just debug check_precision
+[positional-arguments]
 debug name:
-    uv run --no-sync python debug/{{name}}.py
+    uv run --no-sync python debug/"$1".py
 
 # 运行 debug/route_tests 下的单个 pytest 文件
 # 例: just debug-route-test test_order_routes
+[positional-arguments]
 debug-route-test name:
-    CCXT_STATEFUL_DEBUG=1 uv run --no-sync pytest -v -ra debug/route_tests/{{name}}.py
+    CCXT_STATEFUL_DEBUG=1 uv run --no-sync pytest -v -ra debug/route_tests/"$1".py
 
 # 运行单个交易调试动作，默认 binance/future/sandbox/BTC/USDT:USDT
 # 例: just debug-trade open-long --amount 0.005
+[positional-arguments]
 debug-trade action *args:
-    uv run --no-sync python debug/trade_action.py {{action}} {{args}}
+    uv run --no-sync python debug/trade_action.py "$@"
 
 # 运行任意 Python 脚本
+[positional-arguments]
 run path:
-    uv run --no-sync python {{path}}
+    uv run --no-sync python "$1"
 
-# 本地启动 API 服务，供 Bruno/curl 调试
-serve host="127.0.0.1" port="5123":
-    uv run uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
+# 显式同步锁定依赖；CTP 使用 just sync --extra=ctp
+[positional-arguments]
+sync *args:
+    uv sync --locked "$@"
 
-# 安装并启用可选 CTP 原生依赖；账户从 config.toml 读取
-serve-ctp host="127.0.0.1" port="5123":
-    uv run --extra ctp uvicorn src.main:app --host "{{host}}" --port "{{port}}" --reload
+# 宿主源码服务，支持 --config、--host、--port；不隐式同步依赖
+[positional-arguments]
+serve *args:
+    uv run --no-sync python -m scripts.serve "$@"
 
 # 通过正式路由执行一轮 TQ 采集，使用 market_data.toml 计划
 market-data-collect:
@@ -54,43 +60,23 @@ sync-cfb-docs url="http://127.0.0.1:45173/openapi.json":
 # 临时安装完整 VeighNa Trader + 官方 CTP + 风控；默认使用 TOML 的 ctp.test
 [positional-arguments]
 ctp-assessment *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # pip/uv 无法提供这些系统库；NixOS 仅为本次运行加入缓存中的库和工具。
-    if [[ -e /etc/NIXOS ]]; then
-        ctp_runtime_paths="$(nix build --no-link --no-write-lock-file --print-out-paths \
-            nixpkgs#libglvnd nixpkgs#libxkbcommon nixpkgs#fontconfig.lib nixpkgs#freetype \
-            nixpkgs#glib.out nixpkgs#dbus.lib nixpkgs#zlib nixpkgs#wayland \
-            nixpkgs#libx11 nixpkgs#libxcb nixpkgs#libxcb-cursor \
-            nixpkgs#libxcb-image nixpkgs#libxcb-keysyms \
-            nixpkgs#libxcb-render-util nixpkgs#libxcb-wm \
-            nixpkgs#glibcLocales nixpkgs#dmidecode)"
-        while IFS= read -r ctp_runtime_path; do
-            export LD_LIBRARY_PATH="$ctp_runtime_path/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            export PATH="$ctp_runtime_path/bin:$PATH"
-            if [[ -f "$ctp_runtime_path/lib/locale/locale-archive" ]]; then
-                export LOCALE_ARCHIVE="$ctp_runtime_path/lib/locale/locale-archive"
-            fi
-        done <<< "$ctp_runtime_paths"
-    fi
-    exec uv run --no-project --no-config --isolated --python 3.13 \
-        --with vnpy==4.4.0 --with vnpy_ctp==6.7.11.4 \
-        --with vnpy_riskmanager==2.0.0 --with 'pydantic>=2,<3' \
-        python script/ctp_assessment.py "$@"
+    bash scripts/ctp_assessment.sh "$@"
 
 # 跟随 VeighNa 官方稳定版升级交易 API；校验来源、重建补丁、锁定版本并跑离线回归
+[positional-arguments]
 update-ctp version="latest":
-    uv run --no-sync python scripts/build_vnpy_ctp_source.py --upgrade "{{version}}"
+    uv run --no-sync python scripts/build_vnpy_ctp_source.py --upgrade "$1"
     uv lock --upgrade-package vnpy-ctp
     uv sync --locked --extra ctp
     CCXT_PROXY_CONFIG_PATH=Test/fixtures/config.toml uv run --no-sync python -m pytest -q
 
 # 从本地官方源码包验证可重复构建，不修改依赖或配置
+[positional-arguments]
 verify-ctp-source archive:
-    uv run --no-sync python scripts/build_vnpy_ctp_source.py --source "{{archive}}" --check
+    uv run --no-sync python scripts/build_vnpy_ctp_source.py --source "$1" --check
 
 # 1. 通过 CcxtClient 清理已启用的 Binance/Kraken Futures sandbox
-cleanup:
+debug-cleanup-sandbox:
     just debug cleanup
 
 # 2. 调试下单路由生命周期
@@ -136,20 +122,24 @@ debug-verify-all-fields:
     just debug verify_all_fields
 
 # 调试 TQ K 线薄转发
+[positional-arguments]
 debug-tq-ohlcv symbol duration_seconds="60" data_length="10000":
-    uv run --no-sync python debug/tq_probe.py ohlcv --symbol "{{symbol}}" --duration-seconds "{{duration_seconds}}" --data-length "{{data_length}}"
+    uv run --no-sync python debug/tq_probe.py ohlcv --symbol "$1" --duration-seconds "$2" --data-length "$3"
 
 # 调试 TQ Tick 薄转发
+[positional-arguments]
 debug-tq-tick symbol data_length="10000":
-    uv run --no-sync python debug/tq_probe.py tick --symbol "{{symbol}}" --data-length "{{data_length}}"
+    uv run --no-sync python debug/tq_probe.py tick --symbol "$1" --data-length "$2"
 
 # 调试 TQ 主连当前标的和历史映射
+[positional-arguments]
 debug-tq-underlying symbol *args:
-    uv run --no-sync python debug/tq_probe.py underlying --symbol "{{symbol}}" {{args}}
+    symbol="$1"; shift; exec uv run --no-sync python debug/tq_probe.py underlying --symbol "$symbol" "$@"
 
 # 发送 Telegram 测试消息，需要服务端已配置 telegram
+[positional-arguments]
 debug-telegram-send chat text:
-    uv run --no-sync python debug/telegram_probe.py --chat "{{chat}}" --text "{{text}}"
+    uv run --no-sync python debug/telegram_probe.py --chat "$1" --text "$2"
 
 # 13. 运行全部 route tests
 debug-route-tests:
@@ -176,75 +166,72 @@ debug-cancel-all:
     just debug-trade cancel-all
 
 # 19. 市价开多
+[positional-arguments]
 debug-open-long amount="0.005":
-    just debug-trade open-long --amount {{amount}}
+    just debug-trade open-long --amount "$1"
 
 # 20. 市价开空
+[positional-arguments]
 debug-open-short amount="0.005":
-    just debug-trade open-short --amount {{amount}}
+    just debug-trade open-short --amount "$1"
 
 # 21. 平仓，可选 side=long/short，不传则全平
+[positional-arguments]
 debug-close side="":
-    just debug-trade close-position --side "{{side}}"
+    just debug-trade close-position --side "$1"
 
 # 22. 给多仓挂止损，触发后 sell reduceOnly
+[positional-arguments]
 debug-stop-loss-long trigger amount="0.005":
-    just debug-trade stop-loss-long --amount {{amount}} --trigger-price {{trigger}}
+    just debug-trade stop-loss-long --amount "$2" --trigger-price "$1"
 
 # 23. 给空仓挂止损，触发后 buy reduceOnly
+[positional-arguments]
 debug-stop-loss-short trigger amount="0.005":
-    just debug-trade stop-loss-short --amount {{amount}} --trigger-price {{trigger}}
+    just debug-trade stop-loss-short --amount "$2" --trigger-price "$1"
 
 # 24. 给多仓挂止盈，触发后 sell reduceOnly
+[positional-arguments]
 debug-take-profit-long trigger amount="0.005":
-    just debug-trade take-profit-long --amount {{amount}} --trigger-price {{trigger}}
+    just debug-trade take-profit-long --amount "$2" --trigger-price "$1"
 
 # 25. 给空仓挂止盈，触发后 buy reduceOnly
+[positional-arguments]
 debug-take-profit-short trigger amount="0.005":
-    just debug-trade take-profit-short --amount {{amount}} --trigger-price {{trigger}}
+    just debug-trade take-profit-short --amount "$2" --trigger-price "$1"
 
 # 26. 设置杠杆
+[positional-arguments]
 debug-set-leverage leverage:
-    just debug-trade set-leverage --leverage {{leverage}}
+    just debug-trade set-leverage --leverage "$1"
 
 # 27. 设置保证金模式 cross/isolated
+[positional-arguments]
 debug-set-margin-mode mode:
-    just debug-trade set-margin-mode --margin-mode {{mode}}
+    just debug-trade set-margin-mode --margin-mode "$1"
 
 # 28. 调试所有常用项 (按顺序运行)
 debug-all:
-    just cleanup
+    just debug-cleanup-sandbox
     just debug-order
     just debug-precision
     just debug-leverage
 
-# ==================== Docker ====================
+# ==================== Podman ====================
 
-docker-up-local:
-    docker compose up -d --build
-
-docker-down-local:
-    docker compose down
-
-docker-wait-ready:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for i in {1..60}; do
-      if curl --silent --fail http://127.0.0.1:5123/readyz >/dev/null; then
-        exit 0
-      fi
-      sleep 1
-    done
-    echo "Service did not become ready on http://127.0.0.1:5123/readyz within 60s" >&2
-    exit 1
+# 按目标组合 --upload/--build/--start；远端上传源码后构建，或单独 --stop/--status/--logs
+[positional-arguments]
+deploy *args:
+    uv run --no-sync python -m scripts.container_cli "$@"
 
 # ==================== Bruno CLI ====================
 
 # 运行单个 Bruno 请求或单个文件夹
 # 例: just bru-run Root.bru
 # 例: just bru-run 'CCXT PROXY/fetch_balance/binance.bru'
+[positional-arguments]
 bru-run path:
-    uv run --no-sync python scripts/run_bruno.py "{{path}}"
+    uv run --no-sync python scripts/run_bruno.py "$1"
 
 # 只跑基础只读请求
 bru-readonly-basic:
@@ -272,15 +259,18 @@ bru-telegram-send:
 
 # ==================== 代码质量 ====================
 
+[positional-arguments]
 test *args:
-    uv run --no-sync pytest Test --ignore=Test/online {{args}}
+    uv run --no-sync pytest Test --ignore=Test/online "$@"
 
 # 聚合运行 public live market-data tests；不会检查私有账户或初始化 sandbox
+[positional-arguments]
 test-online *args:
-    CCXT_PROXY_CONFIG_PATH=./config.toml CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py {{args}}
+    CCXT_PROXY_CONFIG_PATH=./config.toml CCXT_ONLINE=1 TQ_ONLINE=1 uv run --no-sync pytest -o addopts= Test/online/test_ccxt_online.py Test/online/test_tq_online.py "$@"
 
+[positional-arguments]
 test-file path *args:
-    uv run --no-sync pytest "{{path}}" {{args}}
+    uv run --no-sync pytest "$@"
 
 test-tq-offline:
     uv run --no-sync pytest -v -ra Test/test_tq_*.py
@@ -315,7 +305,7 @@ fmt:
     uvx ruff format .
 
 lint:
-    uvx ruff check --select E4,E7,E9,F,I src Test
+    uvx ruff check --select E4,E7,E9,F,I src Test scripts/container_*.py scripts/serve.py
 
 fix:
     uvx ruff check --select E4,E7,E9,F,I --fix src Test

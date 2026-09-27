@@ -23,7 +23,7 @@ user = "admin"
 
 `SECRET` 是必填根字段，放在所有分组之前。用户名含点时使用 `[users."alice.dev"]`。字符串采用 TOML 引号和转义；密码中的美元符号及带美元符号的变量表达式原样保留。TOML 没有 null，未配置的可选分组直接省略或保持注释。
 
-配置模型拒绝未知字段。账号分组存在但未填写必填值，仍会导致配置校验失败；“暂不启用”通过省略整组或保留注释表达。`config.toml`、`config.toml.*`、旧 .env 及数据目录被 Git 和 Docker 构建上下文排除，真实值不得写入示例。
+配置模型拒绝未知字段。账号分组存在但未填写必填值，仍会导致配置校验失败；“暂不启用”通过省略整组或保留注释表达。`config.toml`、`config.toml.*`、旧 .env 及数据目录被 Git 和镜像构建上下文排除，真实值不得写入示例。
 
 ## HTTP 鉴权
 
@@ -44,7 +44,7 @@ Bruno collection 共享变量仅为 `baseUrl` 与 secret `user/password`；请�
 | ctp | mode | ctp/sandbox 或 ctp/live | [ctp.test] 或 [ctp.live]，认证、登录、确认结算 |
 | cfb | 仅 service | cfb | [cfb]，创建复用的 HTTP 客户端 |
 
-ccxt 的 exchange 为 binance/kraken，market 为 spot/future，mode 为 sandbox/live；Kraken spot sandbox 身份在配置阶段拒绝。CCXT 的 test 对应 sandbox，live 对应实盘。开启交易所代理时必须同时存在可用的 [proxy] 地址。
+ccxt 的 exchange 为 binance/kraken，market 为 spot/future，mode 为 sandbox/live；Kraken spot sandbox 身份在配置阶段拒绝。CCXT 的 test 对应 sandbox，live 对应实盘。开启交易所代理时必须同时存在可用的 [proxy] 地址。Binance、Kraken Futures/Spot 通过同一个 proxies 字典将该地址映射到 HTTP 和 HTTPS 目标；关闭时 proxies 为 None。地址优先级保持 proxy.effective_http 的既有规则，不同时设置 SDK 的 httpProxy/httpsProxy；代理地址自身可用 http:// 或 https://，不会按目标协议改写。
 
 TQ 和 CFB 的白名单项不接受 exchange/market/mode。CFB 请求中的 mode 原样转发，由上游决定支持范围。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
 
@@ -109,22 +109,19 @@ max_rows_total = 20000000
 
 ## 部署入口
 
-本地先复制并填写配置，再执行 `uv sync --locked` 和 `just serve`。Windows 开发优先使用 127.0.0.1，避免 localhost 与 reload 带来的额外延迟。CTP 的可选依赖和独立 GUI 联调见对应模块规范。
+本地先复制并填写配置，再执行 `just sync` 和 `just serve`；需要 CTP 时同步加 `--extra=ctp`。serve 支持 --config、--host、--port，固定 no-sync，配置选择仍沿用本规范。Windows 开发优先使用 127.0.0.1，避免 localhost 与 reload 带来的额外延迟。CTP 的可选依赖和独立 GUI 联调见对应模块规范。
 
-`docker compose up -d --build` 将本地 config.toml 与 market_data.toml 只读挂载到容器；私有配置不写入镜像。容器客户端 base_url 应使用 http://127.0.0.1:8000，与容器内监听一致。直接运行镜像可采用：
+容器采用 Podman，本地优先 rootless，远端沿用现有登录账号，开发和测试仍在宿主运行。按目标明确选择动作：
 
 ```bash
-docker run -d -p 5123:8000 \
-  -v ~/ccxt-proxy2:/app/data \
-  -v "$PWD/config.toml:/app/config.toml:ro" \
-  -v "$PWD/market_data.toml:/app/market_data.toml:ro" \
-  -e PYTHONUNBUFFERED=1 \
-  --name ccxt-proxy2 \
-  --restart=always \
-  hxse/ccxt-proxy2:latest
+just deploy --target=local --build
+just deploy --target=local --start
+just deploy --target=remote --upload --build --start
 ```
 
-当前部署保持单个 Uvicorn 进程。CFB 独立容器的连接地址见 [CFB 代理](cfb_proxy.md)。
+两份运行配置均不进入镜像。本地只读挂载原值配置快照；默认远程上传仅在副本中将已配置 Binance/Kraken 的 enable_proxy 设为 true，其他内容保持原样，源码单独上传到服务器构建镜像。--keep-remote-config 不上传配置也不打补丁。数据库独立保留在宿主 data 目录。宿主只绑定 `127.0.0.1:5123`，后台自身 base_url 同为 `http://127.0.0.1:5123`，保持单 Uvicorn 进程。
+
+可选 `[deployment]` 分组定义 `ssh_host` 和 `remote_dir`，只由显式远端操作使用。配置模块对只构建/控制远端实例或保留远端配置上传的命令仅校验这一分组，无需本机应用账号或白名单有效；应用启动和上传仍进行完整配置校验。完整字段、示例、快照、防重复及恢复契约见 [Podman 部署](container_deployment.md)。CFB 上游地址见 [CFB 代理](cfb_proxy.md)。
 
 ## 已提供的一次性配置迁移工具
 

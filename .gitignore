@@ -185,3 +185,6 @@ cython_debug/
 
 # 本地讨论草稿，不纳入 JJ/Git；正式规范和任务文档按 AGENTS.md 管理。
 /doc/drafts/
+
+# Podman 配置快照和项目部署锁；不提交私有配置。
+/.container/
