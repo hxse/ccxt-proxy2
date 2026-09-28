@@ -34,7 +34,7 @@ def install_managers(monkeypatch, runtime, ccxt, tq, ctp, events):
 
 
 @pytest.mark.parametrize("cancel_count", [1, 2])
-def test_cancelled_startup_finishes_active_init_closes_it_and_skips_later_services(
+def test_cancelled_lifespan_waits_for_active_init_without_publishing_it(
     tmp_path, monkeypatch, cancel_count
 ):
     config = configured(tmp_path)
@@ -44,7 +44,7 @@ def test_cancelled_startup_finishes_active_init_closes_it_and_skips_later_servic
     tq = TqManager(config.tq, lock_path=tmp_path / "tq.lock")
     factory = FakeFactory()
     ctp = CtpManager(config.ctp, factory)
-    entered, release, finished = (threading.Event() for _ in range(3))
+    entered, release, accepted = (threading.Event() for _ in range(3))
     created = []
 
     def create_api(config):
@@ -54,46 +54,38 @@ def test_cancelled_startup_finishes_active_init_closes_it_and_skips_later_servic
         created.append(api)
         return api
 
-    original_start = runtime.start
-
-    def start(*args, **kwargs):
-        try:
-            original_start(*args, **kwargs)
-        finally:
-            finished.set()
-
     monkeypatch.setattr(tq._client, "_create_api", create_api)
-    monkeypatch.setattr(runtime, "start", start)
     install_managers(monkeypatch, runtime, ccxt, tq, ctp, events)
 
     async def serve():
         async with lifespan(FastAPI()):
-            pytest.fail("cancelled startup accepted HTTP requests")
+            accepted.set()
+            await asyncio.Event().wait()
 
     async def run():
         task = asyncio.create_task(serve())
         try:
             await wait_for_event(entered)
+            await wait_for_event(accepted)
+            assert runtime.ready
             for _ in range(cancel_count):
                 task.cancel()
                 await asyncio.sleep(0)
             assert not task.done()
+            assert not runtime.ready
             assert "close:ccxt" not in events
         finally:
             release.set()
-            try:
-                with pytest.raises(asyncio.CancelledError):
-                    await asyncio.wait_for(task, timeout=3)
-            finally:
-                await wait_for_event(finished)
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=3)
 
     try:
         asyncio.run(run())
-        assert factory.apis == []  # 取消发生于 TQ 初始化，不能再启动后面的 CTP。
+        assert ctp._clients == {}
         assert len(created) == 1 and created[0].closed.is_set()
         assert tq._worker._thread is None
         assert not runtime.ready and runtime.initialized == []
-        assert events == ["init:ccxt", "close:ccxt", "close:telegram"]
+        assert events[-2:] == ["close:ccxt", "close:telegram"]
     finally:
         runtime.close()
         tq.close()
@@ -119,6 +111,7 @@ def test_repeated_cancellation_during_shutdown_waits_for_all_closers(
 
     async def serve():
         async with lifespan(FastAPI()):
+            await asyncio.to_thread(runtime.wait_for_startup)
             assert runtime.ready
 
     async def run():
@@ -135,15 +128,8 @@ def test_repeated_cancellation_during_shutdown_waits_for_all_closers(
                 await asyncio.wait_for(task, timeout=3)
 
     asyncio.run(run())
-    assert events == [
-        "init:ccxt",
-        "init:tq",
-        "init:ctp",
-        "close:ctp",
-        "close:tq",
-        "close:ccxt",
-        "close:telegram",
-    ]
+    assert sorted(events[:3]) == ["init:ccxt", "init:ctp", "init:tq"]
+    assert events[3:] == ["close:ctp", "close:tq", "close:ccxt", "close:telegram"]
     assert not runtime.ready and runtime.initialized == []
 
 
@@ -186,7 +172,7 @@ def test_cancelled_before_startup_thread_runs_never_initializes_services(
 
 
 @pytest.mark.parametrize("fail", ["ccxt", "tq", "ctp"])
-def test_lifespan_preserves_startup_errors_and_cleans_partial_resources(
+def test_lifespan_isolates_sdk_failures_and_cleans_all_owned_resources(
     tmp_path, monkeypatch, fail
 ):
     runtime = ServiceRuntime(configured(tmp_path))
@@ -196,15 +182,19 @@ def test_lifespan_preserves_startup_errors_and_cleans_partial_resources(
 
     async def run():
         async with lifespan(FastAPI()):
-            pytest.fail("failed startup accepted HTTP requests")
+            await asyncio.to_thread(runtime.wait_for_startup)
+            assert runtime.ready
+            assert list(runtime.snapshot()["services"].values()).count("failed") == 1
 
-    with pytest.raises(RuntimeError, match="offline initialization failed"):
-        asyncio.run(run())
+    asyncio.run(run())
     initialized = [
         event.removeprefix("init:") for event in events if event.startswith("init:")
     ]
+    assert sorted(initialized) == ["ccxt", "ctp", "tq"]
     assert events[len(initialized) :] == [
-        *("close:" + name for name in reversed(initialized)),
+        "close:ctp",
+        "close:tq",
+        "close:ccxt",
         "close:telegram",
     ]
     assert not runtime.ready and runtime.initialized == []

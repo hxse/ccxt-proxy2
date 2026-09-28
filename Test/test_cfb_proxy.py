@@ -57,6 +57,7 @@ def http(monkeypatch):
     app.middleware("http")(add_request_context)
     app.dependency_overrides[manager] = lambda: {"sub": "offline"}
     runtime.start(None, None, None, proxy)
+    runtime.wait_for_startup()
     assert runtime.initialized == ["cfb"] and len(created) == 1
     try:
         yield LocalClient(app), configure, calls, proxy, runtime
@@ -134,8 +135,7 @@ def test_upstream_status_and_body_are_returned_once_without_redirect_or_retry(
     )
     if status >= 400:
         content += (
-            b', "error":{"code":"UPSTREAM", "message":"upstream failed",'
-            b' "extra":true}'
+            b', "error":{"code":"UPSTREAM", "message":"upstream failed", "extra":true}'
         )
     content += b"}"
     configure(
@@ -237,9 +237,9 @@ def test_compressed_response_has_correct_http_headers_after_decompression(http):
 @pytest.mark.parametrize(
     ("error", "status", "code"),
     [
-        (httpx.ConnectError, 502, "CFB_PROXY_NETWORK_ERROR"),
-        (httpx.ReadError, 502, "CFB_PROXY_NETWORK_ERROR"),
-        (httpx.ReadTimeout, 504, "CFB_PROXY_TIMEOUT"),
+        (httpx.ConnectError, 503, "SERVICE_NOT_READY"),
+        (httpx.ReadError, 503, "SERVICE_NOT_READY"),
+        (httpx.ReadTimeout, 503, "SERVICE_NOT_READY"),
     ],
 )
 def test_network_failures_have_explicit_proxy_errors_and_no_retry(
@@ -253,7 +253,7 @@ def test_network_failures_have_explicit_proxy_errors_and_no_retry(
     configure(fail)
     response = client.post("/cfb/create_market_order", json={"mode": "live"})
     assert response.status_code == status and response.json() == {
-        "detail": {"code": code}
+        "detail": {"code": code, "service": "cfb"}
     }
     assert len(calls) == 1
 
@@ -271,8 +271,10 @@ def test_total_timeout_cancels_waiting_and_does_not_retry(http):
 
     configure(wait_forever)
     response = client.post("/cfb/create_limit_order", json={"mode": "live"})
-    assert response.status_code == 504
-    assert response.json() == {"detail": {"code": "CFB_PROXY_TIMEOUT"}}
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "SERVICE_NOT_READY", "service": "cfb"}
+    }
     assert len(calls) == 1 and cancelled == [True]
 
 

@@ -102,7 +102,7 @@ GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&e
 
 ## TqManager 生命周期与锁
 
-只有 `service_whitelist` 中包含 `service="tq"` 时，启动协调器才调用 `TqManager.initialize(cache)`。它等待专用 SDK 线程创建 `TqApi` 并完成初始化，然后开始提供 HTTP 服务。请求始终复用实例，不触发初始化。
+只有 service_whitelist 包含 tq 时，独立初始化任务才调用 TqManager.initialize(cache)，等待其专用 SDK 线程创建并初始化 TqApi；这个等待不阻止 HTTP 或其他身份。TQ 初始化中/失败、关闭或工作线程退出时，路由立即返回 503 SERVICE_NOT_READY、service=tq。请求始终复用实例，不触发初始化或重建。
 
 专用线程串行执行 TQ SDK 调用，空闲时持续调用 `wait_update()` 处理网络消息；每个业务任务结束后，也以立即到期的 deadline 推进一次订阅和消息处理，避免持续排队的查询阻塞状态更新，且不额外等待网络。单个正在执行的 SDK 调用仍需完成后才能处理下一轮消息。关闭时停止接收新任务，等待在途调用完成，拒绝排队任务，并在同一线程关闭 `TqApi`。SDK 副本清洗在 TqClient 完成，缓存编排在 SDK 线程外；关闭等待在途业务退出后才由应用关闭共享库。
 
@@ -150,7 +150,7 @@ Pandas 是项目 direct dependency；TQ 数据路径不再 import Polars。
 
 启动时保存账户的 `tq_trading_status` 权限状态，未开通时直接返回 HTTP 403 `TQ_TRADING_STATUS_PERMISSION_DENIED`。其余行情和日历接口不增加此权限要求。
 
-无法确认时 HTTP 200，`is_open=null`；`reason` 为 `not_received`（尚未收到）、`disconnected`（状态连接断线）、`unavailable`（连接/服务不可用）、`unrecognized_status`（未知编码）。未知编码保留 raw_status，其余未知结果不携带旧状态。未启用 TQ 的 HTTP 请求由白名单门禁返回 503；白名单引用缺失的 tq 配置时，应用启动失败。
+SDK 工作线程可用但无法确认合约状态时 HTTP 200、is_open=null；reason 为 not_received（尚未收到）、disconnected（状态连接断线）、unavailable（状态源不可用）、unrecognized_status（未知编码）。未知编码保留 raw_status，其余未知结果不携带旧状态。SDK 初始化失败或工作线程退出则先由服务门禁返回 503，不返回失效快照。未启用 TQ 返回 SERVICE_NOT_ENABLED；白名单引用缺失配置仍使应用配置校验失败。
 
 TQ 交易状态使用独立的 `ts` 连接。服务只保存这个连接收到的最新状态，收到连接切换通知就清除旧状态，重连后等待新状态。由于 SDK 会去掉值未变化的 diff，`TradingStatusTqApi` 在 `_fetch_msg` 合并去重前观察通知；不改 SDK 订阅、缓存和重连策略。离线测试直接运行已安装 SDK 的消息循环验证这一兼容点。
 

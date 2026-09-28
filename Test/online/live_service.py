@@ -91,6 +91,14 @@ class LiveService:
             try:
                 ready = self._http.get("/readyz", timeout=1)
                 if ready.status_code == 200:
+                    states = ready.json()["services"]
+                    if any(value == "failed" for value in states.values()):
+                        raise RuntimeError(
+                            f"live test provider startup failed; isolated log: {self.log_path}"
+                        )
+                    if any(value != "ready" for value in states.values()):
+                        time.sleep(0.1)
+                        continue
                     token = self._http.post(
                         "/auth/token",
                         data={"username": "online", "password": self._password},

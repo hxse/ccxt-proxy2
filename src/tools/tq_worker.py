@@ -38,6 +38,10 @@ class TqWorker:
     def stop_event(self) -> threading.Event:
         return self._stop
 
+    def is_ready(self) -> bool:
+        with self._lock:
+            return self._accepting and not self._stop.is_set()
+
     def call[T](
         self, operation: Callable[[], T], *, deadline: float | None = None
     ) -> T:

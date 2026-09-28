@@ -24,7 +24,7 @@ market_data_config.PLAN_PATH = Path("Test/fixtures/market_data.toml").resolve()
 from src.main import app
 
 with TestClient(app) as client:
-    assert client.get("/readyz").json() == {"status": "ready", "initialized": []}
+    assert client.get("/readyz").json() == {"status": "ready", "initialized": [], "services": {}}
     login = client.post("/auth/token", data={"username": "bruno", "password": "before"})
     assert login.status_code == 200
     headers = {"Authorization": "Bearer " + login.json()["access_token"]}
@@ -39,7 +39,7 @@ with TestClient(app) as client:
         response = client.get(route, params=params, headers=headers)
         assert response.status_code == 503, response.status_code
         assert response.json() == {"detail": {"code": "SERVICE_NOT_ENABLED", "service": identity}}
-    assert client.get("/readyz").json() == {"status": "ready", "initialized": []}
+    assert client.get("/readyz").json() == {"status": "ready", "initialized": [], "services": {}}
     assert client.post("/auth/token", data={"username":"bruno", "password":"before"}).status_code == 200
     assert client.post("/auth/token", data={"username":"bruno", "password":"after"}).status_code == 401
     assert "tqsdk" not in sys.modules and "vnpy_ctp" not in sys.modules and "_ccxt_proxy_ctp.vnctptd" not in sys.modules

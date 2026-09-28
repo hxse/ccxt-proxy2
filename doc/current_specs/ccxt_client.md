@@ -18,7 +18,9 @@ client = exchange_manager.get_client(
 )
 ```
 
-Application shutdown 或 registry reinitialize 时，`ExchangeManager.close()` 依次关闭所有 `CcxtClient`/CCXT session 和共享 DuckDB cache；关闭操作幂等。Transport 在同一 request lock 内检查 closed state：已经开始的 attempt 可以完成，close 等待它结束，close 后任何旧 Client 引用的新 attempt 返回 503 `PROVIDER_CLIENT_CLOSED`，不能重新使用已关闭 session。重复的 `exchange/market/mode` whitelist identity 在配置阶段拒绝，不能构造后静默覆盖。
+各 identity 独立初始化，仅在 load_markets 成功后发布客户端；一个失败只关闭本次实例，不清空其他交易所、模式或市场。注册表短锁不包围网络等待。路由访问先检查应用及该身份可用性，初始化中/失败返回 503 SERVICE_NOT_READY，请求不启动 SDK。
+
+Application shutdown 或 registry reinitialize 时，`ExchangeManager.close()` 关闭 CcxtClient/CCXT session；共享 DuckDB 由应用在消费者退出后单独关闭，Manager 不关闭它。Transport 在同一 request lock 内检查 closed state：已经开始的 attempt 可以完成，close 等待它结束，close 后旧引用的新 attempt 返回 503 SERVICE_NOT_READY，并带完整 service 身份，不能重用已关闭 session。重复身份在配置阶段拒绝，不构造后覆盖；初始化期间关闭也不能让晚到结果重新发布。
 
 ## 公开入口
 
@@ -150,10 +152,10 @@ Client 保留 CCXT exception 供 Binance normal/conditional order fallback 判�
 | `OperationRejected` | 409 | `PROVIDER_OPERATION_REJECTED` |
 | `CancelPending` | 502 | `OPERATION_STATUS_UNKNOWN` |
 | `AuthenticationError` / `PermissionDenied` | 502 | `PROVIDER_AUTH_FAILED` |
-| 已关闭的旧 Client 引用 | 503 | `PROVIDER_CLIENT_CLOSED` |
+| 只读网络失败 / 已关闭的旧 Client 引用 | 503 | `SERVICE_NOT_READY`，带 service |
 | 其他 Provider failure | 502 | `PROVIDER_FAILURE` |
 
-只读 network failure 在 retry 后返回 `NETWORK_INCOMPLETE`；非只读 network failure 不 retry，返回 `OPERATION_STATUS_UNKNOWN`。HTTP response 和普通服务日志只包含稳定 category、exception type 与脱敏上下文，不记录可能带签名 URL 的 Provider 原始异常。
+只读 network failure 在原有一次 retry 后返回 SERVICE_NOT_READY；非只读 network failure 不 retry，仍返回 OPERATION_STATUS_UNKNOWN。NETWORK_INCOMPLETE 继续用于行情分页/连续性无法完成，不与连接不可用混淆。HTTP response 和普通服务日志只包含稳定 category、exception type 与脱敏上下文，不记录可能带签名 URL 的 Provider 原始异常。
 
 ## CCXT 请求锁
 

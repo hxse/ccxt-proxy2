@@ -15,6 +15,8 @@ just serve
 
 CCXT、TQ、CTP 和 CFB 由统一 service_whitelist 启用，只在启动时读取配置。详细字段、白名单、鉴权及旧配置迁移工具见[配置与生命周期](doc/current_specs/configuration.md)。真实配置被 Git 和镜像构建上下文排除。
 
+各 SDK 独立初始化，单个服务失败不影响其他路由。访问未就绪的服务返回 `503 SERVICE_NOT_READY`；`/readyz` 返回应用就绪及各服务状态，应用可用不代表每个 SDK 都已连接成功。
+
 [market_data.toml](market_data.toml) 默认每小时采集 TQ 主连/加权并清理缓存，live 保留三万根、sandbox 清零。已有私有配置需按示例补充 market_data_client.user，引用已有 HTTP 登录用户；不需要后台任务时关闭公开计划的两个 enabled。后台仅 5m 请求映射与过渡，用户路由不受采集清单限制，详见[后台任务](doc/current_specs/market_data_jobs.md)。
 
 服务默认监听 127.0.0.1:5123：

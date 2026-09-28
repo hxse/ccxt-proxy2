@@ -40,7 +40,7 @@ production_mode = true
 - 密码及 AuthCode 使用 SecretStr；错误文本会脱敏。HTTP 请求不接受账户、密码、AuthCode 或交易前置地址。
 - sandbox/live 分别使用 `flow_path/sandbox` 和 `flow_path/live`，各自复用一个长期连接。沿用项目单 Uvicorn process 部署方式。
 - 白名单内的模式在启动阶段完成认证、登录和结算确认，然后再接受 HTTP 请求。断线恢复使用启动时的配置快照；运行中修改配置无效。
-- `/readyz` 包含统一白名单的全部初始化结果，例如 ctp/sandbox。任一启用实例初始化失败，应用清理资源并退出；没有启用的模式不连接。OpenAPI 保留所有接口。
+- `/readyz` 展示 HTTP 应用就绪及各身份的独立状态，例如 services 中的 ctp/sandbox。单个模式初始化失败不会使应用退出或关闭其他服务，该模式路由返回 503 SERVICE_NOT_READY；没有启用的模式不连接。OpenAPI 保留所有接口。
 
 SimNow 的账户、服务说明和当前前置信息以 [SimNow 官网](https://www.simnow.com.cn/)及[产品与服务](https://www.simnow.com.cn/product.action)为准。常规仿真与专用 API 测试环境的交易时段、行情和结算服务可能不同，配合 TQ 实时行情测试时应选择对应环境。模拟账户使用虚拟资金。
 

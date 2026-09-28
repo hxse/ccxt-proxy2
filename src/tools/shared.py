@@ -30,8 +30,7 @@ async def _finish_lifespan(
     close_telegram: Callable[[], None],
     close_cfb: Callable[[], Awaitable[None]],
 ) -> None:
-    # 等线程中的初始化退出后再清理，避免 close 之后又创建新的连接。
-    # 启动异常由 lifespan 的首次 await 传播；取消时也必须取回任务结果。
+    # 先等启动调度器退出；SDK 初始化线程另外等待，不能让它们脱离生命周期。
     await asyncio.gather(startup, return_exceptions=True)
     from src.tools.tq_manager import tq_manager
 
@@ -41,6 +40,7 @@ async def _finish_lifespan(
                 if service_runtime.jobs is not None:
                     await service_runtime.jobs.close()
             finally:
+                await run_in_threadpool(service_runtime.wait_for_startup)
                 await tq_manager.close_metadata()
         finally:
             await run_in_threadpool(service_runtime.close)
@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         stop.set()
+        service_runtime.begin_shutdown()
         cleanup = asyncio.create_task(
             _finish_lifespan(startup, telegram_manager.close, cfb_proxy.close)
         )
@@ -183,6 +184,12 @@ async def add_request_context(request: Request, call_next):
 
 @app.exception_handler(HTTPException)
 async def handle_http_exception(request: Request, exc: HTTPException):
+    # TQ 内部先完成原有休市兜底，再在 HTTP 边界统一明确的不可用错误。
+    if isinstance(exc.detail, str) and exc.detail in {
+        "TQ_NOT_READY",
+        "TQ_NETWORK_UNAVAILABLE",
+    }:
+        exc = HTTPException(503, {"code": "SERVICE_NOT_READY", "service": "tq"})
     request_id = getattr(request.state, "request_id", "-")
     client_ip = request.client.host if request.client else "-"
 

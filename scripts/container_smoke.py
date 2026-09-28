@@ -18,7 +18,11 @@ async def check():
         ) as client:
             response = await client.get("/readyz")
             assert response.status_code == 200
-            assert response.json() == {"status": "ready", "initialized": []}
+            assert response.json() == {
+                "status": "ready",
+                "initialized": [],
+                "services": {},
+            }
 
 
 asyncio.run(check())

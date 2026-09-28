@@ -55,11 +55,11 @@ TQ_COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
     507: {"description": "CACHE_CAPACITY_EXCEEDED：缓存容量保护失败并回滚。"},
     503: {
         "model": ServiceUnavailableResponse,
-        "description": "SERVICE_NOT_ENABLED：tq 未列入 service_whitelist；SERVICE_NOT_READY / TQ_NOT_READY：尚未就绪或已关闭。请求不会触发初始化。",
+        "description": "SERVICE_NOT_ENABLED：tq 未列入 service_whitelist；SERVICE_NOT_READY：初始化中/失败、工作线程已退出或网络不可用，service=tq。请求不会触发初始化。",
     },
     502: {
         "description": (
-            "TQ 网络、登录或上游服务不可用；日历未完整覆盖请求的每日区间时 "
+            "TQ 上游数据或元数据处理失败；日历未完整覆盖请求的每日区间时 "
             "detail 为 TQ_CALENDAR_INCOMPLETE。"
         )
     },

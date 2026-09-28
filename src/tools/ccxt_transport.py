@@ -8,9 +8,9 @@ from loguru import logger
 
 from src.domain_errors import (
     CapabilityNotSupported,
-    NetworkIncomplete,
     OperationStatusUnknown,
     ProviderClientClosed,
+    ServiceUnavailable,
 )
 
 NETWORK_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
@@ -53,9 +53,7 @@ class CcxtTransport:
                 return self._attempt(function, *args, **kwargs)
             except NETWORK_RETRY_EXCEPTIONS as exc:
                 if attempt == 1:
-                    raise NetworkIncomplete(
-                        f"{self.identity} {operation} failed after retry"
-                    ) from exc
+                    raise ServiceUnavailable(f"ccxt/{self.identity}") from exc
                 logger.bind(
                     operation=f"{self.identity} {operation}",
                     exception_type=type(exc).__name__,
@@ -83,8 +81,12 @@ class CcxtTransport:
             if callable(close):
                 close()
 
+    def is_ready(self) -> bool:
+        # 不能为读取可用性等待可能正执行网络调用的 request lock。
+        return not self._closed
+
     def _attempt(self, function, *args: Any, **kwargs: Any):
         with self.lock:
             if self._closed:
-                raise ProviderClientClosed(f"{self.identity} client is closed")
+                raise ProviderClientClosed(f"ccxt/{self.identity}")
             return function(*args, **kwargs)

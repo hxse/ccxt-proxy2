@@ -1,3 +1,6 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -170,3 +173,67 @@ def test_config_rejects_duplicate_whitelist_identity():
                 ],
             }
         )
+
+
+def test_loading_or_failed_mode_does_not_block_or_close_another_mode(
+    tmp_path, monkeypatch, cache_resource_factory
+):
+    config = AppConfig.model_validate(
+        {
+            "SECRET": "offline",
+            "ohlcv_cache": {"database_path": str(tmp_path / "cache.duckdb")},
+            "binance": {
+                name: {"api_key": "offline", "secret": "offline"}
+                for name in ("test", "live")
+            },
+            "service_whitelist": [
+                {
+                    "service": "ccxt",
+                    "exchange": "binance",
+                    "market": "future",
+                    "mode": mode,
+                }
+                for mode in ("sandbox", "live")
+            ],
+        }
+    )
+    blocked, healthy = FakeExchange(), FakeExchange()
+    entered, release = threading.Event(), threading.Event()
+
+    def load_markets():
+        entered.set()
+        assert release.wait(3)
+        raise RuntimeError("load failed")
+
+    monkeypatch.setattr(blocked, "load_markets", load_markets)
+    monkeypatch.setattr(
+        "src.tools.exchange_manager.get_binance_exchange",
+        lambda config, market, mode: blocked if mode == "sandbox" else healthy,
+    )
+    cache = cache_resource_factory(config.ohlcv_cache).get()
+    manager = ExchangeManager()
+    manager.close()
+    manager.configure(config)
+    entries = [item for item in config.service_whitelist if item.service == "ccxt"]
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(manager.initialize, config, entries[0], cache)
+        try:
+            assert entered.wait(2)
+            manager.initialize(config, entries[1], cache)
+            assert not pending.done()
+            assert manager.get_client("binance", "future", "live").exchange is healthy
+            with pytest.raises(HTTPException) as error:
+                manager.get_client("binance", "future", "sandbox")
+            assert error.value.detail == {
+                "code": "SERVICE_NOT_READY",
+                "service": "ccxt/binance/future/sandbox",
+            }
+            release.set()
+            with pytest.raises(RuntimeError, match="load failed"):
+                pending.result(timeout=2)
+            assert blocked.closed == 1 and healthy.closed == 0
+            assert manager.get_client("binance", "future", "live").exchange is healthy
+        finally:
+            release.set()
+            pending.exception(timeout=3)
+            manager.close()

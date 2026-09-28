@@ -5,8 +5,12 @@ CCXT_READ_RESPONSES: dict[int | str, dict[str, Any]] = {
     422: {
         "description": "参数、symbol、timeframe、variant 或 Provider capability 无效。"
     },
-    502: {"description": "Provider 网络、认证、数据完整性或上游操作失败。"},
-    503: {"description": "请求的 exchange/market/mode identity 未启用或已关闭。"},
+    502: {
+        "description": "Provider 认证、数据完整性或上游操作失败；已提交操作的结果未知仍为 OPERATION_STATUS_UNKNOWN。"
+    },
+    503: {
+        "description": "identity 未启用为 SERVICE_NOT_ENABLED；初始化中/失败、客户端已关闭或只读网络不可用为 SERVICE_NOT_READY，并带 service 身份。"
+    },
 }
 OHLCV_RESPONSES = {
     **CCXT_READ_RESPONSES,

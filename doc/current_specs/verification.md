@@ -104,7 +104,7 @@
 - Cache close 阻止新 reader，并等待 active reader 完成后才关闭 connections。
 - Network latency 不持 DuckDB lock。
 - 并发 CCXT calls 经 per-client lock 串行底层 attempt，pagination 页间不持锁。
-- CCXT close 与底层 attempt 使用同一 lock；close 后旧 Client 引用返回 `PROVIDER_CLIENT_CLOSED`，不得调用 Provider。
+- CCXT close 与底层 attempt 使用同一 lock；close 后旧 Client 引用返回 503 SERVICE_NOT_READY，并带 service 身份，不得调用 Provider。
 
 ## 路由验证
 
@@ -118,6 +118,8 @@
 
 ### 生命周期与错误映射
 
+- 使用可控事件分别阻塞/失败 TQ、CFB、Binance、Kraken 初始化，证明 HTTP 和其他身份继续运行；全体失败仍可访问鉴权/文档/健康。未就绪身份统一 503，未完成 CCXT 实例不可发布，TQ 工作线程退出后不能返回旧状态。
+- readyz 返回应用就绪及逐身份状态，不将 SDK 失败当成容器启动失败；覆盖初始化取消、晚到结果不能复活、重复取消、关闭先等待任务再释放缓存、重新进入生命周期。
 - `ExchangeManager` reinitialize/shutdown 只关闭旧 Client；应用 CacheResource 在消费者退出后释放 DuckDB connections；关闭幂等，并拒绝关闭后的访问。
 - 重复 whitelist identity 在配置阶段拒绝。
 - CCXT request/order/auth/funds/operation error 映射为稳定、脱敏的 HTTP code；Provider 原文不进入 response。
@@ -145,7 +147,7 @@
 
 `just test-ccxt-online` 只使用 whitelist 中已启用的 Binance/Kraken Futures live identity，覆盖三种 OHLCV 模式、Binance `mark/index/premiumIndex`、网络尾根与可信缓存命中。只验证无需账户权限的公共行情，不查询账户/订单，不初始化或访问 sandbox。
 
-`just test-online` 自动按数据源启动独立 Uvicorn HTTP 测试服务，使用临时端口、临时配置及临时 DuckDB、临时 HTTP 登录用户，启动前关闭生产后台计划。请求通过正式鉴权和路由；测试结束关闭进程并删除临时私有配置。不修改真实配置，不争用生产库，不触发清理。HTTP 就绪等待最多 60 秒，业务等待最多 55 秒；一次服务端错误后停止该服务的后续请求，不循环寻找成功样本。TQ 覆盖主连/加权、日历、真实映射节点与可取得的过渡；旧窗口不能证明过渡时明确 skip，该项不算通过。Online test 不进入默认 CI。
+`just test-online` 自动按数据源启动独立 Uvicorn HTTP 测试服务，使用临时端口、临时配置及临时 DuckDB、临时 HTTP 登录用户，启动前关闭生产后台计划。请求通过正式鉴权和路由；测试结束关闭进程并删除临时私有配置。不修改真实配置，不争用生产库，不触发清理。在最多 60 秒内等待 HTTP 就绪及该隔离服务的 services 全部 ready；已出现 failed 则明确失败，不把应用 ready 误当 SDK ready。业务等待最多 55 秒；一次服务端错误后停止该服务的后续请求，不循环寻找成功样本。TQ 覆盖主连/加权、日历、真实映射节点与可取得的过渡；旧窗口不能证明过渡时明确 skip，该项不算通过。Online test 不进入默认 CI。
 
 ## 验证入口边界
 

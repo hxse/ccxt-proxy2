@@ -55,6 +55,9 @@ class TqManager:
         self._closing = False
         self._worker.start()
 
+    def is_ready(self) -> bool:
+        return not self._closing and self._worker.is_ready()
+
     def _call[T](self, operation: Callable[[], T]) -> T:
         if self._access_guard is not None:
             self._access_guard("tq")
@@ -124,6 +127,8 @@ class TqManager:
 
     @contextmanager
     def _business_scope(self):
+        if self._access_guard is not None:
+            self._access_guard("tq")
         with self._lifecycle:
             if self._closing:
                 raise HTTPException(503, detail="TQ_NOT_READY")

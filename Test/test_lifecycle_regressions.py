@@ -66,7 +66,7 @@ class InitializingExchange:
         self.closed += 1
 
 
-def test_registry_initialization_failure_closes_every_partial_resource(
+def test_registry_initialization_failure_only_closes_failed_identity(
     temp_dir, monkeypatch, cache_resource_factory
 ):
     binance = InitializingExchange()
@@ -109,11 +109,17 @@ def test_registry_initialization_failure_closes_every_partial_resource(
     manager = ExchangeManager()
     manager.close()
 
-    with pytest.raises(RuntimeError, match="load markets failed"):
-        manager.init_from_config(config, resource.get())
+    manager.init_from_config(config, resource.get())
 
-    assert binance.closed == 1
+    assert binance.closed == 0
     assert kraken.closed == 1
     with pytest.raises(HTTPException) as exc_info:
-        manager.get_client("binance", "future", "sandbox")
+        manager.get_client("kraken", "future", "sandbox")
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {
+        "code": "SERVICE_NOT_READY",
+        "service": "ccxt/kraken/future/sandbox",
+    }
+    assert manager.get_client("binance", "future", "sandbox").exchange is binance
+    manager.close()
+    assert binance.closed == 1 and kraken.closed == 1

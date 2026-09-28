@@ -84,9 +84,9 @@ def healthz():
     tags=["Health"],
     summary="服务就绪检查",
     description=(
-        "检查 service_whitelist 中的 CCXT、TQ、CTP、CFB 实例是否全部完成启动初始化。"
+        "检查 HTTP 应用是否可服务，并列出 service_whitelist 各身份的独立初始化状态。"
         "CFB 初始化仅创建 HTTP 客户端，不代表上游终端已登录或交易就绪。"
-        "任一实例初始化失败则释放资源并退出；配置只在进程启动时读取。"
+        "单个 SDK 初始化中或失败不阻断其他身份和 HTTP；配置只在进程启动时读取。"
         "这是启动就绪检查，不会发起实时网络探测。"
     ),
     response_description="当前启动就绪状态，以及 ccxt/交易所/市场/模式、tq、ctp/模式、cfb 形式的实例列表。",
@@ -101,21 +101,16 @@ def readyz():
     """
     就绪检查。
 
-    只有配置加载成功且服务白名单全部初始化完成后，才返回 200。
+    基础生命周期已建立即可返回 200；SDK 就绪分别由 services 表示。
     """
     runtime = app.state.service_runtime
-    if runtime.ready:
-        return {
-            "status": "ready",
-            "initialized": runtime.initialized,
-        }
+    snapshot = runtime.snapshot()
+    if snapshot["status"] == "ready":
+        return snapshot
 
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={
-            "status": "not_ready",
-            "initialized": runtime.initialized,
-        },
+        content=snapshot,
     )
 
 

@@ -79,6 +79,14 @@ class OperationStatusUnknown(DomainError):
     code = "OPERATION_STATUS_UNKNOWN"
 
 
-class ProviderClientClosed(DomainError):
+class ServiceUnavailable(DomainError):
     status_code = 503
-    code = "PROVIDER_CLIENT_CLOSED"
+    code = "SERVICE_NOT_READY"
+
+    def __init__(self, identity: str):
+        super().__init__()
+        self.detail["service"] = identity
+
+
+class ProviderClientClosed(ServiceUnavailable):
+    """已经关闭的客户端，与网络故障共用 HTTP 不可用契约。"""

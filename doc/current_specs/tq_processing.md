@@ -136,9 +136,8 @@ OHLCV 拒绝多值 symbol；合法 SDK id 转为非负整数，批次内相邻 i
 | 422 | `TQ_INVALID_TRADING_CALENDAR` | calendar date/trading schema 非法 |
 | 422 | `TQ_CALENDAR_RANGE_UNAVAILABLE` | 超出 TqSdk 日历覆盖年份 |
 | 422 | `TQ_NOT_CONT_SYMBOL` | underlying route 收到非 CONT |
-| 503 | `SERVICE_NOT_ENABLED` / `SERVICE_NOT_READY` | HTTP 服务白名单或启动门禁拒绝 |
+| 503 | `SERVICE_NOT_ENABLED` / `SERVICE_NOT_READY` | 未启用；或初始化中/失败、SDK 线程退出、明确网络不可用，带 service=tq |
 | 500 | `TQ_NOT_CONFIGURED` | 内部客户端缺少配置；正常 HTTP 入口先检查服务白名单 |
-| 502 | `TQ_NETWORK_UNAVAILABLE` | TQ 网络/登录失败 |
 | 502 | `TQ_UPSTREAM_ERROR` | 普通 OHLCV 的未知 SDK 错误，不允许休市缓存兜底 |
 | 502 | `TQ_CALENDAR_INCOMPLETE` | calendar 未逐日完整覆盖请求闭区间 |
 

@@ -148,6 +148,7 @@ def test_lifespan_starts_without_waiting_for_self_http_and_stops_jobs_first(
     async def run():
         async with lifespan(FastAPI()):
             await asyncio.wait_for(waiting.wait(), 1)
+            await asyncio.to_thread(runtime.wait_for_startup)
             assert runtime.ready
 
     asyncio.run(run())

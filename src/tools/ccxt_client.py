@@ -56,6 +56,9 @@ class CcxtClient(_CcxtTradingMixin):
     def close(self) -> None:
         self._transport.close()
 
+    def is_ready(self) -> bool:
+        return self._transport.is_ready()
+
     def fetch_ohlcv_since_limit(
         self,
         symbol: str,

@@ -69,6 +69,7 @@ def test_lifespan_initializes_only_enabled_cfb_from_startup_snapshot_and_closes_
 
     async def run():
         async with lifespan(FastAPI()):
+            await asyncio.to_thread(runtime.wait_for_startup)
             assert runtime.ready and runtime.initialized == (["cfb"] if enabled else [])
             if enabled:
                 assert len(created) == 1 and not created[0].is_closed
@@ -82,7 +83,7 @@ def test_lifespan_initializes_only_enabled_cfb_from_startup_snapshot_and_closes_
     asyncio.run(run())
 
 
-def test_later_sdk_startup_failure_also_closes_cfb_client(monkeypatch, tmp_path):
+def test_other_sdk_startup_failure_does_not_close_cfb_client(monkeypatch, tmp_path):
     config = AppConfig.model_validate(
         {
             "SECRET": "offline",
@@ -121,9 +122,15 @@ def test_later_sdk_startup_failure_also_closes_cfb_client(monkeypatch, tmp_path)
     )
 
     async def run():
-        with pytest.raises(RuntimeError, match="offline initialization failed"):
-            async with lifespan(FastAPI()):
-                pytest.fail("failed startup accepted requests")
+        async with lifespan(FastAPI()):
+            await asyncio.to_thread(runtime.wait_for_startup)
+            assert runtime.ready
+            runtime.require("cfb")
+            assert (
+                runtime.snapshot()["services"]["ccxt/binance/future/sandbox"]
+                == "failed"
+            )
+            assert len(created) == 1 and not created[0].is_closed
 
     asyncio.run(run())
     assert len(created) == 1 and created[0].is_closed

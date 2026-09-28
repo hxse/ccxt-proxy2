@@ -49,6 +49,10 @@ class CfbProxy:
         if client is not None:
             await client.aclose()
 
+    def is_ready(self) -> bool:
+        client = self._client
+        return client is not None and not client.is_closed
+
     async def forward(self, request: Request, path: str) -> Response:
         client = self._client
         if client is None:
@@ -73,11 +77,9 @@ class CfbProxy:
         try:
             async with asyncio.timeout(self._timeout):
                 upstream = await client.send(upstream_request)
-        except (TimeoutError, httpx.TimeoutException):
-            raise HTTPException(504, detail={"code": "CFB_PROXY_TIMEOUT"}) from None
-        except httpx.RequestError:
+        except (TimeoutError, httpx.RequestError):
             raise HTTPException(
-                502, detail={"code": "CFB_PROXY_NETWORK_ERROR"}
+                503, detail={"code": "SERVICE_NOT_READY", "service": "cfb"}
             ) from None
 
         # HTTPX 已解压正文；重算长度，保留上游业务头和所有响应字段。

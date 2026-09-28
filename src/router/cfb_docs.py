@@ -19,9 +19,7 @@ PROXY_ERROR_SCHEMA = {
     },
 }
 PROXY_ERRORS = {
-    "502": "代理无法连接或读取 CFB：detail.code=CFB_PROXY_NETWORK_ERROR。",
-    "503": "CFB 未列入白名单或代理未初始化：detail.code=SERVICE_NOT_ENABLED/SERVICE_NOT_READY。",
-    "504": "代理等待 CFB 超时：detail.code=CFB_PROXY_TIMEOUT；不会自动重试。",
+    "503": "CFB 未启用、初始化中/失败，或代理连接、读取及等待超时：detail.code=SERVICE_NOT_ENABLED/SERVICE_NOT_READY，service=cfb；不会自动重试，写请求失败须先核对上游结果。",
 }
 
 

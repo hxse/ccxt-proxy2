@@ -35,7 +35,7 @@ Bruno collection 共享变量仅为 `baseUrl` 与 secret `user/password`；请�
 
 ## 统一服务白名单
 
-只有 `[[service_whitelist]]` 列出的身份会初始化。填写账户或上游地址本身不会启用服务；缺省白名单为空。所有路由仍保留在 OpenAPI 中，未启用服务返回 `503 SERVICE_NOT_ENABLED`，应用尚未就绪时返回 `503 SERVICE_NOT_READY`。
+只有 `[[service_whitelist]]` 列出的身份会初始化。填写账户或上游地址本身不会启用服务；缺省白名单为空。所有路由仍保留在 OpenAPI 中，未启用服务返回 `503 SERVICE_NOT_ENABLED`；已启用但初始化中、失败、关闭或已知 SDK 不可用时返回 `503 SERVICE_NOT_READY`，detail 同时包含 service 身份。
 
 | service | 白名单字段 | 身份 | 必需配置与初始化 |
 | --- | --- | --- | --- |
@@ -76,21 +76,25 @@ service = "ctp"
 mode = "sandbox"
 ```
 
-同一身份不得重复，白名单不得引用缺失的配置。身份和账号校验在启动时完成，不能静默跳过不可用项或切换到另一个模式。
+同一身份不得重复，白名单不得引用缺失的配置。身份和账号字段校验在启动时完成；上游初始化失败保留为 failed 身份，不从白名单静默删除，也不切换到另一个模式。
 
 ## 启动、关闭与健康检查
 
-启动协调器按白名单顺序初始化，全部完成后才接受 HTTP 请求。任一初始化失败，清理已建立的资源并退出。空白名单仍可运行鉴权、文档、健康检查及不依赖该白名单的接口。
+配置与后台计划校验通过后，每个身份使用独立后台线程初始化，HTTP 不等待全体 SDK。TQ、CFB、Binance、Kraken 和 CTP 各自失败或等待网络时，其他身份继续初始化和服务；CCXT 的市场、模式也分别隔离。配置本身非法仍阻止应用启动。全部 SDK 失败或空白名单时，鉴权、文档、健康及不依赖这些 SDK 的路由仍可用。
 
-启动取消时停止初始化后续实例，等待当前 SDK 初始化结束后统一清理，不强行中断 SDK。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话；共享缓存由应用最后关闭，CFB 在应用事件循环关闭 HTTP 客户端，Telegram 关闭自己持有的客户端。
+ServiceRuntime 统一持有 initializing/ready/failed/stopped 状态；只有 ready 身份可进入业务。初始化失败不触发其他身份清理，请求也不重建失败 SDK。TQ 工作线程退出后本地可用性检查立即拒绝新请求。首次发生但尚未被 SDK 识别的断网，仍需正常调用或原有超时发现；不增加每请求健康探测、自动重建或全局熔断。
 
-`GET /healthz` 只表示应用进程能处理请求，返回 `{"status":"ok"}`。`GET /readyz` 返回启动就绪及已初始化身份，例如：
+明确的 CCXT 只读网络失败、旧客户端关闭、CFB 代理网络失败/超时和 TQ 网络/线程不可用统一为 503 SERVICE_NOT_READY。数据完整性、权限、业务拒绝及 OPERATION_STATUS_UNKNOWN 保留原错误；运行中请求失败不代表写操作未执行，不自动重发。CFB 已收到的上游业务响应继续原样转发，TQ 休市缓存兜底先按原逻辑处理。
+
+退出先禁止新业务和新初始化、停止后台任务，再等待已发起的 SDK 初始化结束，关闭元数据任务和 Provider，最后关闭共享缓存；晚到的初始化成功不能恢复已关闭状态。不能强行中断 SDK；其当前调用仍受 SDK 自身等待规则约束。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话，CFB 在应用事件循环关闭 HTTP 客户端，Telegram 关闭自己持有的客户端。
+
+`GET /healthz` 只表示应用进程能处理请求，返回 `{"status":"ok"}`。`GET /readyz` 的 200 表示 HTTP 应用已就绪，不要求全体 SDK 成功；initialized 是当前 ready 身份按白名单顺序生成的视图，services 是逐身份状态，例如：
 
 ```json
-{"status":"ready","initialized":["cfb"]}
+{"status":"ready","initialized":["cfb"],"services":{"tq":"failed","cfb":"ready"}}
 ```
 
-进入或退出生命周期期间返回 503/not_ready。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB 初始化不调用上游业务接口，不启动容器或登录账户，因此其代理就绪不等于终端交易就绪。
+进入或退出基础生命周期期间返回 503/not_ready，仍带 initialized 和 services。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB ready 只表示代理客户端已创建，不等于上游终端已登录或交易就绪。访问上述失败的 TQ 路由返回 `{"detail":{"code":"SERVICE_NOT_READY","service":"tq"}}`；健康的 CFB 路由照常执行。
 
 ## 本地缓存配置
 

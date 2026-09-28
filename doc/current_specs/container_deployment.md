@@ -98,6 +98,8 @@ Dockerfile 固定 Python slim 摘要与 uv 版本，构建锁定依赖和 CTP ex
 
 readyz 最多等待 60 秒，每次请求有超时。失败实例移除前保存末尾日志到 `.container/last-startup.log`，权限 0600、最多 64 KiB，不在自动部署输出打印原始日志。容器日志限量 10 MB；不配置系统开机自启。
 
+readyz 的就绪表示 HTTP 应用可服务；SDK 的 initializing/ready/failed/stopped 分别在 services 中展示。单个 SDK 不可用不会使部署失败或清掉已运行的容器，其路由返回统一 503，其他身份继续服务。只有应用自身不能建立 HTTP 生命周期或就绪检查失败时，才执行上述启动失败恢复。
+
 status 返回 container/state/image_id/prepared_image_id。state 可为 absent/stopped/running，替换间隙为 updating；不代表 Provider 当前实时可用。未部署时：
 
 ```json

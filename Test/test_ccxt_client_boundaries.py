@@ -5,9 +5,9 @@ from src.domain_errors import (
     CacheCapacityExceeded,
     CapabilityNotSupported,
     InvalidProviderRequest,
-    NetworkIncomplete,
     OperationStatusUnknown,
     ProviderClientClosed,
+    ServiceUnavailable,
 )
 from Test.test_ccxt_client import MINUTE, _client, _minutes
 
@@ -44,9 +44,7 @@ def test_read_operation_retries_once(temp_dir, monkeypatch):
     assert attempts == 2
 
 
-def test_read_operation_failure_after_retry_is_upstream_502_domain_error(
-    temp_dir, monkeypatch
-):
+def test_read_network_failure_after_retry_is_service_unavailable(temp_dir, monkeypatch):
     client, exchange = _client(temp_dir)
     attempts = 0
 
@@ -58,9 +56,13 @@ def test_read_operation_failure_after_retry_is_upstream_502_domain_error(
     exchange.fetch_balance = fail
     monkeypatch.setattr("src.tools.ccxt_transport.time.sleep", lambda _: None)
 
-    with pytest.raises(NetworkIncomplete):
+    with pytest.raises(ServiceUnavailable) as error:
         client.fetch_balance()
     assert attempts == 2
+    assert error.value.detail == {
+        "code": "SERVICE_NOT_READY",
+        "service": "ccxt/binance/future/sandbox",
+    }
 
 
 @pytest.mark.parametrize(
@@ -110,7 +112,7 @@ def test_later_ohlcv_page_failure_returns_no_partial_result(temp_dir, monkeypatc
     exchange.fetch_ohlcv = fail_later_page
     monkeypatch.setattr("src.tools.ccxt_transport.time.sleep", lambda _: None)
 
-    with pytest.raises(NetworkIncomplete):
+    with pytest.raises(ServiceUnavailable):
         client.fetch_ohlcv_since_limit("BTC/USDT", "1m", MINUTE, 4)
     count = (
         client.cache._connection()
@@ -246,8 +248,12 @@ def test_client_close_is_idempotent(temp_dir):
     client.close()
 
     assert exchange.closed == 1
-    with pytest.raises(ProviderClientClosed, match="client is closed"):
+    with pytest.raises(ProviderClientClosed) as error:
         client.fetch_balance()
+    assert error.value.detail == {
+        "code": "SERVICE_NOT_READY",
+        "service": "ccxt/binance/future/sandbox",
+    }
     assert provider_called is False
 
 

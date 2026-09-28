@@ -46,6 +46,7 @@ def test_user_background_prune_and_restart_share_one_http_cache_chain(
         client = MarketDataHttp(config, transport=httpx.ASGITransport(app=app))
         try:
             async with lifespan(app):
+                await asyncio.to_thread(runtime.wait_for_startup)
                 created[-1].rows = records(0, 5)
                 request = {"symbol": SYMBOL, "duration_seconds": 60, "data_length": 10}
                 user = await client.request("GET", "/tq/fetch_ohlcv", params=request)
@@ -85,6 +86,7 @@ def test_user_background_prune_and_restart_share_one_http_cache_chain(
                 old_cache = runtime.cache.get()
             assert old_cache._closed and created[-1].closed
             async with lifespan(app):
+                await asyncio.to_thread(runtime.wait_for_startup)
                 assert runtime.cache.get() is not old_cache
                 confirmed = (
                     runtime.cache.get()
