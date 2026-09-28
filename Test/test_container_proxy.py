@@ -12,7 +12,7 @@ from src.tools.deployment_types import DeploymentConfig
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_remote_patch_only_changes_two_flags_and_preserves_source(tmp_path, newline):
+def test_remote_patch_only_changes_three_flags_and_preserves_source(tmp_path, newline):
     original = newline.join(
         [
             'SECRET = "private-sentinel"',
@@ -26,6 +26,10 @@ def test_remote_patch_only_changes_two_flags_and_preserves_source(tmp_path, newl
             'secret = "false $literal"',
             '["kraken"]',
             '"enable_proxy" = false',
+            "[tq]",
+            "enable_proxy = false # 本地直连",
+            'username = "offline"',
+            'password = "false $literal"',
             "",
         ]
     ).encode()
@@ -51,13 +55,15 @@ def test_remote_patch_only_changes_two_flags_and_preserves_source(tmp_path, newl
         "[binance]\n# enable_proxy = false\n",
         '[binance.live]\napi_key = "key"\nsecret = "secret"\n',
         "[kraken]\nenable_proxy = true\n",
+        "[tq]\nusername = 'offline'\n",
+        "[tq]\nenable_proxy = true\n",
     ],
 )
 def test_optional_tables_and_missing_flags(tmp_path, tables):
     source, target = tmp_path / "source.toml", tmp_path / "remote.toml"
     source.write_text('SECRET = "private-sentinel"\n' + tables)
     expected = copy.deepcopy(tomllib.loads(source.read_text()))
-    for exchange in ("binance", "kraken"):
+    for exchange in ("binance", "kraken", "tq"):
         if exchange in expected:
             expected[exchange]["enable_proxy"] = True
     prepare_remote_config(source, target)
@@ -70,6 +76,10 @@ def test_optional_tables_and_missing_flags(tmp_path, tables):
         ('SECRET = "private-sentinel"\n[binance', "无法解析 TOML"),
         (
             'SECRET = "private-sentinel"\n[binance]\nenable_proxy = "false"\n',
+            "独立的布尔 enable_proxy",
+        ),
+        (
+            'SECRET = "private-sentinel"\n[tq]\nenable_proxy = "false"\n',
             "独立的布尔 enable_proxy",
         ),
         (
@@ -113,7 +123,10 @@ def test_remote_patch_requires_configured_proxy_before_sending(tmp_path, monkeyp
 
 
 def test_local_start_uses_original_flags_without_remote_patch(tmp_path, monkeypatch):
-    original = b'SECRET = "private-sentinel"\n[binance]\nenable_proxy = false\n'
+    original = (
+        b'SECRET = "private-sentinel"\n[binance]\nenable_proxy = false\n'
+        b"[kraken]\nenable_proxy = false\n[tq]\nenable_proxy = false\n"
+    )
     config = tmp_path / "config.toml"
     config.write_bytes(original)
     (tmp_path / "market_data.toml").write_text(
@@ -136,3 +149,22 @@ def test_local_start_uses_original_flags_without_remote_patch(tmp_path, monkeypa
     assert cli.main(["--target=local", "--start", "--config", str(config)]) == 0
     assert calls == [original]
     assert config.read_bytes() == original
+
+
+def test_tq_upload_rejects_missing_proxy_before_sending(tmp_path, monkeypatch):
+    original = (
+        'SECRET = "private-sentinel"\n'
+        'service_whitelist = [{service="tq"}]\n'
+        '[tq]\nusername = "offline"\nenable_proxy = false\n'
+    )
+    source = tmp_path / "config.toml"
+    source.write_text(original)
+    monkeypatch.setattr(
+        transport, "command", lambda *a, **kw: pytest.fail("sent invalid config")
+    )
+    with pytest.raises(ConfigError, match="Invalid TOML configuration") as error:
+        transport.request_remote(
+            DeploymentConfig(ssh_host="rn"), "upload", source=tmp_path
+        )
+    assert "private-sentinel" not in str(error.value)
+    assert source.read_text() == original

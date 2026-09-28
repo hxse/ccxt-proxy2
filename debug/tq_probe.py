@@ -10,7 +10,7 @@ from src.tools.shared import config
 from src.tools.tq_manager import TqManager
 from src.types_tq import TqOhlcvRequest, TqTickRequest, TqUnderlyingSymbolRequest
 
-tq_manager = TqManager(config.tq)
+tq_manager = TqManager(config.tq, proxy_url=config.proxy.effective_http)
 
 
 def _print_json(value: Any) -> None:

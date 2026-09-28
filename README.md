@@ -72,7 +72,7 @@ just deploy --target=remote --upload --build --start --keep-remote-config # 本�
 
 远程操作需在私有 `config.toml` 添加 `[deployment]`，填写 `ssh_host = "rn"`、`remote_dir = "dev/ccxt-proxy2"`；用 `--config=config.toml.vps` 选择目标及上传配置。每次上传默认完整覆盖 `config.toml` 和 `market_data.toml`；只有显式 `--keep-remote-config` 才沿用远端已有配置，首次部署不能使用。可单独 `--upload` 保存源码及配置，之后在远端 `--build` 构建，再 `--start` 启用；`--stop`、`--status`、`--logs` 用于控制和查看。后台自身地址为 `http://127.0.0.1:5123`。动作组合、失败恢复和 SSH 隧道见[容器部署规范](doc/current_specs/container_deployment.md)。
 
-默认远端上传会自动将配置副本中 Binance、Kraken 的 `enable_proxy` 打开，使用已填写的 `[proxy]` 地址；本地原件、代理地址及其他字段不变。本地启动按原配置运行；使用 `--keep-remote-config` 时也不执行补丁。
+本地 Binance、Kraken、TQ 的 `enable_proxy` 默认 false。默认远端上传会自动将配置副本中这三个开关打开，使用已填写的 `[proxy]` 地址；本地原件、代理地址及其他字段不变。TQ 开关覆盖认证、行情连接、日历和主连源下载。本地启动按原配置运行；使用 `--keep-remote-config` 时也不执行补丁。
 
 源码启动可用 `just serve --config=config.toml --host=127.0.0.1 --port=5123`；启动不再隐式同步依赖。完整命令职责和参数透传规则见 [Just 命令规范](doc/current_specs/commands.md)。
 

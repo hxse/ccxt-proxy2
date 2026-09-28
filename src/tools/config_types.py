@@ -64,6 +64,7 @@ class ExchangeConfig(BaseModel):
 class TqConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    enable_proxy: bool = False
     username: str | None = None
     password: str = ""
 
@@ -257,6 +258,10 @@ class AppConfig(BaseModel):
                 if self.tq is None:
                     raise ValueError(
                         "missing tq config referenced by service_whitelist"
+                    )
+                if self.tq.enable_proxy and not self.proxy.effective_http:
+                    raise ValueError(
+                        "proxy.http must be configured when tq.enable_proxy is true"
                     )
                 continue
             if item.service == "ctp":

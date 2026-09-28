@@ -47,9 +47,9 @@ remote_dir = "dev/ccxt-proxy2"
 
 --config 缺省沿用 CCXT_PROXY_CONFIG_PATH/config.toml，相对项目根目录解析。默认 remote upload、本地 start 校验完整应用配置和后台计划。remote build/start/control 及保留配置的上传只读取本地 deployment 分组，不要求本机应用账号有效；本地纯 build 不读取运行配置，也不接受 --config。
 
-每次 upload 默认上传所选 config.toml 与项目根目录 market_data.toml，完整替换本次上传版本的配置。发送前由 `scripts/container_proxy.py` 在本机生成远端副本：将已配置 `[binance]`、`[kraken]` 的 enable_proxy 设为 true，省略的开关补入，未配置的交易所分组不创建。本地原件不变，本地构建、启动不执行补丁；market_data.toml 原样上传。
+每次 upload 默认上传所选 config.toml 与项目根目录 market_data.toml，完整替换本次上传版本的配置。发送前由 `scripts/container_proxy.py` 在本机生成远端副本：将已配置 `[binance]`、`[kraken]`、`[tq]` 的 enable_proxy 设为 true，省略的开关补入，未配置的服务分组不创建。本地三个开关默认 false；本地原件不变，本地构建、启动不执行补丁，market_data.toml 原样上传。
 
-补丁不改代理地址、协议、端口、账户、其他字段或注释。前后解析 TOML 核对只改变目标开关，再复用应用配置校验；缺少必需代理地址、非法 TOML 或无法安全定位开关时，在发送上传包前报错，隐藏配置值。独立 `[binance]`、`[kraken]` 表中的布尔 enable_proxy 是标准写法。配置身份取补丁后内容；服务器 build/start 使用已上传快照，补丁不需要远端宿主 Python。
+补丁不改代理地址、协议、端口、账户、其他字段或注释。前后解析 TOML 核对只改变目标开关，再复用应用配置校验；缺少必需代理地址、非法 TOML 或无法安全定位开关时，在发送上传包前报错，隐藏配置值。独立 `[binance]`、`[kraken]`、`[tq]` 表中的布尔 enable_proxy 是标准写法。配置身份取补丁后内容；服务器 build/start 使用已上传快照，补丁不需要远端宿主 Python。
 
 --keep-remote-config 仅与 remote+upload 使用，不成为下次默认值。它不读取或发送本地运行配置，也不执行代理补丁，复用远端最近上传的配置快照；没有源码上传记录时允许复用既有 prepared 配置，以衔接以前的部署。都不存在时要求首次上传配置，不读取手改的根目录副本。
 

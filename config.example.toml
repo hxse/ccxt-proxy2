@@ -14,7 +14,8 @@ password = "replace-with-your-password"
 # [users.alice]
 # password = "replace-with-another-password"
 
-# 可选代理。
+# 可选代理；Binance、Kraken、TQ 共用地址，各自默认关闭。
+# 远端默认上传只在副本中开启三个服务的开关，本地原件不变。
 # [proxy]
 # http = "http://127.0.0.1:7890"
 
@@ -40,6 +41,7 @@ password = "replace-with-your-password"
 
 # TQ 行情。
 # [tq]
+# enable_proxy = false
 # username = ""
 # password = ""
 
@@ -92,7 +94,7 @@ max_rows_total = 20000000
 # 统一服务白名单：只有这里列出的实例会在启动时初始化。
 # 账号配置本身不会启用服务；缺省为空白名单，不加载 CCXT/TQ/CTP/CFB。
 # 配置只在进程启动时读取，运行中修改无效；重启后生效。
-# 任一启用实例初始化失败，服务清理资源并退出。
+# 某个 SDK 初始化失败只影响该身份，其他服务继续运行。
 # 每个 CCXT 身份必须明确 exchange/market/mode，不允许重复。
 # [[service_whitelist]]
 # service = "ccxt"

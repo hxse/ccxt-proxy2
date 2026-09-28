@@ -153,6 +153,8 @@
 
 Podman 部署的配置、传输和生命周期使用离线命令替身与临时目录验证，纳入 `just test`；覆盖上传不启停、准备版本复用、停止不等待操作队列、在途/等待启动被停止代次取消。实际构建与无网络应用烟测通过目标机器的 build 显式执行；远端完整验证使用 `just deploy --target=remote --upload --build --start`，上传源码而非本机镜像。离线覆盖 HTTP/HTTPS 代理真实 SDK 参数、源码归档排除配置、构建失败保留旧版本及父子镜像定向清理；显式 build/start/stop/upload 不属于离线测试或 live 只读在线验证。完整边界见 [容器部署](container_deployment.md)。
 
+TQ 代理离线验证截获真实 SDK 认证及传输入口，覆盖同步/异步 HTTP、WebSocket 上下文继承、元数据下载、直连忽略环境代理、异常恢复及其他线程不受影响。上传包验证 Binance/Kraken/TQ 三个开关开启且本地原件未变；缺地址在发送前拒绝，local 与 --keep-remote-config 不打补丁。
+
 Just 参数转发使用隔离 uv 替身验证含空格/引号的 argv 与退出语义；test-file 不追加全量 Test 目录，test-online 保持显式启用和 live 只读范围。serve 命名参数在加载账户前校验，sync 与启动分开，CTP GUI 依赖隔离继续通过既有脚本入口验证；旧 image-build、container-start、serve-ctp、cleanup 命令必须明确退出。
 
 - 裸 `pytest` 和 `just test` 都只运行 `Test/` 中的 offline tests，并忽略 `Test/online`。

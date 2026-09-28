@@ -118,11 +118,17 @@ GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&e
 
 ```toml
 [tq]
+# 默认直连；远端上传副本自动改为 true，使用共享 [proxy] 地址。
+enable_proxy = false
 username = "..."
 password = ""
 ```
 
 `tq` 可选；未列入白名单时不创建 SDK/连接，请求返回 503 `SERVICE_NOT_ENABLED`；列入白名单但缺配置则启动失败。配置只在启动时读取，中途修改文件无效。未登录的 `/tq/*` 仍由项目统一认证层返回 401。
+
+enable_proxy 缺省为 false；开启时使用 proxy.effective_http，启用的 TQ 身份缺少代理地址会在启动配置校验时拒绝。关闭时 TQ 明确直连，不继承 HTTP_PROXY/HTTPS_PROXY 等环境代理；TLS 验证及原有超时、错误和重连策略保持不变。
+
+TqClient 的同步 SDK 操作及其创建的异步任务通过 tq_network 上下文选择 requests/WebSocket 代理，涵盖认证、查询、行情、交易状态和后续重连。共享库入口在 TQ 上下文外原样转发，不改变其他服务或线程的选路，异常退出也恢复上下文。SDK 内部 aiohttp 会话及项目元数据 httpx 会话显式注入同一启动地址并禁用环境代理；日历/主连下载因此与行情保持一致。公共时间请求是独立功能，不由 TQ 开关控制。
 
 ## 依赖
 

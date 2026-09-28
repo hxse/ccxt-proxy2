@@ -11,6 +11,7 @@ from loguru import logger
 from src.tools import tq_data_source, tq_metadata_sdk
 from src.tools.config_types import TqConfig
 from src.tools.tq_errors import TqLegacyMetadataCallForbidden
+from src.tools.tq_network import tq_network
 from src.tools.tq_ohlcv_validation import validate_records
 from src.tools.tq_serial import get_serial, require_budget
 from src.tools.tq_status_snapshot import TqStatusSnapshot
@@ -28,8 +29,13 @@ class TqClient:
         tq_config: TqConfig | None,
         lock_path: Path | None = None,
         update_timeout_seconds: float = TQ_HTTP_UPDATE_TIMEOUT_SECONDS,
+        *,
+        proxy_url: str | None = None,
     ):
         self._config = tq_config
+        self.proxy_url = (
+            proxy_url if tq_config is not None and tq_config.enable_proxy else None
+        )
         self._api: Any | None = None
         self.status_snapshot = TqStatusSnapshot()
         self._update_timeout_seconds = update_timeout_seconds
@@ -40,13 +46,13 @@ class TqClient:
         if self._config is None:
             raise HTTPException(500, detail="TQ_NOT_CONFIGURED")
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock:
+        with self._lock, tq_network(self.proxy_url):
             if self._api is None:
                 self._api = self._create_api(self._config)
                 self.status_snapshot.activate(self._api.has_trading_status_permission())
 
     def pump(self, *, wait: bool = True) -> None:
-        with self._lock:
+        with self._lock, tq_network(self.proxy_url):
             api = self._get_api()
             for symbol in self.status_snapshot.take_pending():
                 api.create_task(self._subscribe_trading_status(api, symbol))
@@ -97,13 +103,16 @@ class TqClient:
     @contextmanager
     def _bounded_lock(self, deadline: float, stop: Event | None):
         try:
-            with self._lock.acquire(timeout=require_budget(deadline, stop)):
+            with (
+                self._lock.acquire(timeout=require_budget(deadline, stop)),
+                tq_network(self.proxy_url),
+            ):
                 yield
         except Timeout as exc:
             raise HTTPException(504, detail="TQ_DATA_TIMEOUT") from exc
 
     def fetch_tick(self, request: TqTickRequest) -> list[dict[str, Any]]:
-        with self._lock:
+        with self._lock, tq_network(self.proxy_url):
             api = self._get_api()
             try:
                 frame = api.get_tick_serial(
@@ -137,7 +146,7 @@ class TqClient:
 
     def close(self) -> None:
         self.status_snapshot.deactivate()
-        with self._lock:
+        with self._lock, tq_network(self.proxy_url):
             if self._api is None:
                 return
             self._api.close()
@@ -170,7 +179,10 @@ class TqClient:
                 else None
             )
             return TradingStatusTqApi(
-                auth=auth, disable_print=True, status_snapshot=self.status_snapshot
+                auth=auth,
+                disable_print=True,
+                status_snapshot=self.status_snapshot,
+                proxy_url=self.proxy_url,
             )
         except Exception as exc:
             raise self._map_tq_exception(exc) from exc

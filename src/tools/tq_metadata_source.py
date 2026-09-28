@@ -10,7 +10,8 @@ from src.tools.tq_metadata_conversion import parse_holidays, parse_mapping
 
 
 class MetadataSource:
-    def __init__(self):
+    def __init__(self, *, proxy_url: str | None = None):
+        self._proxy_url = proxy_url
         self.urls = {
             "calendar": os.getenv(
                 "TQ_CHINESE_HOLIDAY_URL",
@@ -40,7 +41,12 @@ class MetadataSource:
 
     async def _download(self, kind: str, headers: dict[str, str]):
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=10, follow_redirects=True)
+            self._client = httpx.AsyncClient(
+                timeout=10,
+                follow_redirects=True,
+                proxy=self._proxy_url,
+                trust_env=False,
+            )
         try:
             async with asyncio.timeout(10):
                 response = await self._client.get(

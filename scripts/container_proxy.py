@@ -1,4 +1,4 @@
-"""只修改远端上传副本中的交易所代理开关，保留本地配置原件。"""
+"""只修改远端上传副本中的三个服务代理开关，保留本地配置原件。"""
 
 import copy
 import re
@@ -57,7 +57,7 @@ def prepare_remote_config(source: Path, target: Path) -> None:
         raise DeploymentError("远端配置必须为 UTF-8 TOML；配置值已隐藏") from None
     original = _payload(text)
     expected = copy.deepcopy(original)
-    for exchange in ("binance", "kraken"):
+    for exchange in ("binance", "kraken", "tq"):
         configured = original.get(exchange)
         if configured is None:
             continue

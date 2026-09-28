@@ -48,6 +48,8 @@ ccxt 的 exchange 为 binance/kraken，market 为 spot/future，mode 为 sandbox
 
 TQ 和 CFB 的白名单项不接受 exchange/market/mode。CFB 请求中的 mode 原样转发，由上游决定支持范围。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
 
+Binance、Kraken、TQ 的 enable_proxy 均默认 false。TQ 配置 `[tq] enable_proxy=true` 时使用同一 proxy.effective_http 地址；启用的 TQ 服务缺少代理地址会在配置阶段拒绝。该开关同时覆盖 SDK 认证/查询 HTTP、行情/交易状态 WebSocket 和自有日历/主连源下载，关闭时显式直连，不继承环境代理。代理绑定启动快照和 TQ 调用上下文，不修改进程环境或其他 SDK 的配置；详细传输边界见 [TQ 规范](tq_data.md)。
+
 CFB 最小启用示例：
 
 ```toml
@@ -123,7 +125,7 @@ just deploy --target=local --start
 just deploy --target=remote --upload --build --start
 ```
 
-两份运行配置均不进入镜像。本地只读挂载原值配置快照；默认远程上传仅在副本中将已配置 Binance/Kraken 的 enable_proxy 设为 true，其他内容保持原样，源码单独上传到服务器构建镜像。--keep-remote-config 不上传配置也不打补丁。数据库独立保留在宿主 data 目录。宿主只绑定 `127.0.0.1:5123`，后台自身 base_url 同为 `http://127.0.0.1:5123`，保持单 Uvicorn 进程。
+两份运行配置均不进入镜像。本地只读挂载原值配置快照；默认远程上传仅在副本中将已配置 Binance/Kraken/TQ 的 enable_proxy 设为 true，其他内容保持原样，源码单独上传到服务器构建镜像。--keep-remote-config 不上传配置也不打补丁。数据库独立保留在宿主 data 目录。宿主只绑定 `127.0.0.1:5123`，后台自身 base_url 同为 `http://127.0.0.1:5123`，保持单 Uvicorn 进程。
 
 可选 `[deployment]` 分组定义 `ssh_host` 和 `remote_dir`，只由显式远端操作使用。配置模块对只构建/控制远端实例或保留远端配置上传的命令仅校验这一分组，无需本机应用账号或白名单有效；应用启动和上传仍进行完整配置校验。完整字段、示例、快照、防重复及恢复契约见 [Podman 部署](container_deployment.md)。CFB 上游地址见 [CFB 代理](cfb_proxy.md)。
 

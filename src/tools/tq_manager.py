@@ -38,9 +38,12 @@ class TqManager:
         update_timeout_seconds: float = TQ_HTTP_UPDATE_TIMEOUT_SECONDS,
         *,
         access_guard: Callable[[str], None] | None = None,
+        proxy_url: str | None = None,
     ):
         snapshot = tq_config.model_copy(deep=True) if tq_config else None
-        self._client = TqClient(snapshot, lock_path, update_timeout_seconds)
+        self._client = TqClient(
+            snapshot, lock_path, update_timeout_seconds, proxy_url=proxy_url
+        )
         self._worker = TqWorker(self._client)
         self._access_guard = access_guard
         self._cache: DuckDbOhlcvCache | None = None
@@ -154,6 +157,7 @@ class TqManager:
                 self._metadata_headers,
                 self._mapping_reference,
                 self._transition_raw,
+                proxy_url=self._client.proxy_url,
             )
         return self._metadata
 
@@ -228,4 +232,8 @@ class TqManager:
             self._lifecycle.wait_for(lambda: self._active == 0)
 
 
-tq_manager = TqManager(config.tq, access_guard=service_runtime.require)
+tq_manager = TqManager(
+    config.tq,
+    access_guard=service_runtime.require,
+    proxy_url=config.proxy.effective_http,
+)

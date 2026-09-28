@@ -10,6 +10,8 @@ SDK 当前合约资料可能标注正确交易日，却仍返回旧 underlying�
 
 参考 TqSdk 3.10.2 calendar.py/datetime.py 的转换，保留 Apache-2.0 许可和作者说明。官方源为 shinny_chinese_holiday.json 和 continuous_table.json，集中支持 TQ_CHINESE_HOLIDAY_URL、TQ_CONT_TABLE_URL。认证头从 SDK 所属线程取得稳定副本，不泄露。
 
+日历与主连源下载遵守 tq.enable_proxy，与 SDK 共用启动时选定的 proxy.effective_http 地址；关闭时不继承环境代理。下载刷新、在途合并及关闭规则保持不变，公共时间仍使用独立入口。
+
 每次下载总时限十秒、无重试，仅共享同源在途下载。网络和数据库操作在 SDK 线程及 FileLock 外执行；应用关闭 HTTP 客户端和在途业务。重新下载保证本次访问官方源，不承诺官方自身没有发布延迟。
 
 ## 请求时间、刷新与生效边界

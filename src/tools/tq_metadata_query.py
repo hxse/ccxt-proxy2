@@ -28,9 +28,9 @@ TRANSITION_TIMEOUT_SECONDS = 45.0
 
 
 class TqMetadataQuery:
-    def __init__(self, cache, headers, reference, raw_fetch=None):
+    def __init__(self, cache, headers, reference, raw_fetch=None, *, proxy_url=None):
         self.cache = cache
-        self.source = MetadataSource()
+        self.source = MetadataSource(proxy_url=proxy_url)
         self._headers = headers
         self._reference = reference
         self.raw_fetch = raw_fetch

@@ -168,6 +168,7 @@ def test_upload_uses_shell_and_only_sends_configs_when_requested(
     configuration = (
         b'SECRET = "private-sentinel"\n[binance]\nenable_proxy = false\n'
         b"[kraken]\nenable_proxy = false\n"
+        b"[tq]\nenable_proxy = false\n"
     )
     (tmp_path / "config.toml").write_bytes(configuration)
     (tmp_path / "market_data.toml").write_bytes(b"private-sentinel")
