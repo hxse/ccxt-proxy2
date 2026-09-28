@@ -52,7 +52,9 @@ class ShellEngine:
     def write(self, engine):
         self.state.write_text(json.dumps(engine.__dict__))
 
-    def command(self, action, source="", image=None, generation=0, keep=False):
+    def command(
+        self, action, source="", image=None, generation=0, keep=False, profile="remote"
+    ):
         return [
             "sh",
             str(ROOT / "scripts/container_manage.sh"),
@@ -62,11 +64,21 @@ class ShellEngine:
             str(generation),
             str(keep).lower(),
             image or (NEW_IMAGE if action == "activate" else ""),
+            profile,
         ]
 
-    def run(self, action, source="", *, image=None, generation=0, keep=False):
+    def run(
+        self,
+        action,
+        source="",
+        *,
+        image=None,
+        generation=0,
+        keep=False,
+        profile="remote",
+    ):
         return subprocess.run(
-            self.command(action, source, image, generation, keep),
+            self.command(action, source, image, generation, keep, profile),
             env=self.env,
             capture_output=True,
             text=True,
@@ -94,7 +106,7 @@ def source(tmp_path):
     return folder
 
 
-def source_archive(extra=None):
+def source_files(extra=None):
     files = dict.fromkeys(BUILD_FILES, b"build fixture")
     files.update(
         {
@@ -103,6 +115,11 @@ def source_archive(extra=None):
         }
     )
     files.update(extra or {})
+    return files
+
+
+def source_archive(extra=None):
+    files = source_files(extra)
     stream = io.BytesIO()
     with (
         gzip.GzipFile(fileobj=stream, mode="wb", mtime=0) as compressed,
@@ -115,10 +132,18 @@ def source_archive(extra=None):
     return stream.getvalue()
 
 
-def write_upload(source, extra=None):
+def source_manifest(extra=None):
+    return "".join(
+        f"{hashlib.sha256(content).hexdigest()}  {name}\n"
+        for name, content in sorted(source_files(extra).items())
+    )
+
+
+def write_upload(source, extra=None, *, base="none"):
     archive = source_archive(extra)
-    (source / "source.tar.gz").write_bytes(archive)
-    (source / "source.sha256").write_text(hashlib.sha256(archive).hexdigest() + "\n")
+    (source / "source.delta.tar.gz").write_bytes(archive)
+    (source / "source.manifest").write_text(source_manifest(extra))
+    (source / "source.base").write_text(base + "\n")
 
 
 def uploaded_snapshot(engine):

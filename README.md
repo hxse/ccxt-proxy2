@@ -50,6 +50,8 @@ just test
 
 显式只读在线入口为 `just test-online`，会自行启动并关闭独立 HTTP 服务，无需先运行 just serve。按模块可使用 `just test-ccxt-online`、`just test-tq-online`。测试只启用已配置的 live 行情，关闭后台计划并隔离缓存；详细边界见[验证规范](doc/current_specs/verification.md)。
 
+本地镜像公共取时验证：先 `just deploy --target=local --build`，再 `just test-public-time-online`；只读一次 live 时间，不启动生产实例或上传。
+
 Bruno 位于 [bruno](bruno)，复用本项目登录配置。单个请求用 `just bru-run`，例如：
 
 ```bash
@@ -72,7 +74,7 @@ just deploy --target=remote --upload --build --start --keep-remote-config # 本�
 
 远程操作需在私有 `config.toml` 添加 `[deployment]`，填写 `ssh_host = "rn"`、`remote_dir = "dev/ccxt-proxy2"`；用 `--config=config.toml.vps` 选择目标及上传配置。每次上传默认完整覆盖 `config.toml` 和 `market_data.toml`；只有显式 `--keep-remote-config` 才沿用远端已有配置，首次部署不能使用。可单独 `--upload` 保存源码及配置，之后在远端 `--build` 构建，再 `--start` 启用；`--stop`、`--status`、`--logs` 用于控制和查看。后台自身地址为 `http://127.0.0.1:5123`。动作组合、失败恢复和 SSH 隧道见[容器部署规范](doc/current_specs/container_deployment.md)。
 
-本地 Binance、Kraken、TQ 的 `enable_proxy` 默认 false。默认远端上传会自动将配置副本中这三个开关打开，使用已填写的 `[proxy]` 地址；本地原件、代理地址及其他字段不变。TQ 开关覆盖认证、行情连接、日历和主连源下载。本地启动按原配置运行；使用 `--keep-remote-config` 时也不执行补丁。
+公共配置中 Binance、Kraken、TQ 的 `enable_proxy` 默认 false，CFB 使用 `http://127.0.0.1:45173`。`overrides.remote` 声明远端三个开关为 true、CFB 为 `http://cn-futures-bridge:45173`；加载器按场景在内存中合并，上传原文件，不再打补丁。Just 开发入口使用 dev，本地/远端容器分别使用 local/remote；直接启动需明确 `CCXT_PROXY_PROFILE`。本地容器挂原配置，远端配置默认完整上传，源码按内容增量同步。
 
 源码启动可用 `just serve --config=config.toml --host=127.0.0.1 --port=5123`；启动不再隐式同步依赖。完整命令职责和参数透传规则见 [Just 命令规范](doc/current_specs/commands.md)。
 

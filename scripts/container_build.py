@@ -19,6 +19,7 @@ def build_image():
             "",
             "false",
             "",
+            "local",
         ],
         capture=False,
         timeout=None,

@@ -24,6 +24,7 @@ class ContainerEngine:
         self.fail_image = None
         self.busy_port = False
         self.rootless = True
+        self.native_platform = "linux amd64"
         self.hold_ready = False
         self.fail_cleanup = False
         self.fail_build = False
@@ -128,6 +129,8 @@ class ContainerEngine:
             self.tag(identity, tag)
             return identity
         if args[0] == "info":
+            if "{{.Host.OS}} {{.Host.Arch}}" in args:
+                return self.native_platform
             return str(self.rootless).lower()
         if args[0] == "images":
             if self.fail_cleanup:
@@ -214,6 +217,10 @@ class ContainerEngine:
                 {"Source": args[index + 1].split(":", 1)[0]}
                 for index, arg in enumerate(args)
                 if arg == "--volume"
+            ]
+            obj["Config"]["Labels"] = metadata
+            obj["Config"]["Env"] = [
+                args[index + 1] for index, arg in enumerate(args) if arg == "--env"
             ]
             return NAME
         if args[0] == "rm":

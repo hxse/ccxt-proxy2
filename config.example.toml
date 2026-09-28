@@ -15,11 +15,11 @@ password = "replace-with-your-password"
 # password = "replace-with-another-password"
 
 # 可选代理；Binance、Kraken、TQ 共用地址，各自默认关闭。
-# 远端默认上传只在副本中开启三个服务的开关，本地原件不变。
+# 远端原样上传此文件，程序通过 overrides.remote 在内存中开启代理。
 # [proxy]
 # http = "http://127.0.0.1:7890"
 
-# Binance；test 对应 sandbox，live 对应实盘。
+# Binance；test 对应 sandbox，live 对应实盘；代理开关也用于 live 公共取时。
 # [binance]
 # enable_proxy = false
 # [binance.test]
@@ -140,3 +140,15 @@ request_timeout_seconds = 60
 # ssh_host = "rn"
 # 相对于 SSH 登录用户主目录；支持空格，不接受绝对路径和 ..。
 # remote_dir = "dev/ccxt-proxy2"
+
+# 按运行场景覆盖；公共配置用于 dev/local，远端由加载器合并，不改原文件。
+# 三个服务在远端使用上方同一 [proxy] 地址。
+[overrides.remote.binance]
+enable_proxy = true
+[overrides.remote.kraken]
+enable_proxy = true
+[overrides.remote.tq]
+enable_proxy = true
+# 同一个启用 DNS 的 Podman 网络内，通过 CFB 容器名访问。
+[overrides.remote.cfb]
+base_url = "http://cn-futures-bridge:45173"

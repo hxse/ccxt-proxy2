@@ -61,10 +61,19 @@ activate() {
     if exists "$name"; then owned "$name"; old=true; fi
     if exists "$backup"; then fail '存在上次中断留下的替换容器，请检查 ccxt-proxy2-replacing'; fi
     validate_config
-    snapshot_config
+    if [ "$app_profile" = local ]; then
+        identity=$(printf '3-local-original\n%s\n%s\n%s\n%s\n' \
+            "$config_mount" "$(hash_file "$config_mount")" \
+            "$plan_mount" "$(hash_file "$plan_mount")" | sha256sum | cut -d ' ' -f 1)
+    else
+        snapshot_config
+        config_mount="$snapshot/config.toml"
+        plan_mount="$snapshot/market_data.toml"
+    fi
     if [ "$old" = true ] &&
         [ "$(field "$name" '{{.Image}}' | sed 's/^sha256://')" = "${image#sha256:}" ] &&
-        [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$identity" ]; then
+        [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$identity" ] &&
+        [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.profile"}}')" = "$app_profile" ]; then
         gate
         check_start
         if ! running "$name"; then
@@ -90,9 +99,10 @@ activate() {
         pm create --name "$name" --pull=never --restart=unless-stopped \
             --publish 127.0.0.1:5123:5123 --label "${prefix}project=$name" \
             --label "${prefix}directory=$root" --label "${prefix}configuration=$identity" \
+            --label "${prefix}profile=$app_profile" --env "CCXT_PROXY_PROFILE=$app_profile" \
             --log-driver=k8s-file --log-opt=max-size=10mb \
-            --volume "$snapshot/config.toml:/app/config.toml:ro" \
-            --volume "$snapshot/market_data.toml:/app/market_data.toml:ro" \
+            --volume "$config_mount:/app/config.toml:ro" \
+            --volume "$plan_mount:/app/market_data.toml:ro" \
             --volume "$root/data:/app/data:rw" "$image" >/dev/null
         created=true
         pm start "$name" >/dev/null

@@ -242,6 +242,15 @@ class AppConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_service_whitelist_dependencies(self) -> "AppConfig":
+        # 公共取时也使用币安代理，与交易身份是否启用无关。
+        if (
+            self.binance is not None
+            and self.binance.enable_proxy
+            and not self.proxy.effective_http
+        ):
+            raise ValueError(
+                "proxy.http must be configured when binance.enable_proxy is true"
+            )
         seen_identities: set[str] = set()
         for item in self.service_whitelist:
             identity = item.identity
@@ -295,7 +304,11 @@ class AppConfig(BaseModel):
                     f"missing {item.mode} credentials for exchange '{item.exchange}'"
                 )
 
-            if exchange_config.enable_proxy and not self.proxy.effective_http:
+            if (
+                item.exchange == "kraken"
+                and exchange_config.enable_proxy
+                and not self.proxy.effective_http
+            ):
                 raise ValueError(
                     f"proxy.http must be configured when {item.exchange}.enable_proxy is true"
                 )

@@ -70,15 +70,24 @@ snapshot_config() {
     [ "$(configuration_id "$snapshot")" = "$identity" ] || fail '配置快照不完整'
 }
 validate_config() {
+    if [ "$app_profile" = local ] && [ "$action" = activate ]; then
+        config_mount=$(realpath -- "$source")
+        plan_mount=$(realpath -- "$root/market_data.toml")
+    else
+        config_mount="$source/config.toml"
+        plan_mount="$source/market_data.toml"
+    fi
     pm run --rm --pull=never --network=none --entrypoint "$python" \
-        --volume "$source/config.toml:/app/config.toml:ro" \
-        --volume "$source/market_data.toml:/app/market_data.toml:ro" \
+        --env "CCXT_PROXY_PROFILE=$app_profile" \
+        --volume "$config_mount:/app/config.toml:ro" \
+        --volume "$plan_mount:/app/market_data.toml:ro" \
         "$image" -c "$(cat "$script_dir/container_validate.py")" >/dev/null 2>&1 ||
         fail '容器配置校验失败：请检查 TOML、后台用户/5123 地址、data 路径及挂载权限；值已隐藏'
 }
 inspect_image() {
     details=$(pm image inspect "$1" --format '{{.Os}} {{.Architecture}} {{index .Labels "io.ccxt-proxy2.project"}} {{index .Labels "io.ccxt-proxy2.kind"}} {{index .Labels "io.ccxt-proxy2.release"}}')
-    [ "$details" = 'linux amd64 ccxt-proxy2 runtime true' ] || fail '镜像必须是本项目的 linux/amd64 运行镜像'
+    native=$(pm info --format '{{.Host.OS}} {{.Host.Arch}}')
+    [ "$details" = "$native ccxt-proxy2 runtime true" ] || fail '镜像必须是匹配 Podman 原生平台的本项目运行镜像'
     image=$(pm image inspect "$1" --format '{{.Id}}')
     valid_hash "${image#sha256:}" || fail '镜像身份无效'
 }

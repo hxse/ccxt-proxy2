@@ -80,7 +80,7 @@ def select_configuration(args):
     selected = args.config or resolve_config_path()
     path = selected if selected.is_absolute() else ROOT / selected
     if args.runtime_config:
-        config = load_config(path)
+        config = load_config(path, profile=args.target)
         from src.tools.market_data_config import load_market_data_plan, validate_client
 
         validate_client(load_market_data_plan(ROOT / "market_data.toml"), config)
@@ -88,7 +88,7 @@ def select_configuration(args):
         if args.remote and target is None:
             raise DeploymentError("请配置 [deployment] 的 ssh_host 和 remote_dir")
     else:
-        target = load_deployment_config(path)
+        target = load_deployment_config(path, profile=args.target)
     return path, target
 
 
@@ -123,12 +123,8 @@ def run_pipeline(args, config_path, target):
             build_image()
         if args.start:
             image = inspect_image(IMAGE)["Id"]
-            with tempfile.TemporaryDirectory(prefix="ccxt-proxy2-config-") as directory:
-                source = Path(directory)
-                assert config_path is not None
-                private_copy(config_path, source / "config.toml")
-                private_copy(ROOT / "market_data.toml", source / "market_data.toml")
-                activate(ROOT, image, source, guard=guard)
+            assert config_path is not None
+            activate(ROOT, image, config_path.resolve(), guard=guard)
 
 
 def main(argv=None):

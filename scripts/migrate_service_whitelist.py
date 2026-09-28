@@ -47,7 +47,7 @@ def migrate_service_whitelist(path: Path) -> Path:
             stream.flush()
             os.fsync(stream.fileno())
         if (
-            load_config(temporary, environ={}) != expected
+            load_config(temporary, environ={}, profile="dev") != expected
             or path.read_bytes() != original
         ):
             raise ConfigError(

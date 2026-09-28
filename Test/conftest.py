@@ -19,6 +19,9 @@ if (
         if name.startswith("CCXT_PROXY_") and name != "CCXT_PROXY_CONFIG_PATH":
             os.environ.pop(name)
 
+# 离线夹具和其子进程明确选择开发场景，不让业务加载器猜测运行位置。
+os.environ.setdefault("CCXT_PROXY_PROFILE", "dev")
+
 
 # 在应用/测试模块导入之前隔离后台计划，不改动真实公开文件。
 from src.tools import market_data_config  # noqa: E402

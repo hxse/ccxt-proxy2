@@ -48,7 +48,10 @@ mode = 'sandbox'
 """,
     )
     # 环境变量仅选择配置文件，不能覆盖文件里的账号、密码或签名密钥。
-    config = load_config(path, environ={"CCXT_PROXY_SECRET": "process-secret"})
+    config = load_config(
+        path,
+        environ={"CCXT_PROXY_SECRET": "process-secret", "CCXT_PROXY_PROFILE": "dev"},
+    )
     assert config.SECRET == "from-file"
     assert config.users["Mixed.Case-user"].password == "from-file"
     assert config.tq is not None and config.binance is not None
@@ -66,11 +69,13 @@ def test_default_file_and_missing_file_without_legacy_fallback(tmp_path, monkeyp
     monkeypatch.setattr("src.tools.config_loader.PROJECT_ROOT", tmp_path)
     default = tmp_path / "config.toml"
     default.write_text("SECRET = 'toml-secret'")
-    assert load_config(environ={}).SECRET == "toml-secret"
+    assert load_config(environ={"CCXT_PROXY_PROFILE": "dev"}).SECRET == "toml-secret"
     default.unlink()
     (tmp_path / ".env").write_text("CCXT_PROXY_SECRET='legacy-secret'")
     with pytest.raises(ConfigError, match="Config file not found"):
-        load_config(environ={"CCXT_PROXY_SECRET": "process-secret"})
+        load_config(
+            environ={"CCXT_PROXY_SECRET": "process-secret", "CCXT_PROXY_PROFILE": "dev"}
+        )
 
 
 def test_config_path_selector_uses_project_root_and_supports_absolute_paths(
@@ -79,10 +84,17 @@ def test_config_path_selector_uses_project_root_and_supports_absolute_paths(
     monkeypatch.chdir(tmp_path)
     path = resolve_config_path({"CCXT_PROXY_CONFIG_PATH": "Test/fixtures/config.toml"})
     assert path.is_file()
-    assert load_config(path, environ={}).service_whitelist == []
+    assert (
+        load_config(path, environ={"CCXT_PROXY_PROFILE": "dev"}).service_whitelist == []
+    )
     selected = write_toml(tmp_path, "SECRET = 'selected'")
     assert (
-        load_config(environ={"CCXT_PROXY_CONFIG_PATH": str(selected)}).SECRET
+        load_config(
+            environ={
+                "CCXT_PROXY_CONFIG_PATH": str(selected),
+                "CCXT_PROXY_PROFILE": "dev",
+            }
+        ).SECRET
         == "selected"
     )
 
@@ -106,7 +118,7 @@ def test_legacy_file_selector_has_a_clear_migration_error():
 )
 def test_config_errors_do_not_reveal_values_or_usernames(tmp_path, text, caplog):
     with pytest.raises(ConfigError) as caught:
-        load_config(write_toml(tmp_path, text), environ={})
+        load_config(write_toml(tmp_path, text), environ={"CCXT_PROXY_PROFILE": "dev"})
     assert "do-not-disclose" not in str(caught.value)
     assert "do-not-disclose" not in caplog.text
 
@@ -155,7 +167,7 @@ def test_json_migration_roundtrips_credentials_and_keeps_private_backup(tmp_path
     backup = migrate_config(source, target)
     assert not source.exists()
     assert json.loads(backup.read_text()) == raw
-    actual = load_config(target, environ={})
+    actual = load_config(target, environ={"CCXT_PROXY_PROFILE": "dev"})
     assert actual == expected
     assert list(actual.users) == list(expected.users)
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
@@ -186,7 +198,7 @@ CCXT_PROXY_TELEGRAM__CHATS='{"Chat-A":"-123"}'
     expected = read_legacy_config(source)
     target = tmp_path / "config.toml"
     backup = migrate_config(source, target)
-    actual = load_config(target, environ={})
+    actual = load_config(target, environ={"CCXT_PROXY_PROFILE": "dev"})
     assert backup == tmp_path / ".env.bak"
     assert backup.exists() and not source.exists()
     assert actual == expected
@@ -245,7 +257,7 @@ def test_migration_errors_keep_original_without_exposing_values(tmp_path, text):
 
 def test_example_has_only_placeholder_credentials_and_valid_defaults():
     example = Path(__file__).resolve().parents[1] / "config.example.toml"
-    config = load_config(example, environ={})
+    config = load_config(example, environ={"CCXT_PROXY_PROFILE": "dev"})
     assert config.SECRET == "replace-with-a-random-secret"
     assert config.users["admin"].password == "replace-with-your-password"
     assert config.service_whitelist == []
@@ -288,5 +300,9 @@ def test_render_preserves_empty_strings_and_legacy_proxy_fields(tmp_path):
         }
     )
     assert (
-        load_config(write_toml(tmp_path, render_toml(expected)), environ={}) == expected
+        load_config(
+            write_toml(tmp_path, render_toml(expected)),
+            environ={"CCXT_PROXY_PROFILE": "dev"},
+        )
+        == expected
     )

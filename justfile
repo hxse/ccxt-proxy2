@@ -1,6 +1,9 @@
 # CCXT-Proxy2 Justfile
 # 使用 `just` 命令运行常用开发任务
 
+# 源码、测试和辅助入口明确选择开发场景；部署入口按 target 单独选择。
+export CCXT_PROXY_PROFILE := "dev"
+
 # 列出所有可用命令
 default:
     @just --list
@@ -281,6 +284,10 @@ test-tq-online:
 # 只测试 whitelist 中已启用的 Futures live public market data
 test-ccxt-online:
     CCXT_PROXY_CONFIG_PATH=./config.toml CCXT_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_ccxt_online.py
+
+# 先构建本地镜像；隔离容器内只取一次 live 公共时间，不启动交易 SDK 或生产后台。
+test-public-time-online:
+    CCXT_PROXY_CONFIG_PATH=./config.toml PUBLIC_TIME_ONLINE=1 uv run --no-sync pytest -o addopts= -v -ra -s Test/online/test_public_time_online.py
 
 test-telegram-offline:
     uv run --no-sync pytest -v -ra Test/test_telegram_*.py

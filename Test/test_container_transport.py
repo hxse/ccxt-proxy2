@@ -1,4 +1,3 @@
-import hashlib
 import io
 import json
 import multiprocessing
@@ -12,7 +11,12 @@ import pytest
 from scripts import container_common as common
 from scripts import container_transport as transport
 from src.tools.deployment_types import DeploymentConfig
-from Test.helpers.container_shell import ROOT, source_archive, uploaded_snapshot
+from Test.helpers.container_shell import (
+    ROOT,
+    source_archive,
+    source_manifest,
+    uploaded_snapshot,
+)
 from Test.helpers.container_shell import engine as engine
 
 
@@ -24,11 +28,11 @@ def archive_bytes(members):
                 info = tarfile.TarInfo(member)
                 if member in transport.CONTROL_FILES:
                     content = (ROOT / member).read_bytes()
-                elif member == "source.sha256":
-                    content = (
-                        hashlib.sha256(source_archive()).hexdigest() + "\n"
-                    ).encode()
-                elif member == "source.tar.gz":
+                elif member == "source.manifest":
+                    content = source_manifest().encode()
+                elif member == "source.base":
+                    content = b"none\n"
+                elif member == "source.delta.tar.gz":
                     content = source_archive()
                 else:
                     content = b"image archive"
@@ -94,7 +98,11 @@ def test_receiver_rejects_unknown_duplicate_and_link_members(engine, extra):
 def test_receiver_requires_configuration_files_matching_explicit_policy(
     engine, keep, configs
 ):
-    members = transport.CONTROL_FILES | {"source.tar.gz", "source.sha256"} | configs
+    members = (
+        transport.CONTROL_FILES
+        | {"source.delta.tar.gz", "source.manifest", "source.base"}
+        | configs
+    )
     result = receive(engine, archive_bytes(members), keep=keep)
     valid = not configs if keep else configs == set(common.CONFIG_FILES)
     if not valid:
@@ -172,12 +180,6 @@ def test_upload_uses_shell_and_only_sends_configs_when_requested(
     )
     (tmp_path / "config.toml").write_bytes(configuration)
     (tmp_path / "market_data.toml").write_bytes(b"private-sentinel")
-    if keep:
-        monkeypatch.setattr(
-            transport,
-            "prepare_remote_config",
-            lambda *args: pytest.fail("patched preserved remote config"),
-        )
     calls = []
 
     def ssh(args, **kwargs):
@@ -185,6 +187,8 @@ def test_upload_uses_shell_and_only_sends_configs_when_requested(
         assert "BatchMode=yes" in args and "ConnectTimeout=10" in args
         parsed = shlex.split(args[-1])
         assert parsed[:2] == ["sh", "-c"]
+        if parsed[-3] == "inventory":
+            return "none\n"
         assert parsed[-4:] == [
             "dev/project's data $(literal)",
             "upload",
@@ -199,7 +203,7 @@ def test_upload_uses_shell_and_only_sends_configs_when_requested(
                 if member.name in common.CONFIG_FILES:
                     file = archive.extractfile(member)
                     expected = (
-                        configuration.replace(b"false", b"true")
+                        configuration
                         if member.name == "config.toml"
                         else b"private-sentinel"
                     )

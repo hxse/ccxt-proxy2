@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from src.tools.config_profiles import PROFILE_VARIABLE, PROFILES, apply_profile
 from src.tools.config_types import AppConfig
 from src.tools.deployment_types import DeploymentConfig
 
@@ -49,9 +50,27 @@ def _read_payload(path: Path | None, environ: Mapping[str, str] | None = None):
     return payload
 
 
-def load_deployment_config(path: Path | None = None) -> DeploymentConfig:
+def _effective_payload(path, environ, profile):
+    env = os.environ if environ is None else environ
+    selected = profile if profile is not None else env.get(PROFILE_VARIABLE)
+    if not isinstance(selected, str) or selected not in PROFILES:
+        raise ConfigError(
+            "CCXT_PROXY_PROFILE must explicitly be dev, local or remote; values hidden"
+        )
+    payload = _read_payload(path, environ)
+    try:
+        return apply_profile(payload, selected)
+    except (ValueError, TypeError):
+        raise ConfigError(
+            "Invalid overrides; check profile names, field names and types; values hidden"
+        ) from None
+
+
+def load_deployment_config(
+    path: Path | None = None, *, profile: str | None = None
+) -> DeploymentConfig:
     """控制远端实例只需部署目标，不要求本机交易账号或应用白名单有效。"""
-    payload = _read_payload(path)
+    payload = _effective_payload(path, None, profile)
     try:
         return DeploymentConfig.model_validate(payload.get("deployment"))
     except ValidationError:
@@ -61,10 +80,13 @@ def load_deployment_config(path: Path | None = None) -> DeploymentConfig:
 
 
 def load_config(
-    path: Path | None = None, *, environ: Mapping[str, str] | None = None
+    path: Path | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    profile: str | None = None,
 ) -> AppConfig:
     """只从 TOML 读取配置；环境变量仅用于选择文件，不覆盖账号字段。"""
-    payload = _read_payload(path, environ)
+    payload = _effective_payload(path, environ, profile)
     try:
         if "exchange_whitelist" in payload:
             raise ConfigError(

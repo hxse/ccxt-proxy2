@@ -49,6 +49,11 @@ for archive in "$metadata/sources/"*.tar.gz; do
     valid_hash "$archive_hash" || continue
     [ "$archive_hash" = "$uploaded_source" ] || rm -- "$archive"
 done
+for version in "$metadata/sources/"*; do
+    [ -d "$version" ] && [ ! -L "$version" ] || continue
+    valid_hash "${version##*/}" || continue
+    [ "${version##*/}" = "$uploaded_source" ] || rm -r -- "$version"
+done
 candidates=$(pm images --all --quiet --no-trunc)
 for item in $candidates; do
     item=${item#sha256:}

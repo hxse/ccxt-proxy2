@@ -8,10 +8,13 @@ source=$3
 expected=$4
 keep_config=$5
 image=$6
+app_profile=${7:-}
+case "$app_profile" in local|remote) ;; *) echo '必须明确部署配置场景' >&2; exit 1 ;; esac
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$script_dir/container_env.sh"
 . "$script_dir/container_instance.sh"
 . "$script_dir/container_source.sh"
+. "$script_dir/container_manifest.sh"
 . "$script_dir/container_build.sh"
 pending=false
 created=false
@@ -21,13 +24,12 @@ started_existing=false
 trap finish EXIT
 trap 'exit 130' HUP INT TERM
 
-case "$action" in generation|status|logs|stop|start|upload|build|build-start|upload-build|upload-build-start|activate|build-local) ;; *) fail '动作无效' ;; esac
+case "$action" in generation|inventory|status|logs|stop|start|upload|build|build-start|upload-build|upload-build-start|activate|build-local) ;; *) fail '动作无效' ;; esac
 case "$keep_config" in true|false) ;; *) fail '配置上传选项无效' ;; esac
 case "$action" in start|build-start|upload-build-start|activate)
     case "$expected" in ''|*[!0-9]*) fail '启动请求必须指定停止代次' ;; esac ;;
 esac
 if [ "$action" = generation ]; then printf '{"generation":%s}\n' "$(generation)"; exit; fi
-[ "$(uname -sm)" = 'Linux x86_64' ] || fail '容器部署只支持 Linux x86_64'
 pm info >/dev/null
 if [ "$action" = status ]; then status; exit; fi
 if [ "$action" = logs ]; then
@@ -41,6 +43,7 @@ exec 8> "$metadata/control.lock"
 if [ "$action" = stop ]; then stop; exit; fi
 # 本地 activate 的外层 CLI 已持有同一操作锁；远端写动作在此加锁。
 if [ "$action" != activate ] && [ "$action" != build-local ]; then exec 9> "$metadata/operation.lock"; operation_lock; fi
+if [ "$action" = inventory ]; then source_inventory; exit; fi
 
 case "$action" in upload|upload-build|upload-build-start) upload_source ;; esac
 case "$action" in build|build-start|upload-build|upload-build-start) build_uploaded ;; esac

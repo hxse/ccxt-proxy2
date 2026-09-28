@@ -1,6 +1,5 @@
 """SSH 请求封装：上传构建源码和配置，远端通过 Podman 构建。"""
 
-import hashlib
 import json
 import shlex
 import tarfile
@@ -13,8 +12,7 @@ from scripts.container_common import (
     command,
     private_copy,
 )
-from scripts.container_proxy import prepare_remote_config
-from scripts.container_source import pack_source
+from scripts.container_source import parse_inventory, prepare_source
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_FILES = {
@@ -23,13 +21,21 @@ CONTROL_FILES = {
     "scripts/container_manage.sh",
     "scripts/container_validate.py",
     "scripts/container_source.sh",
+    "scripts/container_manifest.sh",
     "scripts/container_build.sh",
     "scripts/container_cleanup.sh",
     "scripts/container_smoke.py",
 }
-UPLOAD_FILES = {"source.tar.gz", "source.sha256", "config.toml", "market_data.toml"}
+UPLOAD_FILES = {
+    "source.delta.tar.gz",
+    "source.manifest",
+    "source.base",
+    "config.toml",
+    "market_data.toml",
+}
 TIMEOUTS = {
     "generation": 30,
+    "inventory": 60,
     "status": 30,
     "stop": 120,
     "start": 240,
@@ -67,16 +73,19 @@ def request_remote(
             else:
                 if source is None:
                     raise DeploymentError("缺少上传配置")
-                prepare_remote_config(source / "config.toml", workspace / "config.toml")
+                private_copy(source / "config.toml", workspace / "config.toml")
                 private_copy(
                     source / "market_data.toml", workspace / "market_data.toml"
                 )
-            pack_source(ROOT, workspace / "source.tar.gz")
-            checksum = hashlib.sha256()
-            with (workspace / "source.tar.gz").open("rb") as stream:
-                for block in iter(lambda: stream.read(1024 * 1024), b""):
-                    checksum.update(block)
-            (workspace / "source.sha256").write_text(checksum.hexdigest() + "\n")
+            inventory = parse_inventory(
+                request_remote(target, "inventory", capture=True)
+            )
+            summary = prepare_source(ROOT, workspace, inventory)
+            print(
+                f"源码增量上传：{summary['changed']}/{summary['total']} 个文件，"
+                f"{summary['bytes']} 字节；配置按本次选项完整处理。",
+                flush=True,
+            )
         bundle = workspace / "bundle.tar.gz"
         with tarfile.open(bundle, "w:gz", compresslevel=1) as archive:
             for name in sorted(files):

@@ -110,7 +110,7 @@ def migrate_config(source: Path, target: Path) -> Path:
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
             stream.write(content)
-        if load_config(target, environ={}) != expected:
+        if load_config(target, environ={}, profile="dev") != expected:
             raise ConfigError("TOML migration verification failed; original retained")
         source.chmod(0o600)
         # 同目录创建硬链接，原子拒绝覆盖已有备份，再移除旧入口。

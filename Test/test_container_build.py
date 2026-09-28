@@ -4,7 +4,7 @@ import tarfile
 import pytest
 
 from scripts import container_common as common
-from scripts.container_source import BUILD_FILES, pack_source
+from scripts.container_source import BUILD_FILES, SourceInventory, prepare_source
 from Test.helpers.container_engine import (
     CACHE_IMAGE,
     DEPENDENCY_IMAGE,
@@ -34,7 +34,8 @@ def test_upload_then_remote_build_starts_without_any_existing_image(engine, sour
     builds = [event for event in state.events if event[0] == "build"]
     assert len(builds) == 2 and "--target=dependencies" in builds[0]
     assert all(
-        "--layers" in event and "--platform=linux/amd64" in event for event in builds
+        "--layers" in event and not any(arg.startswith("--platform") for arg in event)
+        for event in builds
     )
     smoke = next(
         event for event in state.events if event[0] == "run" and "--tmpfs" in event
@@ -42,7 +43,7 @@ def test_upload_then_remote_build_starts_without_any_existing_image(engine, sour
     assert "--network=none" in smoke and "load_td_api" in smoke[-1]
     assert state.containers[common.NAME]["State"]["Running"]
     assert set(state.images) == {NEW_IMAGE, CACHE_IMAGE, DEPENDENCY_IMAGE}
-    assert len(list((engine.root / ".container/sources").glob("*.tar.gz"))) == 1
+    assert len(list((engine.root / ".container/sources").glob("*/manifest"))) == 1
     assert not list((engine.root / ".container").glob("context.*"))
 
 
@@ -165,18 +166,22 @@ def test_source_package_is_deterministic_and_excludes_private_data(tmp_path):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("private sentinel" if name in excluded else "source contents")
-    first, second = tmp_path / "first.tar.gz", tmp_path / "second.tar.gz"
-    pack_source(root, first)
-    pack_source(root, second)
-    assert first.read_bytes() == second.read_bytes()
-    with tarfile.open(first) as archive:
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    prepare_source(root, first, SourceInventory("none", {}))
+    prepare_source(root, second, SourceInventory("none", {}))
+    assert (first / "source.delta.tar.gz").read_bytes() == (
+        second / "source.delta.tar.gz"
+    ).read_bytes()
+    with tarfile.open(first / "source.delta.tar.gz") as archive:
         assert set(archive.getnames()) == included
         for member in archive:
             file = archive.extractfile(member)
             assert file is not None and b"private sentinel" not in file.read()
     (root / "src/leak.py").symlink_to(root / "config.toml")
     with pytest.raises(common.DeploymentError, match="普通文件"):
-        pack_source(root, second)
+        prepare_source(root, second, SourceInventory("none", {}))
 
 
 @pytest.mark.parametrize(
@@ -187,6 +192,6 @@ def test_inner_source_archive_cannot_escape_or_include_runtime_configs(
 ):
     write_upload(source, {extra: b"not source"})
     result = engine.run("upload", source)
-    assert result.returncode != 0 and "源码归档" in result.stderr
+    assert result.returncode != 0 and "源码清单" in result.stderr
     assert not (engine.root / ".container/uploaded").exists()
     assert not any(event[0] == "build" for event in engine.read().events)

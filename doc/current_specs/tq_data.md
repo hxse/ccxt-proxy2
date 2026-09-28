@@ -118,7 +118,7 @@ GET /tq/fetch_ohlcv?symbol=KQ.m@SHFE.rb&duration_seconds=300&data_length=20000&e
 
 ```toml
 [tq]
-# 默认直连；远端上传副本自动改为 true，使用共享 [proxy] 地址。
+# 默认直连；远端通过 overrides.remote.tq 在运行时覆盖为 true，使用共享 [proxy] 地址。
 enable_proxy = false
 username = "..."
 password = ""

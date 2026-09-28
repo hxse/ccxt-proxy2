@@ -70,3 +70,5 @@ just sync-cfb-docs http://127.0.0.1:45173/openapi.json
 上游文档中的能力限制同样来自该快照；代理自身不根据文档拦截请求。CFB 的模式能力由上游实现，代理持续透传 `mode=sandbox/live`；上游能力变化后，重新同步文档即可更新展示的说明。
 
 Bruno 示例位于 [bruno/CFB](../../bruno/CFB)，默认均为 `sandbox`，可按需修改为 `live`。`just bru-cfb-readonly` 只执行五个 GET；下单和撤单示例标记 `[STATEFUL]`，按需单独运行。
+
+CFB 地址按统一配置场景选择：公共 `[cfb] base_url` 为 `http://127.0.0.1:45173`，`[overrides.remote.cfb] base_url` 为 `http://cn-futures-bridge:45173`。远端容器需处于同一个启用 DNS 的 Podman 网络。预检与运行使用同一 remote 场景；不由上传脚本改地址，详见[配置规范](configuration.md)。

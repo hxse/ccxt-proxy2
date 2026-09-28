@@ -1,6 +1,6 @@
 # Just 命令与宿主开发
 
-Just 只做薄编排，默认 just 显示帮助；复杂参数处理与运行逻辑放在项目脚本。项目不使用开发容器，源码运行、测试、静态检查继续在宿主 uv 环境执行；镜像部署使用独立的 [Podman 入口](container_deployment.md)。
+Just 只做薄编排，默认 just 显示帮助；复杂参数处理与运行逻辑放在项目脚本。Just 源码、测试和辅助入口自动注入 CCXT_PROXY_PROFILE=dev；部署入口按 target 显式选择 local/remote，预检与运行一致。项目不使用开发容器，源码运行、测试、静态检查继续在宿主 uv 环境执行；镜像部署使用独立的 [Podman 入口](container_deployment.md)。
 
 ## 准备依赖与源码运行
 
@@ -31,10 +31,14 @@ just run minimal_example/adjust_amount.py
 just test
 just test-file Test/test_container_lifecycle.py -k 'stop or ready'
 just test-online
+just deploy --target=local --build
+just test-public-time-online
 just bru-run 'CFB/fetch_trading_status.bru'
 ```
 
 test 为全量离线，可透传 pytest 选项。单文件范围使用 test-file，它不追加整个 Test 目录。test-online 仍需显式调用，只运行配置支持的 live 只读行情验证；不被 test/check/lint 自动触发。各在线、离线和有状态调试范围见 [验证规范](verification.md)。
+
+test-public-time-online 单独验证已构建本地镜像的 live 公共取时；缺镜像直接失败，不自动构建。临时容器使用 local 场景与只读原配置，仅通过鉴权访问取时路由，不启动交易 SDK 或生产后台，不发布端口、不上传。
 
 check 执行类型检查，lint 执行静态规则检查；两者不自动改写文件。fmt 显式格式化，fix 显式执行 lint 修复，不与检查或启动合并。
 

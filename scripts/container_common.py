@@ -60,8 +60,8 @@ def podman(*args, **kwargs):
 
 
 def require_runtime():
-    if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
-        raise DeploymentError("容器部署只支持 Linux x86_64")
+    if platform.system() != "Linux":
+        raise DeploymentError("本地容器部署需要 Linux Podman")
     if podman("info", "--format", "{{.Host.Security.Rootless}}").strip() != "true":
         raise DeploymentError("请使用普通登录用户的 rootless Podman")
 
@@ -118,14 +118,14 @@ def inspect_image(reference: str) -> dict[str, Any]:
         raise DeploymentError(
             "镜像不存在或不可读取，请先执行 just deploy --target=local --build"
         ) from None
+    native = podman("info", "--format", "{{.Host.OS}} {{.Host.Arch}}").split()
     if (
-        info.get("Os") != "linux"
-        or info.get("Architecture") != "amd64"
+        [info.get("Os"), info.get("Architecture")] != native
         or labels(info).get(PREFIX + "kind") != "runtime"
         or labels(info).get(PREFIX + "release") != "true"
         or labels(info).get(PREFIX + "project") != NAME
     ):
-        raise DeploymentError("镜像必须是本项目的 linux/amd64 运行镜像")
+        raise DeploymentError("镜像必须是匹配 Podman 原生平台的本项目运行镜像")
     return info
 
 

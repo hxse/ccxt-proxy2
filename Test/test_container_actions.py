@@ -187,6 +187,9 @@ def test_upload_configuration_replacement_or_explicit_preservation(
             (engine.root / name).write_text("ignore manually edited copy")
         else:
             (source / name).write_text(f"# changed {name}\n")
+    (source / "source.base").write_text(
+        (engine.root / ".container/uploaded").read_text().splitlines()[0] + "\n"
+    )
     result = engine.run("upload-build-start", source, keep=keep)
     assert result.returncode == 0, result.stderr
     prepared = common.read_prepared(engine.root)
@@ -204,7 +207,7 @@ def test_bad_upload_or_first_keep_leaves_prepared_and_instance_untouched(
 ):
     write_upload(source)
     if failure == "checksum":
-        (source / "source.tar.gz").write_bytes(b"corrupt")
+        (source / "source.delta.tar.gz").write_bytes(b"corrupt")
     elif failure == "configuration":
         state = engine.read()
         state.invalid_config = True
@@ -213,7 +216,7 @@ def test_bad_upload_or_first_keep_leaves_prepared_and_instance_untouched(
     assert result.returncode != 0
     expected = {
         "missing": "没有准备版本",
-        "checksum": "归档校验失败",
+        "checksum": "归档无效",
         "configuration": "配置校验失败",
     }
     assert expected[failure] in result.stderr

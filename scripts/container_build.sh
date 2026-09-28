@@ -4,15 +4,16 @@ build_candidate() {
     build_work=$(mktemp -d "$metadata/build.XXXXXX")
     candidate="$image_tag-build-$(basename "$build_work")"
     printf '%s\n' '构建依赖阶段（命中缓存时不重复编译）……'
-    podman build --platform=linux/amd64 --layers --force-rm --target=dependencies \
+    podman build --layers --force-rm --target=dependencies \
         --tag "$dependency_tag" "$context" 8>&- 9>&-
     printf '%s\n' '构建运行镜像……'
-    podman build --platform=linux/amd64 --layers --force-rm --tag "$candidate" "$context" 8>&- 9>&-
+    podman build --layers --force-rm --tag "$candidate" "$context" 8>&- 9>&-
     inspect_image "$candidate"
     mkdir "$build_work/smoke"
     printf 'SECRET = "%s"\n' 'isolated-smoke-key-is-not-a-real-secret' > "$build_work/smoke/config.toml"
     printf '[tq_collection]\nenabled = false\n[retention]\nenabled = false\n' > "$build_work/smoke/market_data.toml"
     pm run --rm --pull=never --network=none --tmpfs /app/data:rw --entrypoint "$python" \
+        --env "CCXT_PROXY_PROFILE=$app_profile" \
         --volume "$build_work/smoke/config.toml:/app/config.toml:ro" \
         --volume "$build_work/smoke/market_data.toml:/app/market_data.toml:ro" \
         "$image" -c "$(cat "$script_dir/container_smoke.py")"
@@ -24,11 +25,12 @@ publish_image() {
 }
 build_uploaded() {
     uploaded_config_source
-    archive="$metadata/sources/$uploaded_source.tar.gz"
-    [ "$(hash_file "$archive")" = "$uploaded_source" ] || fail '已上传源码摘要不一致，请重新上传'
-    validate_source_archive "$archive"
+    version="$metadata/sources/$uploaded_source"
+    [ -f "$version/manifest" ] || fail '源码版本缺少增量清单，请先重新 --upload'
+    [ "$(hash_file "$version/manifest")" = "$uploaded_source" ] || fail '已上传源码清单摘要不一致'
+    verify_source_tree "$version/files" "$version/manifest"
     build_context=$(mktemp -d "$metadata/context.XXXXXX")
-    tar -xf "$archive" --no-same-owner --no-same-permissions -C "$build_context"
+    cp -a -- "$version/files/." "$build_context/"
     build_candidate "$build_context"
     validate_config
     publish_image

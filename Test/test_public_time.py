@@ -2,14 +2,19 @@
 
 import asyncio
 
+import aiohttp
 import httpx
 import pytest
 from fastapi import FastAPI
+from pydantic import ValidationError
 
 from src.main import app as main_app
 from src.router.auth_handler import manager as auth_manager
 from src.router.system_router import system_router
 from src.tools import public_time
+from src.tools.config_loader import load_config
+from src.tools.config_types import AppConfig
+from Test.helpers.public_time_transport import TimeSession
 from Test.test_ctp_http import LocalClient
 
 
@@ -20,25 +25,24 @@ def http(monkeypatch):
     app.dependency_overrides[auth_manager] = lambda: {"sub": "offline"}
     created = []
     calls = []
+    monkeypatch.setattr(public_time, "config", AppConfig(SECRET="offline"))
+
+    async def no_market_loading(*args, **kwargs):
+        pytest.fail("公共取时不得加载市场或依赖交易实例")
+
+    monkeypatch.setattr(public_time._TimeBinance, "load_markets", no_market_loading)
 
     def configure(handler):
-        async def upstream(request):
-            calls.append(request)
-            result = handler(request)
-            return await result if asyncio.iscoroutine(result) else result
-
         def create_client(**kwargs):
-            client = httpx.AsyncClient(
-                transport=httpx.MockTransport(upstream), **kwargs
-            )
+            client = TimeSession(handler, calls, **kwargs)
             created.append(client)
             return client
 
-        monkeypatch.setattr(public_time, "AsyncClient", create_client)
+        monkeypatch.setattr(public_time.aiohttp, "ClientSession", create_client)
 
     configure(lambda request: httpx.Response(200, json={"serverTime": 1234567890000}))
     yield LocalClient(app), configure, calls
-    assert all(client.is_closed for client in created)
+    assert all(client.closed and not client.trust_env for client in created)
 
 
 def test_time_is_fetched_for_each_request_and_upstream_fields_are_preserved(http):
@@ -134,16 +138,16 @@ def test_time_rejects_non_json_response(http):
 @pytest.mark.parametrize(
     ("error", "status", "code"),
     [
-        (httpx.ConnectTimeout, 504, "PUBLIC_TIME_TIMEOUT"),
-        (httpx.ReadTimeout, 504, "PUBLIC_TIME_TIMEOUT"),
-        (httpx.ConnectError, 502, "PUBLIC_TIME_NETWORK_ERROR"),
+        (aiohttp.ConnectionTimeoutError, 504, "PUBLIC_TIME_TIMEOUT"),
+        (aiohttp.SocketTimeoutError, 504, "PUBLIC_TIME_TIMEOUT"),
+        (aiohttp.ClientConnectionError, 502, "PUBLIC_TIME_NETWORK_ERROR"),
     ],
 )
 def test_time_network_errors_are_explicit_and_not_retried(http, error, status, code):
     client, configure, calls = http
 
     def fail(request):
-        raise error("upstream internal details", request=request)
+        raise error("upstream internal details")
 
     configure(fail)
     response = client.get("/system/fetch_time")
@@ -182,3 +186,68 @@ def test_time_openapi_explains_units_auth_and_errors_without_parameters():
     ]
     assert field["type"] == "integer" and field["format"] == "int64"
     assert "毫秒" in field["description"]
+
+
+@pytest.mark.parametrize(
+    "profile,uses_proxy", [("dev", False), ("local", False), ("remote", True)]
+)
+def test_time_uses_scene_proxy_without_credentials_or_enabled_trading(
+    http, tmp_path, monkeypatch, profile, uses_proxy
+):
+    client, _, calls = http
+    path = tmp_path / "config.toml"
+    path.write_text("""
+SECRET = 'offline'
+[proxy]
+http = 'http://proxy.example:8888'
+[binance]
+enable_proxy = false
+[overrides.remote.binance]
+enable_proxy = true
+""")
+    monkeypatch.setenv("HTTPS_PROXY", "http://unrelated.example:9999")
+    selected = load_config(path, profile=profile)
+    assert selected.service_whitelist == []
+    assert selected.binance is not None
+    assert selected.binance.live is None and selected.binance.test is None
+    monkeypatch.setattr(public_time, "config", selected)
+    response = client.get("/system/fetch_time")
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert calls[0].extensions["proxy"] == (
+        "http://proxy.example:8888" if uses_proxy else None
+    )
+    assert calls[0].extensions["timeout"].total == 5
+    assert str(calls[0].url) == "https://api.binance.com/api/v3/time"
+
+
+def test_time_proxy_requires_address_even_without_trading_whitelist():
+    with pytest.raises(ValidationError, match="binance.enable_proxy"):
+        AppConfig(SECRET="offline", binance={"enable_proxy": True})
+
+
+def test_time_really_uses_ccxt_fetch_time(http, monkeypatch):
+    client, _, calls = http
+    original = public_time.ccxt.binance.fetch_time
+    invoked = []
+
+    async def observe(exchange, params=None):
+        invoked.append(exchange)
+        return await original(exchange, params or {})
+
+    monkeypatch.setattr(public_time.ccxt.binance, "fetch_time", observe)
+    assert client.get("/system/fetch_time").status_code == 200
+    assert len(invoked) == len(calls) == 1
+    assert invoked[0].session is None
+
+
+def test_time_cancellation_closes_session_without_becoming_a_http_error(http):
+    _, configure, calls = http
+
+    async def cancel(request):
+        raise asyncio.CancelledError
+
+    configure(cancel)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(public_time.fetch_public_time())
+    assert len(calls) == 1

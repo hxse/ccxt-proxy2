@@ -6,7 +6,7 @@ action=$2
 expected=$3
 keep_config=$4
 case "$relative" in ''|/*|~*|*:*|..|../*|*/../*|*/..|.) echo '远端目录无效' >&2; exit 1 ;; esac
-case "$action" in generation|status|logs|stop|start|upload|build|build-start|upload-build|upload-build-start) ;; *) exit 1 ;; esac
+case "$action" in generation|inventory|status|logs|stop|start|upload|build|build-start|upload-build|upload-build-start) ;; *) exit 1 ;; esac
 case "$keep_config" in true|false) ;; *) exit 1 ;; esac
 if [ "$keep_config" = true ]; then
     case "$action" in upload|upload-build|upload-build-start) ;; *) exit 1 ;; esac
@@ -25,12 +25,13 @@ scripts/container_instance.sh
 scripts/container_manage.sh
 scripts/container_validate.py
 scripts/container_source.sh
+scripts/container_manifest.sh
 scripts/container_build.sh
 scripts/container_cleanup.sh
 scripts/container_smoke.py
 FILES
 case "$action" in upload|upload-build|upload-build-start)
-    printf '%s\n' source.tar.gz source.sha256 >> "$incoming/required"
+    printf '%s\n' source.delta.tar.gz source.manifest source.base >> "$incoming/required"
     if [ "$keep_config" = false ]; then
         printf '%s\n' config.toml market_data.toml >> "$incoming/required"
     fi ;;
@@ -43,4 +44,4 @@ fi
 mkdir "$incoming/files"
 tar -xf "$incoming/bundle.tar.gz" --no-same-owner --no-same-permissions -C "$incoming/files"
 chmod -R u=rwX,go= "$incoming/files"
-sh "$incoming/files/scripts/container_manage.sh" "$root" "$action" "$incoming/files" "$expected" "$keep_config" ''
+sh "$incoming/files/scripts/container_manage.sh" "$root" "$action" "$incoming/files" "$expected" "$keep_config" '' remote
