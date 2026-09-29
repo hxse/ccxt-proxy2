@@ -62,7 +62,7 @@ CTP_STATUS_DESCRIPTION = """
 读取当前连接最新的 `OnRtnInstrumentStatus` 公共流通知；CTP 没有对应的主动查询 API。
 按品种精确匹配，例如 `exchange_id=SHFE&product_id=rb`，不传 rb2610，也不自动解析合约。
 
-- `mode=sandbox`（默认）读取 `[ctp.test]`，可接 SimNow；`mode=live` 读取 `[ctp.live]`。
+- `is_live=false`（必填）读取 `[ctp.test]`，可接 SimNow；`is_live=true` 读取 `[ctp.live]`。
   模拟盘只代表对应模拟前置的状态，不能当成实盘交易所状态；缺少所选配置时明确报错。
 - `is_open=true`：InstrumentStatus="2"，连续交易。
 - `is_open=false`："0"/"1"/"3"/"4"/"5"/"6"/"7"，开盘前、非交易、集合竞价、收盘等阶段。
@@ -81,8 +81,8 @@ HTTP 只读取独立短锁保护的快照，不进入账户操作队列或业务
 
 SESSION_DESCRIPTION = """
 
-账户与模式：`mode=sandbox`（默认）读取 config.toml 的 `[ctp.test]`，可接 SimNow；
-`mode=live` 读取 `[ctp.live]`，两者连接及 flow 目录独立，不相互回退。
+账户与模式：`is_live=false`（必填）读取 config.toml 的 `[ctp.test]`，可接 SimNow；
+`is_live=true` 读取 `[ctp.live]`，两者连接及 flow 目录独立，不相互回退。
 请求不能传密码、认证码或前置地址；使用本项目 Bearer token。
 只有列入 service_whitelist 的模式会在程序启动时完成客户端认证、登录、结算确认。
 请求复用已初始化实例；断线恢复仍使用启动时的配置快照，中途修改文件不生效。

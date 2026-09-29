@@ -14,7 +14,7 @@ class ResultModel(BaseModel):
 
 
 class OrderIdentity(ResultModel):
-    """当前账户的完整订单引用；六个字段一起传给 GET /cfb/fetch_orders，另带原请求 mode。"""
+    """当前账户的完整订单引用；六个字段一起传给 GET /cfb/fetch_orders，另带原请求 is_live。"""
 
     exchange_id: Exchange
     instrument_id: Instrument
@@ -120,10 +120,10 @@ class SubmissionResult(ResultModel):
     submission_status: Literal["submitted"] = Field(default="submitted",
         description="仅表示本地提交，不代表柜台接受或成交；后续用 GET /cfb/fetch_orders 查询。")
     order_id: str | None = Field(default=None,
-        description="已确认归属本次请求的真实交易所订单编号。用户可原样传给 GET /cfb/fetch_orders 的 order_sys_id，并带原 mode、交易所和合约；未取得时为 null。",
+        description="已确认归属本次请求的真实交易所订单编号。用户可原样传给 GET /cfb/fetch_orders 的 order_sys_id，并带原 is_live、交易所和合约；未取得时为 null。",
         examples=["648294", None])
     identity: OrderIdentity | None = Field(default=None,
-        description="开平仓实际发送的完整引用。order_id 为 null 时，可把这六个字段及原 mode 传给 fetch_orders，不传 order_sys_id；缺失不能推断未提交。")
+        description="开平仓实际发送的完整引用。order_id 为 null 时，可把这六个字段及原 is_live 传给 fetch_orders，不传 order_sys_id；缺失不能推断未提交。")
     execution: OrderExecution | None = None
     verification: Verification | None = None
 

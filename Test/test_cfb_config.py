@@ -13,7 +13,10 @@ from src.tools.config_loader import ConfigError, load_config
 
 def test_config_keeps_accounts_and_applies_remote_proxy(tmp_path):
     path = tmp_path / 'config.toml'
-    path.write_text('''SECRET="offline"\n[[service_whitelist]]\nservice="cfb"
+    path.write_text('''SECRET="offline"
+[[service_whitelist]]
+service="cfb"
+is_live = false
 [proxy]
 http="http://127.0.0.1:9998"
 [cfb]
@@ -28,24 +31,32 @@ enable_proxy=true
         config = load_config(path, profile=profile)
         assert config.cfb is not None
         assert config.cfb.enable_proxy == (profile == 'remote')
-        assert config.cfb.account.username.get_secret_value() == 'offline-sample'
-        assert config.cfb.bridge.mode == 'sandbox'
+        assert config.cfb.for_mode("sandbox").account.username.get_secret_value() == 'offline-sample'
+        assert config.cfb.for_mode("sandbox").bridge.mode == 'sandbox'
         output = layout(config)
         assert 'offline' not in output and len(output.split()) == 5
 
 
 @pytest.mark.parametrize('field', ['base_url="http://127.0.0.1:45173"', 'api={port=45173}',
-                                  'bridge={data_dir="/outside"}', 'enable_proxy=true'])
+                                  'bridge={data_dir="/outside"}', 'bridge={mode="sandbox"}', 'vnc={port=45174}', 'enable_proxy=true'])
 def test_retired_fields_and_invalid_runtime_are_rejected(tmp_path, field):
     path = tmp_path / 'config.toml'
-    path.write_text('SECRET="offline"\n[[service_whitelist]]\nservice="cfb"\n[cfb]\n' + field)
+    path.write_text(
+        'SECRET="offline"\n'
+        'service_whitelist = [{service="cfb", is_live=false}]\n'
+        '[cfb]\n' + field
+    )
     with pytest.raises(ConfigError):
         load_config(path, profile='dev')
 
 
 def test_layout_ignores_other_sdk_and_backup_accounts(tmp_path):
     path = tmp_path / 'config.toml'
-    base = 'SECRET="offline"\n[[service_whitelist]]\nservice="cfb"\n[cfb]\n'
+    base = (
+        'SECRET="offline"\n'
+        'service_whitelist = [{service="cfb", is_live=false}]\n'
+        '[cfb]\n'
+    )
     path.write_text(base)
     before = layout(load_config(path, profile='dev'))
     path.write_text(base + '[cfb.accounts.live]\nusername="backup"\npassword="ignored"\n[binance]\nenable_proxy=false\n')
@@ -81,3 +92,26 @@ def test_proxy_file_private_and_disabled_environment_is_clean(tmp_path, monkeypa
     libraries[0].write_bytes(b'\x7fELF\x02')
     with pytest.raises(ValueError, match='architecture'):
         prepare_proxy(settings, 'http://127.0.0.1:8888')
+
+
+def test_mode_port_collisions_are_checked_for_enabled_instances(tmp_path):
+    path = tmp_path / 'config.toml'
+    path.write_text('''SECRET="offline"
+[[service_whitelist]]
+service="cfb"
+is_live = false
+[[service_whitelist]]
+service="cfb"
+is_live = true
+[cfb.accounts.live]
+broker_id="6020"
+site="一套"
+[cfb.vnc.live]
+port=45174
+web_port=45177
+''')
+    with pytest.raises(ConfigError):
+        load_config(path, profile='dev')
+    path.write_text(path.read_text().replace('port=45174', 'port=45176'))
+    config = load_config(path, profile='dev')
+    assert [row.split()[0] for row in layout(config).splitlines()] == ['sandbox', 'live']

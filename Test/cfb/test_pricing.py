@@ -14,7 +14,7 @@ from src.cfb.terminal.pricing import normalize_limit, validate_limit
 
 
 def request(value: str | float, side: str = "buy", offset: str = "open") -> LimitOrder:
-    return LimitOrder.model_validate({'exchange_id':'DCE','instrument_id':'m2701','side':side,
+    return LimitOrder.model_validate({'is_live':False,'exchange_id':'DCE','instrument_id':'m2701','side':side,
         'offset':offset,'volume':1,'price':Decimal(str(value))})
 
 

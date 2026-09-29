@@ -1,6 +1,7 @@
 """真实 Unix socket 验证取消、幂等和边界；终端执行由离线样本驱动。"""
 
 import asyncio
+import threading
 
 import pytest
 
@@ -15,7 +16,7 @@ from src.cfb.server import Server
 from src.cfb.service import BridgeService
 from src.cfb.worker import WorkerState
 
-ORDER = {"mode": "sandbox", "exchange_id": "DCE", "instrument_id": "m2701",
+ORDER = {"is_live": False, "exchange_id": "DCE", "instrument_id": "m2701",
          "side": "buy", "offset": "open", "volume": 1, "price": 3514}
 
 
@@ -158,6 +159,65 @@ def test_missing_worker_is_explicit_and_not_retried(tmp_path):
 
 def test_execution_identity_required_and_protocol_has_no_shell_command():
     with pytest.raises(ValueError):
-        Request(kind="execute", request_id="test", operation=Operation(action="fetch_positions", parameters={}))
+        Request(kind="execute", request_id="test", operation=Operation(action="fetch_positions", parameters={"is_live": False, }))
     with pytest.raises(ValueError):
         Request.model_validate({"kind": "shell", "request_id": "test", "command": "anything"})
+    with pytest.raises(ValueError, match="configuration identity"):
+        Request(kind="ready", request_id="test")
+
+
+def test_ready_checks_same_configuration_identity_as_execution(tmp_path):
+    async def run():
+        service, dispatcher, server, client = fixture(tmp_path)
+        await server.start()
+        try:
+            matching = await client.call("ready")
+            assert matching.status == 200 and matching.body["trading_ready"] is True
+            client.settings = client.settings.model_copy(update={"vnc_enabled": False})
+            for kind in ("status", "health"):
+                assert (await client.call(kind)).status == 200
+            ready = await client.call("ready", request_id="cfb-ready-mismatch")
+            assert ready.status == 503
+            assert ready.body["error"]["code"] == "SERVICE_NOT_READY"
+            assert ready.headers["X-Request-ID"] == "cfb-ready-mismatch"
+            assert not dispatcher.queue
+            client.settings = service.settings
+            assert (await client.call("ready")).status == 200
+        finally:
+            await client.close()
+            await server.close()
+    asyncio.run(run())
+
+
+def test_disconnect_between_enqueue_and_admission_reply_removes_job(tmp_path, monkeypatch):
+    release = threading.Event()
+
+    async def run():
+        _, dispatcher, server, client = fixture(tmp_path)
+        original = dispatcher.submit
+
+        def submit(*args):
+            job = original(*args)
+            assert release.wait(2)
+            return job
+
+        monkeypatch.setattr(dispatcher, 'submit', submit)
+        await server.start()
+        try:
+            pending = asyncio.create_task(client.call('execute', request_id='cfb-admission', key='admission',
+                operation=Operation(action='create_limit_order', parameters=ORDER)))
+            await wait_for(lambda: dispatcher.queue)
+            job = dispatcher.queue[0]
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            await wait_for(lambda: job.cancelled.is_set())
+            release.set()
+            await wait_for(lambda: job.future.done())
+            assert not dispatcher.queue
+            assert job.future.result().status == 499
+        finally:
+            release.set()
+            await client.close()
+            await server.close()
+    asyncio.run(run())

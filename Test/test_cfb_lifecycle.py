@@ -1,74 +1,98 @@
-"""CFB 客户端和服务白名单的生命周期；容器管理只属于正式启动入口。"""
+"""CFB 两种模式独立初始化与关闭；业务不触发终端初始化。"""
 
 import asyncio
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
-from src.cfb.client import Client
+from src.base_types import ModeType
+from src.cfb.manager import Manager
 from src.tools.config_types import AppConfig, CfbConfig
 from src.tools.service_runtime import ServiceRuntime
 from src.tools.shared import lifespan
-from Test.test_service_lifecycle import fake_managers
+
+MODES: list[ModeType] = ['sandbox', 'live']
+CFB = {'accounts': {'live': {'broker_id': '6020', 'site': '一套'}}}
 
 
-@pytest.mark.parametrize("payload", [
-    {"service_whitelist": [{"service": "cfb"}]},
-    {"cfb": {}, "service_whitelist": [{"service": "cfb", "mode": "live"}]},
-    {"cfb": {}, "service_whitelist": [{"service": "cfb"}, {"service": "cfb"}]},
-    {"cfb": {"base_url": "http://old.invalid"}},
-    {"cfb": {"api": {"port": 45173}}},
-    {"cfb": {"request_timeout_seconds": 0}},
-    {"cfb": {"request_timeout_seconds": float("inf")}},
-    {"cfb": {"enable_proxy": True}, "service_whitelist": [{"service": "cfb"}]},
+@pytest.mark.parametrize('items', [
+    [{'service': 'cfb'}],
+    [{'service': 'cfb', 'is_live': 'third'}],
+    [{'service': 'cfb', 'is_live': False}] * 2,
+    [{'service': 'cfb', 'is_live': (x == "live")} for x in ('sandbox', 'live', 'live')],
 ])
-def test_cfb_configuration_rejects_invalid_values(payload):
+def test_whitelist_requires_unique_explicit_mode(items):
     with pytest.raises(ValidationError):
-        AppConfig.model_validate({"SECRET": "offline"} | payload)
+        AppConfig.model_validate({'SECRET': 'offline', 'cfb': CFB, 'service_whitelist': items})
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_lifespan_uses_startup_snapshot_without_starting_terminal(monkeypatch, enabled):
-    config = AppConfig.model_validate({"SECRET": "offline", "cfb": {"request_timeout_seconds": 27.0},
-                                      "service_whitelist": [{"service": "cfb"}] if enabled else []})
-    runtime = ServiceRuntime(config)
+@pytest.mark.parametrize('field', [{'base_url': 'http://old.invalid'}, {'api': {'port': 45173}},
+                                 {'bridge': {'mode': 'sandbox'}}, {'vnc': {'port': 45174}},
+                                 {'request_timeout_seconds': 0}, {'request_timeout_seconds': float('inf')}])
+def test_retired_or_invalid_public_config_is_rejected(field):
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({'SECRET': 'offline', 'cfb': field})
+
+
+@pytest.mark.parametrize('enabled', [[], ['sandbox'], ['live'], MODES])
+def test_lifespan_keeps_mode_snapshot_and_closes_each_client(monkeypatch, tmp_path, enabled):
+    config = AppConfig.model_validate({'SECRET': 'offline', 'cfb': CFB | {'request_timeout_seconds': 27.0},
+        'ohlcv_cache': {'database_path': str(tmp_path / 'cache.duckdb')},
+        'service_whitelist': [{'service': 'cfb', 'is_live': (mode == "live")} for mode in enabled]})
+    runtime, registry = ServiceRuntime(config), Manager(tmp_path / 'cfb')
     config.cfb = CfbConfig(request_timeout_seconds=1.0)
     config.service_whitelist.clear()
-    client = Client()
-    monkeypatch.setattr("src.tools.shared.service_runtime", runtime)
-    monkeypatch.setattr("src.cfb.client.cfb_client", client)
-    monkeypatch.setattr("src.tools.telegram_manager.telegram_manager.close", lambda: None)
-    monkeypatch.setattr(asyncio, "open_unix_connection", lambda *a, **kw: pytest.fail("初始化不应访问终端或登录"))
+    monkeypatch.setattr('src.tools.shared.service_runtime', runtime)
+    monkeypatch.setattr('src.cfb.manager.cfb_manager', registry)
+    monkeypatch.setattr('src.tools.telegram_manager.telegram_manager.close', lambda: None)
+    monkeypatch.setattr(asyncio, 'open_unix_connection', lambda *a, **kw: pytest.fail('初始化不应连接或登录'))
 
     async def run():
+        clients = []
         async with lifespan(FastAPI()):
             await asyncio.to_thread(runtime.wait_for_startup)
-            assert runtime.initialized == (["cfb"] if enabled else [])
-            assert client.is_ready() is enabled
-            if enabled:
-                assert client.timeout == 27
-        assert not runtime.ready and not client.is_ready() and not client.writers
+            assert set(runtime.initialized) == {f'cfb/{mode}' for mode in enabled}
+            for mode in MODES:
+                assert registry.is_ready(mode) == (mode in enabled)
+                if mode in enabled:
+                    client = registry.get(mode)
+                    clients.append(client)
+                    assert client.timeout == 27 and client.settings.request_mode == mode
+                    assert client.path == tmp_path / 'cfb' / mode / 'run/bridge.sock'
+        assert not runtime.ready
+        assert all(not client.is_ready() and not client.writers for client in clients)
+        assert all(not registry.is_ready(mode) for mode in MODES)
     asyncio.run(run())
 
 
-def test_other_sdk_failure_does_not_close_cfb(monkeypatch, tmp_path):
-    config = AppConfig.model_validate({"SECRET": "offline", "cfb": {},
-        "ohlcv_cache": {"database_path": str(tmp_path / "cache.duckdb")},
-        "binance": {"test": {"api_key": "offline", "secret": "offline"}},
-        "service_whitelist": [{"service": "cfb"}, {"service": "ccxt", "exchange": "binance", "market": "future", "mode": "sandbox"}]})
-    runtime, client = ServiceRuntime(config), Client()
-    ccxt, _, _ = fake_managers([], fail="ccxt")
-    monkeypatch.setattr("src.tools.shared.service_runtime", runtime)
-    monkeypatch.setattr("src.tools.shared.exchange_manager", ccxt)
-    monkeypatch.setattr("src.cfb.client.cfb_client", client)
-    monkeypatch.setattr("src.tools.telegram_manager.telegram_manager.close", lambda: None)
+@pytest.mark.parametrize('failed', MODES)
+def test_initialization_failure_is_isolated_between_modes(monkeypatch, tmp_path, failed):
+    config = AppConfig.model_validate({'SECRET': 'offline', 'cfb': CFB,
+        'ohlcv_cache': {'database_path': str(tmp_path / 'cache.duckdb')},
+        'service_whitelist': [{'service': 'cfb', 'is_live': (mode == "live")} for mode in MODES]})
+    runtime, registry = ServiceRuntime(config), Manager()
+    initialize = registry.initialize
+
+    def start(settings, mode):
+        if mode == failed:
+            raise OSError('offline failure')
+        initialize(settings, mode)
+
+    monkeypatch.setattr(registry, 'initialize', start)
+    monkeypatch.setattr('src.tools.shared.service_runtime', runtime)
+    monkeypatch.setattr('src.cfb.manager.cfb_manager', registry)
+    monkeypatch.setattr('src.tools.telegram_manager.telegram_manager.close', lambda: None)
 
     async def run():
         async with lifespan(FastAPI()):
             await asyncio.to_thread(runtime.wait_for_startup)
-            runtime.require("cfb")
-            assert runtime.snapshot()["services"]["ccxt/binance/future/sandbox"] == "failed"
-            assert client.is_ready()
-        assert not client.is_ready()
+            for mode in MODES:
+                if mode == failed:
+                    with pytest.raises(HTTPException) as caught:
+                        runtime.require(f'cfb/{mode}')
+                    assert caught.value.status_code == 503
+                    assert caught.value.detail == {'code': 'SERVICE_NOT_READY', 'service': f'cfb/{mode}'}
+                else:
+                    runtime.require(f'cfb/{mode}')
     asyncio.run(run())

@@ -216,6 +216,7 @@ def test_forwarded_requests_are_accepted_by_native_bindings_without_a_front(tmp_
     manager = CtpManager(ctp_config(tmp_path), fake)
     client = manager.get_client("sandbox")
     values = dict(
+        is_live=False,
         exchange_id="SHFE", instrument_id="rb2610", side="buy", offset="open", volume=1
     )
     try:
@@ -224,7 +225,7 @@ def test_forwarded_requests_are_accepted_by_native_bindings_without_a_front(tmp_
             CtpLimitOrderRequest.model_validate(values | {"price": 3500})
         )
         client.cancel_order(
-            CtpCancelByExchange(
+            CtpCancelByExchange(is_live=False, 
                 by="exchange_order",
                 exchange_id="SHFE",
                 instrument_id="rb2610",
@@ -232,7 +233,7 @@ def test_forwarded_requests_are_accepted_by_native_bindings_without_a_front(tmp_
             )
         )
         client.cancel_order(
-            CtpCancelBySession(
+            CtpCancelBySession(is_live=False, 
                 by="session_order",
                 exchange_id="SHFE",
                 instrument_id="rb2610",
@@ -241,10 +242,10 @@ def test_forwarded_requests_are_accepted_by_native_bindings_without_a_front(tmp_
                 order_ref="11",
             )
         )
-        client.fetch_orders(CtpOrderQuery())
-        client.fetch_trades(CtpTradeQuery())
-        client.fetch_positions(CtpPositionQuery())
-        client.fetch_balance(CtpAccountQuery())
+        client.fetch_orders(CtpOrderQuery(is_live=False))
+        client.fetch_trades(CtpTradeQuery(is_live=False))
+        client.fetch_positions(CtpPositionQuery(is_live=False))
+        client.fetch_balance(CtpAccountQuery(is_live=False))
     finally:
         manager.close()
     api = ctp_native.load_td_api()()

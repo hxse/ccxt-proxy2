@@ -175,7 +175,7 @@ class CtpErrorResponse(BaseModel):
 
 
 class CtpValidationIssue(BaseModel):
-    loc: list[str | int] = Field(description="错误位置，如 body/price 或 query/mode。")
+    loc: list[str | int] = Field(description="错误位置，如 body/price 或 query/is_live。")
     msg: str = Field(description="参数校验错误说明。")
     type: str = Field(description="Pydantic/FastAPI 校验错误类型。")
 

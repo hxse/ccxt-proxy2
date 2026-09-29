@@ -6,12 +6,13 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    StrictBool,
     field_validator,
     model_validator,
 )
 
 from src.base_types import ExchangeName, MarketType, ModeType
-from src.cfb.config import Settings as CfbSettings
+from src.cfb.config import CfbConfig
 from src.tools.deployment_types import DeploymentConfig
 from src.tools.market_data_types import MarketDataClientConfig
 
@@ -111,14 +112,6 @@ class CtpConfig(BaseModel):
     query_interval_seconds: float = Field(1.1, ge=1, le=60, allow_inf_nan=False)
 
 
-class CfbConfig(CfbSettings):
-    """独立 CFB 执行容器的配置，与主服务共用场景覆盖。"""
-
-    enable_proxy: bool = False
-    vnc_enabled: bool = True
-    request_timeout_seconds: float = Field(300.0, gt=0, le=300, allow_inf_nan=False)
-
-
 class OhlcvCacheConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -161,13 +154,21 @@ class TelegramConfig(BaseModel):
         return normalized
 
 
-class CcxtServiceConfig(BaseModel):
+class TradingServiceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    is_live: StrictBool
+
+    @property
+    def mode(self) -> ModeType:
+        # 只在配置边界转换；SDK、缓存和既有持久化身份继续使用原环境名称。
+        return "live" if self.is_live else "sandbox"
+
+
+class CcxtServiceConfig(TradingServiceConfig):
     service: Literal["ccxt"]
     exchange: ExchangeName
     market: MarketType
-    mode: ModeType
 
     @property
     def identity(self) -> str:
@@ -184,25 +185,20 @@ class TqServiceConfig(BaseModel):
         return "tq"
 
 
-class CtpServiceConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class CtpServiceConfig(TradingServiceConfig):
     service: Literal["ctp"]
-    mode: ModeType
 
     @property
     def identity(self) -> str:
         return f"ctp/{self.mode}"
 
 
-class CfbServiceConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class CfbServiceConfig(TradingServiceConfig):
     service: Literal["cfb"]
 
     @property
     def identity(self) -> str:
-        return "cfb"
+        return f"cfb/{self.mode}"
 
 
 ServiceWhitelistItem = Annotated[
@@ -242,6 +238,7 @@ class AppConfig(BaseModel):
                 "proxy.http must be configured when binance.enable_proxy is true"
             )
         seen_identities: set[str] = set()
+        cfb_ports: set[int] = set()
         for item in self.service_whitelist:
             identity = item.identity
             if identity in seen_identities:
@@ -252,6 +249,12 @@ class AppConfig(BaseModel):
                     raise ValueError(
                         "missing cfb config referenced by service_whitelist"
                     )
+                settings = self.cfb.for_mode(item.mode)
+                if settings.vnc_enabled:
+                    ports = {settings.vnc.port, settings.vnc.web_port}
+                    if cfb_ports & ports:
+                        raise ValueError("enabled CFB modes must use distinct VNC/noVNC ports")
+                    cfb_ports.update(ports)
                 if str(self.cfb.bridge.data_dir) != "/data":
                     raise ValueError("cfb.bridge.data_dir must be /data in the execution container")
                 if self.cfb.enable_proxy:

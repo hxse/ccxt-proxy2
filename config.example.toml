@@ -6,6 +6,23 @@
 # JWT 签名密钥，替换为自己生成的随机值；根字段需写在分组之前。
 SECRET = "replace-with-a-random-secret"
 
+# 公共服务白名单，供 dev/local 使用；填写账户本身不会启用服务。
+# service 指定服务；CCXT 还需 exchange（交易所）与 market（市场）。
+# is_live 必填布尔值：true=实盘，false=模拟盘；TQ 不接受该字段。
+# 同一身份不能重复；配置只在启动时读取。
+service_whitelist = [
+    # 其他服务按需取消注释，并填写对应账户分组。
+    # { service = "ccxt", exchange = "binance", market = "future", is_live = false },
+    # { service = "ccxt", exchange = "binance", market = "future", is_live = true },
+    # { service = "ccxt", exchange = "kraken", market = "future", is_live = false },
+    # { service = "ccxt", exchange = "kraken", market = "future", is_live = true },
+    # { service = "tq" },
+    # { service = "ctp", is_live = false },
+    # { service = "ctp", is_live = true },
+    { service = "cfb", is_live = false },
+    { service = "cfb", is_live = true },
+]
+
 # 本服务的登录用户，供 /auth/token 和 Bruno 使用。
 [users.admin]
 password = "replace-with-your-password"
@@ -73,7 +90,6 @@ password = "replace-with-your-password"
 # request_timeout_seconds = 10
 # query_interval_seconds = 1.1
 
-
 # Telegram：每个 chat alias 单独一行，chat_id 保持字符串。
 # [telegram]
 # bot_token = ""
@@ -87,39 +103,6 @@ database_path = "./data/cache/ohlcv.duckdb"
 max_rows_per_series = 2000000
 max_rows_total = 20000000
 
-# 统一服务白名单：只有这里列出的实例会在启动时初始化。
-# 账号配置本身不会启用服务；缺省为空白名单，不加载 CCXT/TQ/CTP/CFB。
-# 配置只在进程启动时读取，运行中修改无效；重启后生效。
-# 某个 SDK 初始化失败只影响该身份，其他服务继续运行。
-# 每个 CCXT 身份必须明确 exchange/market/mode，不允许重复。
-# [[service_whitelist]]
-# service = "ccxt"
-# exchange = "binance"
-# market = "future"
-# mode = "sandbox"
-
-# [[service_whitelist]]
-# service = "ccxt"
-# exchange = "kraken"
-# market = "future"
-# mode = "live"
-
-# TQ 使用 [tq] 账号，不接受 exchange/market/mode。
-# [[service_whitelist]]
-# service = "tq"
-
-# CTP 每个模式独立启用；sandbox 使用 [ctp.test]，live 使用 [ctp.live]。
-# [[service_whitelist]]
-# service = "ctp"
-# mode = "sandbox"
-
-# [[service_whitelist]]
-# service = "ctp"
-# mode = "live"
-
-# CFB 在下方明确启用；账户配置也在同一文件的 cfb 子表。
-
-# 文件：现有私有 config.toml；以下只是新增片段，不是完整文件。
 [market_data_client]
 # 后台脚本实际访问的本项目服务地址；容器内运行时按容器监听端口填写。
 base_url = "http://127.0.0.1:5123"
@@ -137,18 +120,26 @@ request_timeout_seconds = 60
 
 # 按运行场景覆盖；公共配置用于 dev/local，远端由加载器合并，不改原文件。
 # 四个服务在远端使用上方同一 [proxy] 地址。
+[overrides.remote]
+# 远端完整白名单，整体替换公共数组；CCXT、CFB 只保留实盘。
+# 需要在远端运行的其他服务也须明确列出，不自动与公共数组合并。
+service_whitelist = [
+    # 与上方账户配置配套启用；远端这里同样需要列出。
+    # { service = "ccxt", exchange = "binance", market = "future", is_live = true },
+    # { service = "ccxt", exchange = "kraken", market = "future", is_live = true },
+    # { service = "tq" },
+    # { service = "ctp", is_live = true },
+    { service = "cfb", is_live = true },
+]
+
 [overrides.remote.binance]
 enable_proxy = true
 [overrides.remote.kraken]
 enable_proxy = true
 [overrides.remote.tq]
 enable_proxy = true
+
 # CFB 与主服务通过项目数据目录的 Unix socket 通信。
-
-[[service_whitelist]]
-# 正式启动入口自动准备独立 CFB 执行容器。
-service = "cfb"
-
 [cfb]
 # 本地直连；远端由 overrides.remote.cfb 开启公共 HTTP CONNECT 代理。
 enable_proxy = false
@@ -158,9 +149,7 @@ vnc_enabled = true
 request_timeout_seconds = 300.0
 
 [cfb.bridge]
-# 启动账户环境，sandbox 或 live；请求不能切换环境。
-mode = "sandbox"
-# 执行容器内固定目录；宿主对应本项目 data/cfb。
+# 执行容器内固定目录；宿主对应本项目 data/cfb/<mode>。
 data_dir = "/data"
 # 终端和登录启动预算，单位秒。
 startup_timeout_seconds = 90
@@ -173,7 +162,7 @@ height = 800
 # 虚拟桌面 DPI。
 dpi = 96
 
-[cfb.vnc]
+[cfb.vnc.sandbox]
 # VNC 端口，仅发布 127.0.0.1。
 port = 45174
 # noVNC 网页端口，仅发布 127.0.0.1。
@@ -246,3 +235,9 @@ password = ""
 [overrides.remote.cfb]
 # 远端 CFB 使用公共 HTTP CONNECT 代理，本地默认关闭。
 enable_proxy = true
+
+[cfb.vnc.live]
+# 实盘 VNC 端口，仅发布 127.0.0.1，不与模拟盘冲突。
+port = 45176
+# 实盘 noVNC 端口，仅发布 127.0.0.1。
+web_port = 45177

@@ -32,10 +32,10 @@ def create_app(service, *, manage_lifecycle=False):
                 disconnected.cancel()
                 await asyncio.gather(disconnected, return_exceptions=True)
 
-    client = LoopbackClient()
+    client = LoopbackClient(server.path)
     client.settings = service.settings
     client.enabled = True
     app = FastAPI()
-    app.include_router(business_router(lambda: client))
-    app.include_router(diagnostic_router(lambda: client), prefix="/cfb")
+    app.include_router(business_router(lambda request, mode: client))
+    app.include_router(diagnostic_router(lambda request, mode: client), prefix="/cfb")
     return app

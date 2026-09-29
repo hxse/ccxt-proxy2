@@ -1,26 +1,41 @@
-"""部署只输出已验证布局和配置摘要，不输出账号或代理地址。"""
+"""部署只输出已验证模式、布局和配置摘要，不输出账号或代理地址。"""
 
 import argparse
 import hashlib
 import json
 from pathlib import Path
 
+from src.base_types import ModeType
 from src.tools.config_loader import load_config
 
+from .config import Settings
 
-def layout(config) -> str:
-    settings = config.cfb
-    if settings is None or not any(item.service == "cfb" for item in config.service_whitelist):
-        return "false none false 45174 45175"
-    identity = settings.model_dump(mode="json", exclude={"accounts"})
-    identity["selected_account"] = {
+MODES: tuple[ModeType, ...] = ("sandbox", "live")
+
+
+def identity(settings: Settings, proxy: str | None) -> str:
+    value = settings.model_dump(mode="json", exclude={"accounts"})
+    value["selected_account"] = {
         "broker_id": settings.broker_id, "site": settings.site,
         "username": settings.account.username.get_secret_value(),
         "password": settings.account.password.get_secret_value(),
     }
-    identity["proxy"] = config.proxy.effective_http if settings.enable_proxy else None
-    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-    return f"true {digest} {str(settings.vnc_enabled).lower()} {settings.vnc.port} {settings.vnc.web_port}"
+    value["proxy"] = proxy if settings.enable_proxy else None
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def layout(config) -> str:
+    modes = {item.mode for item in config.service_whitelist if item.service == "cfb"}
+    if not modes:
+        return "none"
+    rows = []
+    for mode in MODES:
+        if mode not in modes:
+            continue
+        settings = config.cfb.for_mode(mode)
+        digest = identity(settings, config.proxy.effective_http)
+        rows.append(f"{mode} {digest} {str(settings.vnc_enabled).lower()} {settings.vnc.port} {settings.vnc.web_port}")
+    return "\n".join(rows)
 
 
 def main() -> int:

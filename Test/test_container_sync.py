@@ -44,6 +44,16 @@ def upload(engine, project, source):
     return summary
 
 
+def test_cfb_lockfile_and_package_paths_use_remote_manifest_order(engine, project, source):
+    module = project / "src/cfb/terminal/native.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("# CFB module fixture\n")
+    upload(engine, project, source)
+    names = [line[66:] for line in (source / "source.manifest").read_text().splitlines()]
+    assert names.index("src/cfb/terminal.lock.toml") < names.index("src/cfb/terminal/native.py")
+    assert upload(engine, project, source)["changed"] == 0
+
+
 def test_first_unchanged_modified_and_renamed_inputs_are_exact(engine, project, source):
     first = upload(engine, project, source)
     assert first["changed"] == first["total"] > 0

@@ -26,7 +26,7 @@ def identity() -> OrderIdentity:
 
 
 def request(volume: int = 1) -> LimitOrder:
-    return LimitOrder(exchange_id="DCE", instrument_id="m2701", side="buy", offset="open",
+    return LimitOrder(is_live=False, exchange_id="DCE", instrument_id="m2701", side="buy", offset="open",
                       volume=volume, price=Decimal(3618), time_in_force="IOC")
 
 
@@ -118,7 +118,7 @@ def test_rejection_without_exchange_number_is_still_bound(tmp_path: Path) -> Non
 
 def test_cancel_keeps_exact_target_and_does_not_claim_other_trades(tmp_path: Path) -> None:
     verifier = CsvVerifier(lambda table, context: [], ExecutionConfig(), lambda key: tracked())
-    cancel = CancelByExchange(by="exchange_order", exchange_id="DCE", instrument_id="m2701", order_sys_id="126")
+    cancel = CancelByExchange(is_live=False, by="exchange_order", exchange_id="DCE", instrument_id="m2701", order_sys_id="126")
     context = steps(tmp_path)
     result = verifier.compare(cancel, AccountSnapshot(), AccountSnapshot(), context, 1, None)
     assert result.status == "pending" and result.correlation == "order_id"
@@ -132,13 +132,13 @@ def test_query_stability_and_missing_csv(tmp_path: Path) -> None:
     values = iter([[position("10")], [position("20")]])
     verifier = CsvVerifier(lambda table, context: next(values), ExecutionConfig(csv_confirmation_interval_ms=10),
                            lambda key: tracked())
-    rows, consistency = verifier.query("positions", PositionQuery(), context)
+    rows, consistency = verifier.query("positions", PositionQuery(is_live=False), context)
     assert consistency == "stable" and rows[0].model_dump()["profit"] == 20
     def broken(table: str, context: Steps) -> list[dict[str, str]]:
         raise BridgeError("TERMINAL_DATA_INVALID", "CSV 不完整", 502)
     verifier = CsvVerifier(broken, ExecutionConfig(), lambda key: tracked())
     with pytest.raises(BridgeError) as error:
-        verifier.query("positions", PositionQuery(), context)
+        verifier.query("positions", PositionQuery(is_live=False), context)
     assert error.value.code == "TERMINAL_DATA_INVALID"
     result = verifier.observe(request(), AccountSnapshot(), context)
     assert result.status == "unavailable" and result.positions_after is None
@@ -164,7 +164,7 @@ def test_snapshots_only_read_facts_used_by_each_stage(tmp_path: Path) -> None:
     assert calls == ["orders", "trades", "positions"] and after.orders[0].order_id == "124"
     assert after.positions == before.positions
     calls.clear()
-    cancel = CancelByExchange(by="exchange_order", exchange_id="DCE", instrument_id="m2701", order_sys_id="124")
+    cancel = CancelByExchange(is_live=False, by="exchange_order", exchange_id="DCE", instrument_id="m2701", order_sys_id="124")
     after = verifier.snapshot(cancel, context)
     assert calls == ["orders", "positions"] and after.trades == []
     assert after.orders[0].order_id == "124" and after.positions == before.positions

@@ -3,7 +3,6 @@
 from typing import Annotated, Literal
 
 from pydantic import (
-    BaseModel,
     ConfigDict,
     Field,
     JsonValue,
@@ -11,7 +10,7 @@ from pydantic import (
     field_validator,
 )
 
-from src.base_types import ModeType, SideType
+from src.base_types import EnvironmentQuery, EnvironmentRequest, SideType
 
 CtpExchange = Literal["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"]
 CtpInstrument = Annotated[
@@ -26,14 +25,8 @@ CtpTime = Annotated[
 ]
 
 
-class CtpRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: ModeType = Field(
-        "sandbox",
-        description="sandbox 使用 config.toml 的 [ctp.test]（如 SimNow），live 使用 [ctp.live]；缺少配置时拒绝，不回退。",
-        examples=["sandbox"],
-    )
+class CtpRequest(EnvironmentRequest):
+    """is_live=false 使用 ctp.test，true 使用 ctp.live；没有默认环境。"""
 
 
 class CtpOrderRequest(CtpRequest):
@@ -72,7 +65,7 @@ class CtpOrderRequest(CtpRequest):
 
 
 ORDER_EXAMPLE: dict[str, JsonValue] = {
-    "mode": "sandbox",
+    "is_live": False,
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
     "side": "buy",
@@ -133,7 +126,7 @@ class CtpCancelByExchange(CtpCancelBase):
         json_schema_extra={
             "examples": [
                 {
-                    "mode": "sandbox",
+                    "is_live": False,
                     "by": "exchange_order",
                     "exchange_id": "SHFE",
                     "instrument_id": "rb2610",
@@ -155,7 +148,7 @@ class CtpCancelBySession(CtpCancelBase):
         json_schema_extra={
             "examples": [
                 {
-                    "mode": "sandbox",
+                    "is_live": False,
                     "by": "session_order",
                     "exchange_id": "SHFE",
                     "instrument_id": "rb2610",
@@ -185,7 +178,7 @@ class CtpCancelBySession(CtpCancelBase):
     order_ref: CtpOrderRef = Field(description="原订单 OrderRef，保持数字字符串。")
 
 
-class CtpPositionQuery(CtpRequest):
+class CtpPositionQuery(EnvironmentQuery, CtpRequest):
     exchange_id: CtpExchange | None = Field(
         None, description="可选 ExchangeID，省略时不限制交易所。"
     )
@@ -225,7 +218,7 @@ class CtpTradeQuery(CtpPositionQuery):
     )
 
 
-class CtpAccountQuery(CtpRequest):
+class CtpAccountQuery(EnvironmentQuery, CtpRequest):
     currency_id: str = Field(
         "CNY",
         pattern=r"^[A-Z]{3}$",
@@ -233,7 +226,7 @@ class CtpAccountQuery(CtpRequest):
     )
 
 
-class CtpTradingStatusQuery(CtpRequest):
+class CtpTradingStatusQuery(EnvironmentQuery, CtpRequest):
     exchange_id: CtpExchange = Field(
         description="CTP ExchangeID，必须与品种所属交易所一致。", examples=["SHFE"]
     )

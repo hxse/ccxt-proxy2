@@ -79,7 +79,7 @@ def test_user_background_prune_and_restart_share_one_http_cache_chain(
                 )
                 assert pruned["status"] == "completed"
                 summaries = await client.request(
-                    "GET", "/cache/summary", params={"symbol": SYMBOL}
+                    "GET", "/cache/summary", params={"is_live": True, "symbol": SYMBOL}
                 )
                 assert {item["total_count"] for item in summaries["items"]} == {3}
                 assert len(user5) == 7  # 清理不能追溯缩短已经成功的响应。

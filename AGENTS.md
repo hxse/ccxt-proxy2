@@ -466,7 +466,10 @@ backend_url = "http://example:1234" # 只写该场景的差异
 * 远端源码按既有白名单与文件内容摘要精确增量同步；全量清单定义本次完整版本，删除、改名只影响待发布的受管源码，不触及配置、数据或运行实例。校验完整后提交版本，构建只消费已提交输入。
 * 每次远端上传默认原样完整上传 config.toml 和 market_data.toml 到待发布区；仅明确要求本次保留配置时使用 --keep-remote-config。该选项只配合 remote+upload，复用远端完整配置，首次缺配置时报错；不执行字段补丁。本地生产直接只读挂所选原 config.toml 和项目 market_data.toml，不复制配置快照；日志、数据库仍使用项目数据目录。
 * 统一场景标识为 CCXT_PROXY_PROFILE，仅接受 dev、local、remote。Just 开发/测试/调试入口注入 dev，部署入口按 target 为配置预检与生产容器注入 local 或 remote；直接启动应用须显式提供场景，缺失或非法时报错。统一加载器在内存中按字段合并公共配置与 overrides.<场景>，普通值和数组整体覆盖，false、0、空字符串有效，合并后校验；不改原文件，不按容器环境猜测。
-* 公共配置中 Binance、Kraken、TQ 的 enable_proxy 默认 false，CFB 使用 http://127.0.0.1:45173；overrides.remote 中三个代理开关为 true，CFB 地址为 http://cn-futures-bridge:45173。远端 CFB 通过同一启用 DNS 的 Podman 网络访问；业务配置在启动时固定，修改后重启生效。
+* 公共配置中 Binance、Kraken、TQ、CFB 的 enable_proxy 默认 false，overrides.remote 中分别开启四个开关。CFB 使用公共 HTTP CONNECT 代理，通过执行镜像内的 32/64 位 proxychains-ng 作用于 Wine TCP，关闭不继承环境代理；业务配置在启动时固定，修改后重启生效。
+* CFB 在本仓 src/cfb 独立模块维护，原生源码和构建资产位于 containers/cfb；原 cn-futures-bridge 项目保持独立，不由本项目修改、停止或删除。唯一 FastAPI 属于主服务，两个模式共用一份镜像，CFB 独立容器只提供有界 Unix socket JSON 协议；原 CFB HTTP 地址、base_url、独立 api 配置、cfb.bridge.mode 和 sync-cfb-docs 入口退出。账户和终端设置统一在 config.toml 的 cfb 子表，八条业务路由保持原交易、幂等、取消及提交事实语义。
+* service_whitelist 的交易服务项必须指定严格布尔值 is_live（true=live、false=sandbox），CFB 最多每种一项。公共与 overrides.remote 两处白名单使用内联数组；本地默认两种同时启用，远端完整清单排除 CCXT/CFB sandbox。just serve 自动准备并启动对应独立执行容器。deploy 的 build 准备配套主/CFB 镜像，start 按配套关系启动或复用，显式 stop 停止主服务及本项目两个模式的执行器。CFB 当前锁定 Wine/Q72 仅支持 linux/amd64，不扩散为主镜像的平台限制。CFB 某模式失败不能阻断另一模式或其他 SDK；宿主 data/cfb/<mode> 分别保留 Journal、会话和 socket，主服务只访问通信 socket，不另开执行队列。VNC/noVNC 开启时仅发布 127.0.0.1，CFB 不发布旧 45173。
+* 默认 just test 在宿主执行离线 Python 回归；just test-cfb-native 是显式的原生验证入口，构建独立验证镜像并在断网、无真实账户和生产数据的容器中检查 Wine/PNG/代理。这是原生运行依赖的专用验证，不改变宿主开发环境选择，不由默认测试自动构建。CFB 运维必须用 just cfb --is-live=true|false 选择实例，支持 status/logs/pause/resume/clean/screenshot 动作，共用唯一执行器协议。
 * 需要读写本机镜像/实例的流程持本地项目操作锁；远端上传/构建/启动持远端目录操作锁。stop 使用独立生命周期门禁取消旧流程的后续启动，不排在构建/上传之后；status/logs 不入队。宿主开发、测试和检查保持独立，不让前台 serve 长期占用部署队列。
 * `just sync` 显式同步锁定依赖，CTP 使用 --extra=ctp；serve 使用 --config、--host、--port 并固定 no-sync。既有 pytest、Bruno、uv sync、调试脚本和 run 的原生参数作为位置透传例外，使用 argv 传递，不拼接 shell 源码。CTP GUI 的环境准备放在脚本中，明确有副作用的清理入口名为 debug-cleanup-sandbox。
 * 容器内部监听 5123，宿主只发布 `127.0.0.1:5123:5123`；配置只读挂载，数据独立保留。镜像和实例清理仅限本项目；不隐式管理其他项目或全局 prune。

@@ -33,20 +33,20 @@ def test_environment_matches_before_readiness_and_live_is_not_read_only(tmp_path
             app = create_app(BridgeService(settings), manage_lifecycle=False)
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://cfb.test") as client:
                 opposite = "live" if expected == "sandbox" else "sandbox"
-                order = {"exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
-                for result in (await client.get("/cfb/fetch_balance", params={"mode": opposite}),
-                               await client.post("/cfb/create_limit_order", json={**order, "mode": opposite})):
+                order = {"is_live": False, "exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
+                for result in (await client.get("/cfb/fetch_balance", params={"is_live": (opposite == "live")}),
+                               await client.post("/cfb/create_limit_order", json={**order, "is_live": (opposite == "live")})):
                     assert result.status_code == 409
                     assert result.json()["error"]["code"] == "ENVIRONMENT_MISMATCH"
                     assert result.json()["submission_status"] is None
-                for result in (await client.get("/cfb/fetch_positions", params={"mode": expected}),
-                               await client.post("/cfb/create_limit_order", json={**order, "mode": expected})):
+                for result in (await client.get("/cfb/fetch_positions", params={"is_live": (expected == "live")}),
+                               await client.post("/cfb/create_limit_order", json={**order, "is_live": (expected == "live")})):
                     assert result.status_code == 503
                     assert result.json()["error"]["code"] == "SERVICE_NOT_READY"
                 if expected == "live":
-                    omitted = await client.get("/cfb/fetch_balance")
+                    omitted = await client.get('/cfb/fetch_balance?is_live=false')
                     assert omitted.status_code == 409 and omitted.json()["error"]["code"] == "ENVIRONMENT_MISMATCH"
-                status = (await client.get("/cfb/status")).json()
+                status = (await client.get('/cfb/status?is_live=false')).json()
                 assert status["request_mode"] == expected
     asyncio.run(verify())
 
@@ -64,9 +64,9 @@ def test_profiles_and_idempotency_are_isolated(tmp_path: Path) -> None:
     for account in (AccountConfig(), AccountConfig(broker_id="9999", site="电信2"), AccountConfig(broker_id="6020", site="不存在")):
         with pytest.raises(ValidationError):
             Settings(bridge=live.bridge, accounts=AccountsConfig(live=account))
-    params = {"exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
+    params = {"is_live": False, "exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
     simulation = Operation(action="create_limit_order", parameters=params)
-    real = Operation(action=simulation.action, parameters={**params, "mode": "live"})
+    real = Operation(action=simulation.action, parameters={**params, "is_live": True})
     sim_journal, live_journal = Journal(simnow), Journal(live)
     assert sim_journal.admit("cfb-sim", simulation, "same-key") is None
     sim_journal.phase("cfb-sim", "importing", effect="unknown")

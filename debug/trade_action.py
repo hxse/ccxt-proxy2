@@ -1,20 +1,21 @@
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi.testclient import TestClient
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.main import app  # noqa: E402
-from src.router.auth_handler import manager  # noqa: E402
+from src.base_types import parse_is_live  # noqa: E402
 
 
 DEFAULT_EXCHANGE = "binance"
 DEFAULT_MARKET = "future"
-DEFAULT_MODE = "sandbox"
 DEFAULT_SYMBOL = "BTC/USDT:USDT"
 DEFAULT_AMOUNT = 0.005
 
@@ -44,7 +45,7 @@ def base_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "exchange_name": args.exchange,
         "market": args.market,
-        "mode": args.mode,
+        "is_live": args.is_live,
     }
 
 
@@ -188,7 +189,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--exchange", default=DEFAULT_EXCHANGE)
     parser.add_argument("--market", default=DEFAULT_MARKET)
-    parser.add_argument("--mode", default=DEFAULT_MODE)
+    parser.add_argument("--is-live", type=parse_is_live, required=True, metavar="true|false")
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
     parser.add_argument("--amount", type=float, default=DEFAULT_AMOUNT)
     parser.add_argument("--side", choices=["long", "short", ""], default="")
@@ -200,6 +201,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    from fastapi.testclient import TestClient
+
+    from src.main import app
+    from src.router.auth_handler import manager
+
     app.dependency_overrides[manager] = auth_override
     try:
         with TestClient(app) as client:

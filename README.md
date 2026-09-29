@@ -33,7 +33,7 @@ CCXT、TQ、CTP 和 CFB 由统一 service_whitelist 启用，只在启动时读�
 - CCXT 行情与交易：[客户端规范](doc/current_specs/ccxt_client.md)、[OHLCV 查询](doc/current_specs/ccxt_ohlcv.md)。
 - 中国期货行情、交易日历与开市状态：[TQ 规范](doc/current_specs/tq_data.md)。
 - 原生期货交易：`just sync --extra=ctp` 后使用 `just serve`；见 [CTP 规范](doc/current_specs/ctp_trading.md)。
-- 期货公司 GUI 联调：`just ctp-assessment` 临时安装完整 VeighNa；见[联调规范](doc/current_specs/ctp_assessment.md)。
+- 期货公司 GUI 联调：`just ctp-assessment --is-live=false` 临时安装完整 VeighNa；见[联调规范](doc/current_specs/ctp_assessment.md)。
 - CFB 模块：八条 /cfb 业务路由由主 FastAPI 提供，独立容器通过 Unix socket 执行，开启白名单后自动联动；见 [CFB 规范](doc/current_specs/cfb_integration.md)。
 - 文本通知：[Telegram 规范](doc/current_specs/telegram.md)。
 - 公共时间：`GET /system/fetch_time`；见[公共时间规范](doc/current_specs/system_time.md)。
@@ -72,6 +72,8 @@ just deploy --target=remote --upload --build --start --keep-remote-config # 本�
 
 开发和测试继续使用宿主 uv 环境。运行镜像使用 Podman（本地优先 rootless，远端沿用现有登录账号），宿主只发布 `127.0.0.1:5123`。远端无需安装 Python，只需 SSH、Podman 和常规系统工具。配置不进入镜像，数据独立挂载；不再通过 GitHub Actions 发布镜像。
 
+启动入口自动执行 `podman network create --ignore trading-net`，主服务和启用的 CFB 容器均带 `--network=trading-net`；已有网络直接复用，不修改其配置。旧容器未加入该网络时，下次启动按原有安全替换流程迁移。`just serve` 启动 CFB 时也遵循同一规则。
+
 远程操作需在私有 `config.toml` 添加 `[deployment]`，填写 `ssh_host = "rn"`、`remote_dir = "dev/ccxt-proxy2"`；用 `--config=config.toml.vps` 选择目标及上传配置。每次上传默认完整覆盖 `config.toml` 和 `market_data.toml`；只有显式 `--keep-remote-config` 才沿用远端已有配置，首次部署不能使用。可单独 `--upload` 保存源码及配置，之后在远端 `--build` 构建，再 `--start` 启用；`--stop`、`--status`、`--logs` 用于控制和查看。后台自身地址为 `http://127.0.0.1:5123`。动作组合、失败恢复和 SSH 隧道见[容器部署规范](doc/current_specs/container_deployment.md)。
 
 公共配置中 Binance、Kraken、TQ、CFB 的 `enable_proxy` 默认 false；`overrides.remote` 分别开启四个开关。CFB 原生 TCP 使用 HTTP CONNECT；加载器按场景在内存中合并，上传原文件，不再打补丁。Just 开发入口使用 dev，本地/远端容器分别使用 local/remote；直接启动需明确 `CCXT_PROXY_PROFILE`。本地容器挂原配置，远端配置默认完整上传，源码按内容增量同步。
@@ -82,4 +84,6 @@ just deploy --target=remote --upload --build --start --keep-remote-config # 本�
 
 当前规范位于 doc/current_specs；正式任务在 doc/task_specs 保留 meta、context、spec，并遵循 [AGENTS.md](AGENTS.md) 的 JJ change 命名及工作区规则。doc/archive 保存研究样本、旧迁移过程和已否决设计，不作为当前功能承诺。
 
-CFB 账户与终端配置集中在 `config.toml` 的 `[cfb.*]`，默认示例已启用 CFB；`just serve` 也会准备独立执行容器。使用 `just cfb --status` 查看执行状态，`just cfb --screenshot` 保存桌面；原 CFB 项目和数据不会自动修改。详见 [CFB 运行说明](doc/current_specs/cfb_bootstrap.md)。
+CFB 账户与终端配置集中在 `config.toml` 的 `[cfb.*]`，默认示例的本地白名单启用 cfb/sandbox、cfb/live，remote 清单只启用 live；`just serve` 也会准备独立执行容器。使用 `just cfb --is-live=false --status` 查看执行状态，`just cfb --is-live=false --screenshot` 保存桌面；原 CFB 项目和数据不会自动修改。详见 [CFB 运行说明](doc/current_specs/cfb_bootstrap.md)。
+
+公共和 `[overrides.remote]` 的 `service_whitelist` 均使用内联数组；环境选择为必填布尔值 `is_live`（true=实盘、false=模拟盘）。本地保留 CCXT/CFB 两种环境，远端完整清单排除其 sandbox。HTTP 必须显式传 is_live，CLI 必须传 --is-live=true|false，省略或使用旧 mode 会报错。详见 [统一环境选择](doc/current_specs/environment_selection.md)。

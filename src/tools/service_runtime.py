@@ -98,7 +98,9 @@ class ServiceRuntime:
                     self._checks[item.identity] = partial(
                         manager.is_ready, item.exchange, item.market, item.mode
                     )
-                elif item.service in {"tq", "cfb"}:
+                elif item.service == "cfb":
+                    self._checks[item.identity] = partial(manager.is_ready, item.mode)
+                elif item.service == "tq":
                     self._checks[item.identity] = manager.is_ready
                 thread = Thread(
                     target=self._initialize,
@@ -122,7 +124,7 @@ class ServiceRuntime:
             elif item.service == "ctp":
                 manager.initialize(item.mode)
             else:
-                manager.initialize(self._config.cfb)
+                manager.initialize(self._config.cfb, item.mode)
         except BaseException as exc:
             with self._lock:
                 self._states[item.identity] = "failed"

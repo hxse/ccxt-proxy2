@@ -45,7 +45,10 @@ async def execute(service: BridgeService, request: Request, disconnected: asynci
             await asyncio.wait({admission, disconnected}, return_when=asyncio.FIRST_COMPLETED)
             if disconnected.done():
                 cancelled.set()
-                admission.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+                # submit 可能已经入队但线程结果尚未送回事件循环，必须收回这个 Job。
+                admitted = await asyncio.shield(admission)
+                if isinstance(admitted, Job):
+                    await asyncio.to_thread(dispatcher.cancel, admitted)
                 raise BridgeError("REQUEST_CANCELLED", "通信在准入期间断开，未开始的操作将取消", 499)
         item = admission.result()
         if isinstance(item, Reply):
@@ -95,9 +98,10 @@ class Server:
             self.owns_socket = False
 
     async def handle(self, request: Request, disconnected: asyncio.Task) -> Response:
-        if request.kind == "execute":
+        if request.kind in {"execute", "ready"}:
             if request.configuration != self.service.settings.identity_signature:
                 raise BridgeError("SERVICE_NOT_READY", "CFB 配置与执行器不一致，须完成实例更新")
+        if request.kind == "execute":
             reply = await execute(self.service, request, disconnected)
             return response(self.service, reply)
         body: JsonValue
@@ -107,7 +111,7 @@ class Server:
             data = await asyncio.to_thread(self.service.screenshot)
             body = {"content_type": "image/png", "base64": base64.b64encode(data).decode("ascii")}
         else:
-            body = await asyncio.to_thread(self.service.control, request.kind)
+            body = await asyncio.to_thread(self.service.control, "status" if request.kind == "ready" else request.kind)
         return Response(status=200, body=body, headers={"Cache-Control": "no-store", "X-Request-ID": request.request_id})
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

@@ -6,7 +6,7 @@ from src.types_ctp import CtpLimitOrderRequest, CtpMarketOrderRequest
 from Test.ctp_fakes import FakeFactory, ctp_config
 
 BASE = {
-    "mode": "sandbox",
+    "is_live": False,
     "exchange_id": "DCE",
     "instrument_id": "m2701",
     "side": "buy",

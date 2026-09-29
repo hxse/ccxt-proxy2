@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ctp/fetch_trades?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
+  url: {{baseUrl}}/ctp/fetch_trades?is_live=false&exchange_id=SHFE&instrument_id=rb2610
   body: none
   auth: inherit
 }
 
 params:query {
-  mode: sandbox
+  is_live: false
   exchange_id: SHFE
   instrument_id: rb2610
 }

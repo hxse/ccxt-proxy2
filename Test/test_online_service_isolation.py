@@ -13,7 +13,7 @@ def test_online_harness_starts_and_stops_only_its_isolated_server(tmp_path):
     service = LiveService(job_config(tq=False), [], tmp_path)
     try:
         service.start()
-        assert service.get("/cache/summary") == {"items": []}
+        assert service.get("/cache/summary", is_live=True) == {"items": []}
         assert (tmp_path / "isolated.duckdb").exists()
         with pytest.raises(AssertionError):
             service.get("/cache/prune")

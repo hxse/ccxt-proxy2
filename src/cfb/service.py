@@ -22,6 +22,7 @@ class BridgeService:
         self.logs: LogStore | None = None
         self.artifacts: ArtifactStore | None = None
         self.stopping = threading.Event()
+        self.shutdown_lock = threading.Lock()
         self.maintenance: threading.Thread | None = None
         self.dispatcher: Dispatcher | None = None
 
@@ -54,10 +55,9 @@ class BridgeService:
                     raise BridgeError("STORAGE_UNAVAILABLE", "日志写入失败，停止终端以避免无记录操作")
             except (OSError, ValueError, BridgeError):
                 self.runtime._fail("STORAGE_UNAVAILABLE", "文件治理失败，服务停止接受操作")
-                if self.dispatcher:
-                    self.dispatcher.stop()
-                self.runtime.stop_event.set()
-                LOG.error("空间治理失败，已要求终端停止")
+                # 监控线程可能早已退出，必须主动回收写入进程；诊断服务仍持有实例锁。
+                self._stop_execution(release_session=False)
+                LOG.error("空间治理失败，终端及写入进程已停止")
                 return
 
     def status(self) -> ServiceStatus:
@@ -85,12 +85,17 @@ class BridgeService:
             return {"resumed": True}
         raise BridgeError("SERVICE_NOT_READY", "终端执行器尚未启用")
 
+    def _stop_execution(self, *, release_session: bool) -> None:
+        # 容量故障与显式关闭共用同一收尾顺序，不能并发释放 GUI owner。
+        with self.shutdown_lock:
+            if self.dispatcher:
+                self.dispatcher.stop()
+            self.runtime.stop(release_session=release_session)
+            if self.dispatcher:
+                self.dispatcher.terminate_after_desktop()
+
     def stop(self) -> None:
         self.stopping.set()
-        if self.dispatcher:
-            self.dispatcher.stop()
-        self.runtime.stop()
-        if self.dispatcher:
-            self.dispatcher.terminate_after_desktop()
+        self._stop_execution(release_session=True)
         if self.maintenance and self.maintenance.is_alive():
             self.maintenance.join(timeout=2)

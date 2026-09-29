@@ -42,7 +42,7 @@ def test_exchange_manager_returns_long_lived_client_not_raw_exchange(
                     "service": "ccxt",
                     "exchange": "binance",
                     "market": "future",
-                    "mode": "sandbox",
+                    'is_live': False,
                 }
             ],
             "ohlcv_cache": {
@@ -100,7 +100,7 @@ def test_config_rejects_kraken_spot_sandbox():
                         "service": "ccxt",
                         "exchange": "kraken",
                         "market": "spot",
-                        "mode": "sandbox",
+                        'is_live': False,
                     }
                 ],
             }
@@ -124,7 +124,7 @@ def test_exchange_manager_closes_clients_during_reinitialize_and_shutdown(
                     "service": "ccxt",
                     "exchange": "binance",
                     "market": "future",
-                    "mode": "sandbox",
+                    'is_live': False,
                 }
             ],
             "ohlcv_cache": {
@@ -162,13 +162,13 @@ def test_config_rejects_duplicate_whitelist_identity():
                         "service": "ccxt",
                         "exchange": "binance",
                         "market": "future",
-                        "mode": "sandbox",
+                        'is_live': False,
                     },
                     {
                         "service": "ccxt",
                         "exchange": "binance",
                         "market": "future",
-                        "mode": "sandbox",
+                        'is_live': False,
                     },
                 ],
             }
@@ -191,7 +191,7 @@ def test_loading_or_failed_mode_does_not_block_or_close_another_mode(
                     "service": "ccxt",
                     "exchange": "binance",
                     "market": "future",
-                    "mode": mode,
+                    'is_live': (mode == "live"),
                 }
                 for mode in ("sandbox", "live")
             ],

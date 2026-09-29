@@ -127,13 +127,13 @@ def test_offline_http_clears_queue_and_keeps_recorded_results(tmp_path: Path) ->
     dispatcher = Dispatcher(service.settings, service.runtime)
     service.dispatcher = dispatcher
     dispatcher.ready, dispatcher.state = True, connected()
-    parameters = {"exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
+    parameters = {"is_live": False, "exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy", "offset": "open", "volume": 1, "price": 2323}
     order = Operation(action="create_limit_order", parameters=parameters)
     previous = Reply(request_id="recorded", status=202, body=SubmissionResult(request_id="recorded").model_dump(mode="json"))
     dispatcher.journal.admit("recorded", order, "existing")
     dispatcher.journal.finish(previous)
     queued = dispatcher.submit("queued", order, "new")
-    read = dispatcher.submit("read", Operation(action="fetch_positions", parameters={}), None)
+    read = dispatcher.submit("read", Operation(action="fetch_positions", parameters={"is_live": False, }), None)
     assert isinstance(queued, Job) and isinstance(read, Job)
     dispatcher.state = disconnected()
     with dispatcher.condition:
@@ -147,18 +147,18 @@ def test_offline_http_clears_queue_and_keeps_recorded_results(tmp_path: Path) ->
     async def verify() -> None:
         app = create_app(service, manage_lifecycle=False)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://offline.test") as client:
-            for path in ("/cfb/fetch_balance", "/cfb/fetch_trading_status?exchange_id=CZCE&product_id=RM"):
+            for path in ("/cfb/fetch_balance?is_live=false", "/cfb/fetch_trading_status?is_live=false&exchange_id=CZCE&product_id=RM"):
                 result = await client.get(path)
                 assert result.status_code == 503 and result.json()["error"]["code"] == "SERVICE_NOT_READY"
                 assert 1 <= int(result.headers["Retry-After"]) <= 600
-            assert (await client.get("/cfb/healthz")).status_code == 200
-            assert (await client.get("/cfb/readyz")).status_code == 503
-            state = (await client.get("/cfb/status")).json()["reconnect"]
+            assert (await client.get('/cfb/healthz?is_live=false')).status_code == 200
+            assert (await client.get('/cfb/readyz?is_live=false')).status_code == 503
+            state = (await client.get('/cfb/status?is_live=false')).json()["reconnect"]
             assert state["state"] == "waiting" and state["interval_seconds"] == 600 and state["next_retry_at"]
-            opposite = await client.get("/cfb/fetch_balance?mode=live")
+            opposite = await client.get('/cfb/fetch_balance?is_live=true')
             assert opposite.status_code == 409 and "Retry-After" not in opposite.headers
             dispatcher.pause()
-            assert "Retry-After" not in (await client.get("/cfb/fetch_balance")).headers
+            assert "Retry-After" not in (await client.get('/cfb/fetch_balance?is_live=false')).headers
             assert dispatcher.status(service.runtime.status()).reconnect.state == "paused"
             assert dispatcher.resume().body == {"resumed": True}
             assert dispatcher.reconnect.deadline == deadline and not dispatcher.queue
@@ -181,7 +181,7 @@ def test_dispatch_reconnect_is_serial_and_pause_prevents_attempt(tmp_path: Path,
         calls.append("new-worker")
         assert dispatcher.owner_busy and not dispatcher.ready
         with pytest.raises(BridgeError) as error:
-            dispatcher.submit("during-reconnect", Operation(action="fetch_balance", parameters={}), None)
+            dispatcher.submit("during-reconnect", Operation(action="fetch_balance", parameters={"is_live": False, }), None)
         assert error.value.code == "SERVICE_NOT_READY"
         dispatcher.stopping = True
         started.set()
@@ -208,7 +208,7 @@ def test_uncertain_effect_or_owner_blocks_reconnect(tmp_path: Path) -> None:
     settings = settings_at(tmp_path)
     dispatcher = Dispatcher(settings, Runtime(settings))
     dispatcher.ready, dispatcher.state = True, disconnected()
-    order = Operation(action="create_limit_order", parameters={"exchange_id": "CZCE", "instrument_id": "RM701",
+    order = Operation(action="create_limit_order", parameters={"is_live": False, "exchange_id": "CZCE", "instrument_id": "RM701",
         "side": "buy", "offset": "open", "volume": 1, "price": 2323})
     dispatcher.journal.admit("uncertain", order, "unknown-key")
     dispatcher.journal.phase("uncertain", "sending", effect="unknown")

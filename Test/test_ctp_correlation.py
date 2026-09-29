@@ -11,7 +11,7 @@ from src.tools.ctp_manager import CtpManager
 from src.types_ctp import CtpCancelByExchange, CtpCancelBySession, CtpLimitOrderRequest
 from Test.ctp_fakes import FakeFactory, Record, ctp_config, record
 
-ORDER = CtpLimitOrderRequest(
+ORDER = CtpLimitOrderRequest(is_live=False, 
     exchange_id="SHFE",
     instrument_id="rb2610",
     side="buy",
@@ -19,13 +19,13 @@ ORDER = CtpLimitOrderRequest(
     volume=1,
     price=3500,
 )
-CANCEL_EXCHANGE = CtpCancelByExchange(
+CANCEL_EXCHANGE = CtpCancelByExchange(is_live=False, 
     by="exchange_order",
     exchange_id="SHFE",
     instrument_id="rb2610",
     order_sys_id="       42",
 )
-CANCEL_SESSION = CtpCancelBySession(
+CANCEL_SESSION = CtpCancelBySession(is_live=False, 
     by="session_order",
     exchange_id="SHFE",
     instrument_id="rb2610",

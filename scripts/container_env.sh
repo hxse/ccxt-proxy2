@@ -4,6 +4,7 @@ backup=ccxt-proxy2-replacing
 prefix=io.ccxt-proxy2.
 image_tag=localhost/ccxt-proxy2:latest
 dependency_tag=localhost/ccxt-proxy2:dependencies
+container_network=trading-net
 python=/app/.venv/bin/python
 metadata="$root/.container"
 
@@ -96,6 +97,15 @@ exists() {
     [ -n "$instance" ]
 }
 field() { pm container inspect "$1" --format "$2"; }
+ensure_network() {
+    pm network create --ignore "$container_network" >/dev/null ||
+        fail "无法创建或复用容器网络：$container_network"
+}
+uses_container_network() {
+    container_networks=$(field "$1" '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}') ||
+        fail '无法检查容器所属网络'
+    printf '%s\n' "$container_networks" | grep -Fxq "$container_network"
+}
 owned() {
     [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.project"}}')" = "$name" ] &&
         [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.directory"}}')" = "$root" ] ||

@@ -68,7 +68,11 @@ class Journal:
     @staticmethod
     def fingerprint(operation: Operation) -> str:
         import json
-        canonical = {"action": operation.action, "parameters": operation.request().model_dump(mode="json")}
+        request = operation.request()
+        # 环境改名不改变历史防重发指纹；这里只定义持久化格式，不接收旧请求。
+        parameters = request.model_dump(mode="json", exclude={"is_live"})
+        parameters["mode"] = request.mode
+        canonical = {"action": operation.action, "parameters": parameters}
         return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def _lookup(self, db: sqlite3.Connection, operation: Operation, key: str | None) -> Reply | None:

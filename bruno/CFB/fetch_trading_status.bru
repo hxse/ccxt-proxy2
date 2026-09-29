@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/cfb/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
+  url: {{baseUrl}}/cfb/fetch_trading_status?is_live=false&exchange_id=SHFE&product_id=rb
   body: none
   auth: inherit
 }
 
 params:query {
-  mode: sandbox
+  is_live: false
   exchange_id: SHFE
   product_id: rb
 }
@@ -30,6 +30,6 @@ tests {
 }
 
 docs {
-  通过 ccxt-proxy2 的 Bearer 鉴权转发到 CFB；mode 默认 sandbox，必须匹配上游启动环境，否则返回 409；live 不会触发账户切换。
+  通过 ccxt-proxy2 的 Bearer 鉴权交给对应 CFB 执行器；is_live 必填，false 为模拟盘，所选环境必须已启用，否则返回 503；live 不会触发账户切换。
   合约和品种按实际环境修改；查询 URL 和 params:query 同步修改。详细参数及返回模型从 CFB 自动文档同步到本项目 /docs。
 }

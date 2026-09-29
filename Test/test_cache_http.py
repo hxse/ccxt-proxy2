@@ -48,7 +48,7 @@ def test_summary_is_local_and_prune_rules_are_explicit(app, monkeypatch):
     monkeypatch.setattr("src.router.cache_router.fetch_public_time", no_clock)
 
     async def run():
-        response = await call(application, "GET", "/cache/summary")
+        response = await call(application, "GET", "/cache/summary?is_live=true")
         assert response.status_code == 200
         assert response.json()["items"][0]["total_count"] == 3
         assert set(response.json()["items"][0]) == {
@@ -67,7 +67,7 @@ def test_summary_is_local_and_prune_rules_are_explicit(app, monkeypatch):
         assert result.json()["ohlcv"]["deleted_rows"] == 2
         assert result.json()["auxiliary"]["status"] == "not_requested"
         assert (
-            await call(application, "GET", "/cache/summary?symbol=missing")
+            await call(application, "GET", "/cache/summary?is_live=true&symbol=missing")
         ).json() == {"items": []}
 
     asyncio.run(run())
@@ -161,6 +161,6 @@ def test_busy_guard_is_held_until_cancelled_https_database_work_finishes(
 def test_disabled_application_refuses_inspection(app):
     application, _ = app
     application.state.service_runtime.ready = False
-    response = asyncio.run(call(application, "GET", "/cache/summary"))
+    response = asyncio.run(call(application, "GET", "/cache/summary?is_live=true"))
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "CACHE_NOT_READY"

@@ -1,7 +1,5 @@
 # 受管 CFB 独立镜像/实例；与主服务共用宿主 Podman，不向容器开放管理 socket。
-cfb_name=ccxt-proxy2-cfb
 cfb_tag=localhost/ccxt-proxy2-cfb:latest
-cfb_backup=ccxt-proxy2-cfb-replacing
 
 cfb_read_layout() {
     cfb_config=$1
@@ -12,11 +10,31 @@ cfb_read_layout() {
             --env "CCXT_PROXY_PROFILE=$app_profile" \
             --volume "$cfb_config:/app/config.toml:ro" "$image" -m src.cfb.layout) || return 1
     fi
-    set -- $cfb_layout_text
+    [ "$cfb_layout_text" != none ] || return 0
+    cfb_seen=''
+    while IFS= read -r cfb_line; do
+        cfb_record "$cfb_line" || return 1
+        case ":$cfb_seen:" in *":$cfb_mode:"*) return 1 ;; esac
+        cfb_seen="$cfb_seen:$cfb_mode"
+    done <<EOF
+$cfb_layout_text
+EOF
+}
+
+cfb_select_mode() {
+    case "$1" in sandbox|live) ;; *) return 1 ;; esac
+    cfb_mode=$1
+    cfb_name="ccxt-proxy2-cfb-$cfb_mode"
+    cfb_backup="$cfb_name-replacing"
+}
+
+cfb_record() {
+    set -- $1
     [ "$#" -eq 5 ] || return 1
-    cfb_enabled=$1 cfb_identity=$2 cfb_vnc=$3 cfb_port=$4 cfb_web=$5
-    case "$cfb_enabled:$cfb_vnc" in true:true|true:false|false:false) ;; *) return 1 ;; esac
-    if [ "$cfb_enabled" = true ]; then valid_hash "$cfb_identity" || return 1; fi
+    cfb_select_mode "$1" || return 1
+    cfb_identity=$2 cfb_vnc=$3 cfb_port=$4 cfb_web=$5
+    valid_hash "$cfb_identity" || return 1
+    case "$cfb_vnc" in true|false) ;; *) return 1 ;; esac
     case "$cfb_port:$cfb_web" in *[!0-9:]*|:*) return 1 ;; esac
 }
 
@@ -31,7 +49,7 @@ cfb_source_identity() (
 cfb_prepare_image() {
     cfb_context=$1
     cfb_read_layout "$2" || return 1
-    if [ "$cfb_enabled" != true ]; then cfb_record_image none; return 0; fi
+    if [ "$cfb_layout_text" = none ]; then cfb_record_image none; return 0; fi
     cfb_hash=$(cfb_source_identity "$cfb_context") || return 1
     if pm image exists "$cfb_tag" && \
        [ "$(pm image inspect "$cfb_tag" --format '{{index .Labels "io.ccxt-proxy2.source"}}')" = "$cfb_hash" ]; then
@@ -76,7 +94,8 @@ cfb_record_image() {
 
 cfb_owned() {
     [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.component"}}')" = cfb ] && \
-    [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.directory"}}')" = "$root" ]
+    [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.directory"}}')" = "$root" ] && \
+    { [ -z "${2:-}" ] || [ "$(field "$1" '{{index .Config.Labels "io.ccxt-proxy2.mode"}}')" = "$2" ]; }
 }
 
 cfb_wait() {
@@ -94,9 +113,9 @@ cfb_rollback() {
     trap - EXIT HUP INT TERM
     if [ "$cfb_pending" = true ]; then
         if [ "$cfb_created" = true ] && exists "$cfb_name"; then
-            pm logs --tail=200 "$cfb_name" > "$metadata/cfb-failure.tmp" 2>&1 || true
-            tail -c 65536 "$metadata/cfb-failure.tmp" > "$metadata/cfb-startup.log"
-            rm -f -- "$metadata/cfb-failure.tmp"
+            pm logs --tail=200 "$cfb_name" > "$metadata/cfb-$cfb_mode-failure.tmp" 2>&1 || true
+            tail -c 65536 "$metadata/cfb-$cfb_mode-failure.tmp" > "$metadata/cfb-$cfb_mode-startup.log"
+            rm -f -- "$metadata/cfb-$cfb_mode-failure.tmp"
             pm stop --time=30 "$cfb_name" >/dev/null || cfb_result=1
             pm rm "$cfb_name" >/dev/null || cfb_result=1
         fi
@@ -110,26 +129,19 @@ cfb_rollback() {
     exit "$cfb_result"
 }
 
-cfb_ensure() (
+cfb_start_mode() (
     cfb_pending=false cfb_created=false cfb_renamed=false cfb_was_running=false
     trap cfb_rollback EXIT
     trap 'exit 130' HUP INT TERM
-    cfb_read_layout "$1" || return 1
-    [ "$cfb_enabled" = true ] || return 0
-    if [ -n "${cfb_layout_override:-}" ]; then
-        cfb_image=$(pm image inspect "$cfb_tag" --format '{{.Id}}') || return 1
-    else
-        [ -f "$metadata/cfb-images/${image#sha256:}" ] || return 1
-        cfb_image=$(cat "$metadata/cfb-images/${image#sha256:}")
-        valid_hash "${cfb_image#sha256:}" || return 1
-    fi
-    [ "$(pm image inspect "$cfb_image" --format '{{index .Labels "io.ccxt-proxy2.kind"}}')" = cfb-runtime ] || return 1
+    cfb_config=$1
+    cfb_record "$2" || return 1
     cfb_old=false cfb_was_running=false
     if exists "$cfb_backup"; then printf '%s\n' 'CFB 上次替换未收尾，请先检查受管备份实例。' >&2; return 1; fi
     if exists "$cfb_name"; then
-        cfb_owned "$cfb_name" || return 1
+        cfb_owned "$cfb_name" "$cfb_mode" || return 1
         if [ "$(field "$cfb_name" '{{.Image}}')" = "$cfb_image" ] && \
-           [ "$(field "$cfb_name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$cfb_identity" ]; then
+           [ "$(field "$cfb_name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$cfb_identity" ] && \
+           uses_container_network "$cfb_name"; then
             running "$cfb_name" || pm start "$cfb_name" >/dev/null || return 1
             cfb_wait
             return $?
@@ -141,32 +153,88 @@ cfb_ensure() (
         pm rename "$cfb_name" "$cfb_backup" || return 1
         cfb_renamed=true
     fi
-    mkdir -p -- "$root/data/cfb"
+    mkdir -p -- "$root/data/cfb/$cfb_mode"
     set -- --detach --name "$cfb_name" --pull=never --restart=unless-stopped \
+        --network="$container_network" \
         --label "${prefix}project=$name" --label "${prefix}component=cfb" \
         --label "${prefix}directory=$root" --label "${prefix}configuration=$cfb_identity" \
-        --label "${prefix}profile=$app_profile" --env "CCXT_PROXY_PROFILE=$app_profile" \
+        --label "${prefix}mode=$cfb_mode" --label "${prefix}profile=$app_profile" --env "CCXT_PROXY_PROFILE=$app_profile" \
         --stop-timeout=30 --shm-size=256m --security-opt=no-new-privileges \
         --log-driver=k8s-file --log-opt=max-size=20mb \
-        --volume "$cfb_config:/app/config.toml:ro" --volume "$root/data/cfb:/data:rw"
+        --volume "$cfb_config:/app/config.toml:ro" --volume "$root/data/cfb/$cfb_mode:/data:rw"
     if [ "$cfb_vnc" = true ]; then
         set -- "$@" --publish "127.0.0.1:$cfb_port:$cfb_port" --publish "127.0.0.1:$cfb_web:$cfb_web"
     fi
     cfb_pending=true cfb_created=true
-    if pm run "$@" "$cfb_image" >/dev/null && cfb_wait; then
+    cfb_is_live=false
+    if [ "$cfb_mode" = live ]; then cfb_is_live=true; fi
+    if pm run "$@" "$cfb_image" python -m src.cfb.daemon --config /app/config.toml --is-live "$cfb_is_live" >/dev/null && cfb_wait; then
         if [ "$cfb_old" = true ]; then pm rm "$cfb_backup" >/dev/null || return 1; fi
         cfb_pending=false
-        printf '%s\n' 'CFB 执行进程已启动；终端交易就绪由 /cfb/readyz 查询。'
+        printf 'CFB %s 执行进程已启动；终端交易就绪由 /cfb/readyz?is_live=%s 查询。\n' "$cfb_mode" "$cfb_is_live"
         return 0
     fi
     return 1
 )
 
-cfb_stop() {
+cfb_stop_mode() {
+    cfb_select_mode "$1" || return 1
     for cfb_item in "$cfb_name" "$cfb_backup"; do
+        if exists "$cfb_item"; then
+            cfb_owned "$cfb_item" "$cfb_mode" || return 1
+            if running "$cfb_item"; then pm stop --time=30 "$cfb_item" >/dev/null || return 1; fi
+        fi
+    done
+}
+
+cfb_stop_legacy() {
+    for cfb_item in ccxt-proxy2-cfb ccxt-proxy2-cfb-replacing; do
         if exists "$cfb_item"; then
             cfb_owned "$cfb_item" || return 1
             if running "$cfb_item"; then pm stop --time=30 "$cfb_item" >/dev/null || return 1; fi
         fi
     done
+}
+
+cfb_ensure() {
+    cfb_read_layout "$1" || return 1
+    cfb_stop_legacy || return 1
+    if [ "$cfb_layout_text" != none ]; then
+        if [ -n "${cfb_layout_override:-}" ]; then
+            cfb_image=$(pm image inspect "$cfb_tag" --format '{{.Id}}') || return 1
+        else
+            [ -f "$metadata/cfb-images/${image#sha256:}" ] || return 1
+            cfb_image=$(cat "$metadata/cfb-images/${image#sha256:}")
+            valid_hash "${cfb_image#sha256:}" || return 1
+        fi
+        [ "$(pm image inspect "$cfb_image" --format '{{index .Labels "io.ccxt-proxy2.kind"}}')" = cfb-runtime ] || return 1
+        mkdir -p -- "$root/data"
+        # 仅迁移本项目旧单实例布局；不启动终端、不触及原项目卷。
+        timeout --kill-after=10 300 podman run --rm --pull=never --network=none \
+            --volume "$root/data:/project-data:rw" --entrypoint "$python" "$cfb_image" \
+            -m src.cfb.migration --root /project-data/cfb 7>&- 8>&- 9>&- || return 1
+        for cfb_item in ccxt-proxy2-cfb ccxt-proxy2-cfb-replacing; do
+            if exists "$cfb_item"; then pm rm "$cfb_item" >/dev/null || return 1; fi
+        done
+    fi
+    cfb_failures=0
+    for cfb_target in sandbox live; do
+        cfb_row=$(printf '%s\n' "$cfb_layout_text" | sed -n "/^$cfb_target /p")
+        if [ -z "$cfb_row" ]; then
+            cfb_stop_mode "$cfb_target" || cfb_failures=1
+        elif ! cfb_start_mode "$1" "$cfb_row"; then
+            printf 'CFB %s 启动失败；继续处理其他模式。\n' "$cfb_target" >&2
+            cfb_failures=1
+        fi
+    done
+    return "$cfb_failures"
+}
+
+cfb_stop() {
+    cfb_stop_result=0
+    cfb_stop_legacy || cfb_stop_result=1
+    for cfb_target in sandbox live; do
+        cfb_stop_mode "$cfb_target" || cfb_stop_result=1
+    done
+    return "$cfb_stop_result"
 }

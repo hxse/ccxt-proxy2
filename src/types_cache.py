@@ -2,17 +2,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
-from src.base_types import NonEmptyString
+from src.base_types import EnvironmentQuery, NonEmptyString
 from src.cache_tool.maintenance_models import RetentionPolicy
 
 
-class CacheSummaryQuery(BaseModel):
+class CacheSummaryQuery(EnvironmentQuery):
     model_config = ConfigDict(extra="forbid")
     provider: Literal["binance", "kraken", "tq"] | None = Field(
         None, description="实际数据源，精确匹配"
-    )
-    mode: Literal["live", "sandbox"] | None = Field(
-        None, description="缓存环境；TQ 为 live"
     )
     market: NonEmptyString | None = Field(None, description="行情市场身份，精确匹配")
     symbol: NonEmptyString | None = Field(

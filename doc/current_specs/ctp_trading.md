@@ -32,8 +32,8 @@ production_mode = true
 
 实盘使用 `[ctp.live]`，字段与 `[ctp.test]` 相同。配置继续经过既有 `AppConfig` 校验；环境变量不覆盖账号字段，修改文件后需重启。可选账户整组省略或留在注释中表示未配置。
 
-- `mode=sandbox`（默认）使用 `ctp.test`，可以接入 SimNow 或期货公司仿真前置。
-- `mode=live` 使用 `ctp.live`，结构与 test 相同，填写期货公司实盘前置、账户及认证信息。
+- `is_live=false`（必填）使用 `ctp.test`，可以接入 SimNow 或期货公司仿真前置。
+- `is_live=true` 使用 `ctp.live`，结构与 test 相同，填写期货公司实盘前置、账户及认证信息。
 - 只有 `service_whitelist` 中列出的 ctp/模式会启用；未启用时 HTTP 503 `SERVICE_NOT_ENABLED`。白名单引用缺失的账号配置会导致启动失败，不切换模式。
 - `user_id` 可选，默认使用 `investor_id`。`app_id/auth_code` 必须同时配置或同时省略；只有前置不要求客户端认证时才能省略。
 - `production_mode` 是底层 SDK 生产/评测密钥模式，不是模拟/实盘开关；按前置要求设置。SimNow 前置也可能使用生产密钥。
@@ -72,10 +72,10 @@ SimNow 的账户、服务说明和当前前置信息以 [SimNow 官网](https://
 ## 当前交易状态
 
 ```text
-GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
+GET /ctp/fetch_trading_status?is_live=false&exchange_id=SHFE&product_id=rb
 ```
 
-默认 `mode=sandbox`，状态仅代表对应的 SimNow/仿真前置；判断实盘环境应显式传 `mode=live` 并配置 `[ctp.live]`。
+is_live 必填；`is_live=false` 时，状态仅代表对应的 SimNow/仿真前置；判断实盘环境应显式传 `is_live=true` 并配置 `[ctp.live]`。
 
 状态按品种查询：请求用 `product_id=rb`，直接匹配通知的 InstrumentID。区分大小写，不把 rb2610 自动转换为 rb，也不回退其他交易所或模式。未推送的品种返回未知。原生回调字段见当前依赖源码中的 `CThostFtdcInstrumentStatusField`。
 
@@ -112,7 +112,7 @@ GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
 
 ```json
 {
-  "mode": "sandbox",
+  "is_live": false,
   "exchange_id": "SHFE",
   "instrument_id": "rb2610",
   "side": "buy",
@@ -163,7 +163,7 @@ GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
 
 ```json
 {
-  "mode": "sandbox",
+  "is_live": false,
   "by": "exchange_order",
   "exchange_id": "SHFE",
   "instrument_id": "rb2610",
@@ -178,10 +178,10 @@ GET /ctp/fetch_trading_status?mode=sandbox&exchange_id=SHFE&product_id=rb
 查询示例：
 
 ```text
-GET /ctp/fetch_orders?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
-GET /ctp/fetch_trades?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
-GET /ctp/fetch_positions?mode=sandbox
-GET /ctp/fetch_balance?mode=sandbox&currency_id=CNY
+GET /ctp/fetch_orders?is_live=false&exchange_id=SHFE&instrument_id=rb2610
+GET /ctp/fetch_trades?is_live=false&exchange_id=SHFE&instrument_id=rb2610
+GET /ctp/fetch_positions?is_live=false
+GET /ctp/fetch_balance?is_live=false&currency_id=CNY
 ```
 
 订单/成交还支持原生时间和编号过滤，详细参数见 `/docs`。它们查询 CTP 当前可查询交易日的数据，不是任意历史日期数据库。

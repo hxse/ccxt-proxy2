@@ -7,7 +7,7 @@ SYMBOL = "BTC/USDT:USDT"
 
 
 def test_fetch_balance(client: TestClient):
-    params = {"exchange_name": EXCHANGE, "market": MARKET, "mode": MODE}
+    params = {"exchange_name": EXCHANGE, "market": MARKET, "is_live": MODE == "live"}
     response = client.get("/ccxt/fetch_balance", params=params)
     assert response.status_code == 200
     data = response.json()
@@ -27,7 +27,7 @@ def test_fetch_positions(client: TestClient):
     params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbols": SYMBOL,
     }
     # Extended router requires symbols list as query param "symbols"
@@ -55,7 +55,7 @@ def test_set_leverage(client: TestClient):
     payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "leverage": 5,
     }
@@ -70,7 +70,7 @@ def test_set_margin_mode(client: TestClient):
     payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "marginMode": "isolated",
     }

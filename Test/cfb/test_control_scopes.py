@@ -107,7 +107,7 @@ def test_failed_request_clears_bindings_on_entry_and_exit(executor: Executor, mo
         gui.form_panel = 2
         raise BridgeError("SERVICE_NOT_READY", "离线会话未就绪")
     monkeypatch.setattr(executor, "validate_session", unavailable)
-    response = executor.execute("cfb-offline", Operation(action="fetch_balance", parameters={"mode": "sandbox"}))
+    response = executor.execute("cfb-offline", Operation(action="fetch_balance", parameters={"is_live": False}))
     error = response.body["error"]
     assert response.status == 503 and isinstance(error, dict) and error["code"] == "SERVICE_NOT_READY"
     assert not gui.bindings and not gui.form_panel

@@ -89,13 +89,13 @@ def test_registry_initialization_failure_only_closes_failed_identity(
                     "service": "ccxt",
                     "exchange": "binance",
                     "market": "future",
-                    "mode": "sandbox",
+                    'is_live': False,
                 },
                 {
                     "service": "ccxt",
                     "exchange": "kraken",
                     "market": "future",
-                    "mode": "sandbox",
+                    'is_live': False,
                 },
             ],
             "ohlcv_cache": {

@@ -14,6 +14,8 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 mkdir -p -- "$metadata"
 exec 8> "$metadata/control.lock"
 cfb_prepare_image "$root" "$cfb_host_config"
+check_start
+ensure_network
 gate
 check_start
 cfb_ensure "$cfb_host_config"

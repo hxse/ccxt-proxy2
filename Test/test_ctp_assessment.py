@@ -116,7 +116,7 @@ def test_default_config_is_loaded_once_and_runtime_is_private(
         return 0
 
     monkeypatch.setattr(assessment, "launch_gui", gui)
-    assert assessment.main(["--mode", mode, "--output-dir", str(output)]) == 0
+    assert assessment.main(["--is-live", str(mode == "live").lower(), "--output-dir", str(output)]) == 0
     assert Path.cwd() == previous_directory
     assert len(calls) == 1
     assert stat.S_IMODE((output / mode / "vnpy").stat().st_mode) == 0o700
@@ -236,7 +236,7 @@ def test_gui_failure_closes_engine_and_hides_credentials(tmp_path, monkeypatch, 
     state = install_gui_fakes(monkeypatch, fail=True)
     assert (
         assessment.main(
-            ["--config", str(config), "--output-dir", str(tmp_path / "gui")]
+            ["--is-live", "false", "--config", str(config), "--output-dir", str(tmp_path / "gui")]
         )
         == 1
     )
@@ -258,7 +258,7 @@ def test_just_isolates_packages_and_preserves_script_arguments(tmp_path):
     for path in tools.iterdir():
         path.chmod(0o700)
     result = subprocess.run(
-        [just, "ctp-assessment", "--config", "path with spaces.toml", "--mode", "live"],
+        [just, "ctp-assessment", "--config", "path with spaces.toml", "--is-live", "true"],
         cwd=assessment.PROJECT_ROOT,
         env={
             **os.environ,
@@ -276,7 +276,7 @@ def test_just_isolates_packages_and_preserves_script_arguments(tmp_path):
         package in argv
         for package in ("vnpy==4.4.0", "vnpy_ctp==6.7.11.4", "vnpy_riskmanager==2.0.0")
     )
-    assert argv[-4:] == ["--config", "path with spaces.toml", "--mode", "live"]
+    assert argv[-4:] == ["--config", "path with spaces.toml", "--is-live", "true"]
 
 
 def test_cli_help_does_not_load_gui_or_backend(tmp_path):

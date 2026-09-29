@@ -29,7 +29,7 @@ class ErrorResponse(BaseModel):
     order_id: str | None = Field(default=None,
         description="异常前已取得的真实订单编号；非 2xx 不表示未下单，可用 fetch_orders 的 order_sys_id 继续查询。")
     identity: OrderIdentity | None = Field(default=None,
-        description="异常前已捕获的完整引用；无订单编号时可用六个字段及原 mode 查询 fetch_orders，禁止根据报错自动重发。")
+        description="异常前已捕获的完整引用；无订单编号时可用六个字段及原 is_live 查询 fetch_orders，禁止根据报错自动重发。")
     error: ErrorDetail
     execution: OrderExecution | None = None
     verification: Verification | None = None

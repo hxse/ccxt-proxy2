@@ -16,9 +16,15 @@ def test_daemon_opens_socket_and_desktop_without_http_or_account(tmp_path):
     assert importlib.util.find_spec("fastapi") is None
     assert importlib.util.find_spec("uvicorn") is None
     config = tmp_path / "config.toml"
-    config.write_text('SECRET="isolated"\n[[service_whitelist]]\nservice="cfb"\n'
-                      '[cfb]\nvnc_enabled=false\n[cfb.bridge]\nstartup_timeout_seconds=60\n')
-    process = subprocess.Popen([sys.executable, "-m", "src.cfb.daemon", "--config", str(config)],
+    config.write_text(
+        'SECRET="isolated"\n'
+        'service_whitelist = [{service="cfb", is_live=false}]\n'
+        '[cfb]\n'
+        'vnc_enabled=false\n'
+        '[cfb.bridge]\n'
+        'startup_timeout_seconds=60\n'
+    )
+    process = subprocess.Popen([sys.executable, "-m", "src.cfb.daemon", "--is-live", "false", "--config", str(config)],
                                env=dict(os.environ, CCXT_PROXY_PROFILE="dev"),
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

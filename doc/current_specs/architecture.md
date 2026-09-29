@@ -13,11 +13,11 @@ ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所
 | TQ 行情和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |
 | TQ 日历、历史映射与过渡 | Route → TqMetadataQuery → 自有源转换/SDK 原始窗口 → 缓存高级 API | 每请求固定可信时间，禁用旧 SDK 元数据入口，过渡仅保存完整目标窗 |
 | CTP 交易与查询 | Route → CtpManager → session/SPI → vnpy_ctp 交易扩展 | 原生请求、回调关联和账户生命周期 |
-| CFB 业务接口 | Route → CFB socket Client → 独立容器 Dispatcher/worker | 主服务负责 HTTP；独立执行器独占 GUI、Journal 与业务 FIFO |
+| CFB 业务接口 | Route → CFB socket Client → 对应 mode 的独立容器 Dispatcher/worker | 主服务负责 HTTP；独立执行器独占 GUI、Journal 与业务 FIFO |
 | Telegram 文本消息 | Route → TelegramManager → Telegram Bot API | 从配置解析目标 chat，逐目标返回发送结果 |
 | 公共时间 | System Route → 币安公共时间 HTTP | 每次请求读取上游时间，返回原始毫秒时间戳 |
 
-路由负责 HTTP 契约和入口鉴权，业务规则由对应模块承担。中国期货行情与价格继续走 TQ。CFB 终端、账户及业务能力由本仓 src/cfb 独立模块维护，Wine 依赖留在独立执行镜像。查询完整性、缓存连续性和可持久化资格分别定义于[行情数据契约](market_data_contract.md)，不能用其中一种保证代替另一种。
+路由负责 HTTP 契约和入口鉴权，业务规则由对应模块承担。中国期货行情与价格继续走 TQ。CFB 两个模式的终端、账户及业务能力由本仓 src/cfb 独立模块维护，Wine 依赖留在独立执行镜像。查询完整性、缓存连续性和可持久化资格分别定义于[行情数据契约](market_data_contract.md)，不能用其中一种保证代替另一种。
 
 ## 共同运行约束
 

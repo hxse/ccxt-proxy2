@@ -48,7 +48,7 @@ def test_main_weighted_and_cache_tail(live_tq_service):
         )
         assert_rows(rows, 20)
         summary = service.get(
-            "/cache/summary", provider="tq", symbol=symbol, timeframe="300s"
+            "/cache/summary", is_live=True, provider="tq", symbol=symbol, timeframe="300s"
         )
         assert summary["items"][0]["count"] == len(rows) - 1
         assert summary["items"][0]["end"] == rows[-2]["datetime"]
@@ -135,7 +135,7 @@ def test_bitumen_current_and_history_use_same_source(live_tq_service):
     assert history["history"][-1]["underlying_symbol"] == underlying
     assert (
         service.get(
-            "/cache/summary", provider="tq", symbol=symbol, kind="main_mapping"
+            "/cache/summary", is_live=True, provider="tq", symbol=symbol, kind="main_mapping"
         )["items"]
         == []
     )

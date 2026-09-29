@@ -12,7 +12,7 @@ from src.cfb.terminal.tracking import ParkedSnapshot, validate_preorder
 
 
 def request() -> MarketOrder:
-    return MarketOrder(exchange_id="SHFE", instrument_id="ag2612", side="buy", offset="open", volume=1)
+    return MarketOrder(is_live=False, exchange_id="SHFE", instrument_id="ag2612", side="buy", offset="open", volume=1)
 
 
 def test_market_emulation_uses_protective_limit_ioc() -> None:

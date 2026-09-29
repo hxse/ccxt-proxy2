@@ -53,7 +53,7 @@ def test_ccxt_http_returns_effective_price_and_structured_bounds(
     request = {
         "exchange_name": "binance",
         "market": "future",
-        "mode": "sandbox",
+        "is_live": False,
         "symbol": SYMBOL,
         "side": side,
         "amount": 1,
@@ -83,7 +83,7 @@ def test_ccxt_http_returns_effective_price_and_structured_bounds(
 def test_ctp_http_returns_price_adjustment_and_preflight_error(http, price, expected):
     client, factory = http
     request = {
-        "mode": "sandbox",
+        "is_live": False,
         "exchange_id": "SHFE",
         "instrument_id": "rb2610",
         "side": "sell",
@@ -133,7 +133,7 @@ def test_boolean_prices_fail_at_http_validation_before_client(
         json={
             "exchange_name": "binance",
             "market": "future",
-            "mode": "sandbox",
+            "is_live": False,
             "symbol": SYMBOL,
             "side": "buy",
             "amount": 1,
@@ -157,6 +157,7 @@ def test_boolean_prices_fail_at_http_validation_before_client(
 @pytest.mark.parametrize("value", [100, 100.1, "100.10"])
 def test_numeric_prices_keep_existing_input_compatibility(model, field, value):
     request = model(
+        is_live=False,
         exchange_name="binance",
         market="future",
         symbol=SYMBOL,

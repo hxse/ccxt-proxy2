@@ -67,7 +67,7 @@ async def _wait_for_cleanup(cleanup: asyncio.Task[None]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.service_runtime = service_runtime
-    from src.cfb.client import cfb_client
+    from src.cfb.manager import cfb_manager
     from src.tools.ctp_manager import ctp_manager
     from src.tools.telegram_manager import telegram_manager
     from src.tools.tq_manager import tq_manager
@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             exchange_manager,
             tq_manager,
             ctp_manager,
-            cfb_client,
+            cfb_manager,
             stop=stop,
         )
     )
@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         stop.set()
         service_runtime.begin_shutdown()
         cleanup = asyncio.create_task(
-            _finish_lifespan(startup, telegram_manager.close, cfb_client.close)
+            _finish_lifespan(startup, telegram_manager.close, cfb_manager.close)
         )
         await _wait_for_cleanup(cleanup)
 
@@ -110,7 +110,7 @@ OPENAPI_TAGS = [
     {
         "name": "CFB",
         "description": "CFB 独立终端执行器，通过 Unix socket 复用唯一队列和防重发记录；"
-        "复用本项目 Bearer 鉴权。sandbox/live 必须匹配启动环境。"
+        "复用本项目 Bearer 鉴权。sandbox/live 分别选择对应执行器，互不回退。"
         "配置只在启动时读取；请求不自动重试。",
     },
     {
@@ -156,7 +156,13 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_context(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    is_cfb = request.url.path == "/cfb" or request.url.path.startswith("/cfb/")
+    # CFB 编号也承担 Journal 主键，不能采用调用方可重复的追踪头。
+    request_id = (
+        "cfb-" + uuid4().hex
+        if is_cfb
+        else request.headers.get("X-Request-ID") or str(uuid4())
+    )
     request.state.request_id = request_id
     start = perf_counter()
     client_ip = request.client.host if request.client else "-"
@@ -170,15 +176,21 @@ async def add_request_context(request: Request, call_next):
         elif response.status_code >= 400:
             log_level = "WARNING"
 
-        logger.bind(
+        response.headers.setdefault("X-Request-ID", request_id)
+        completion_logger = logger.bind(
             method=request.method,
             path=request.url.path,
             client_ip=client_ip,
             status_code=response.status_code,
             duration_ms=round(duration_ms, 2),
-        ).log(log_level, "request completed")
-
-        response.headers.setdefault("X-Request-ID", request_id)
+        )
+        if is_cfb:
+            response_id = response.headers["X-Request-ID"]
+            completion_logger = completion_logger.bind(request_id=response_id)
+            if response_id != request_id:
+                # 重放仍返回原逻辑编号，同时保留本次 HTTP 调用的关联。
+                completion_logger = completion_logger.bind(http_request_id=request_id)
+        completion_logger.log(log_level, "request completed")
         return response
 
 

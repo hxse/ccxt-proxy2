@@ -18,6 +18,7 @@ class ContainerEngine:
     def __init__(self):
         self.events = []
         self.containers = {}
+        self.networks = {}
         self.images = {
             identity: self.image(identity) for identity in (OLD_IMAGE, NEW_IMAGE)
         }
@@ -32,6 +33,8 @@ class ContainerEngine:
         self.fail_build = False
         self.fail_smoke = False
         self.fail_cfb_build = False
+        self.fail_container = None
+        self.fail_network = False
 
     @staticmethod
     def image(identity):
@@ -48,11 +51,14 @@ class ContainerEngine:
             },
         }
 
-    def container(self, name, image, root, identity, *, running=True):
+    def container(self, name, image, root, identity, *, running=True, network="trading-net"):
+        if network is not None:
+            self.networks.setdefault(network, {"name": network, "driver": "bridge"})
         result = {
             "Name": name,
             "Image": image,
             "State": {"Running": running},
+            "NetworkSettings": {"Networks": {network: {}} if network is not None else None},
             "Config": {
                 "Labels": {
                     PREFIX + "project": NAME,
@@ -85,6 +91,14 @@ class ContainerEngine:
     def __call__(self, *raw, **kwargs):
         args = tuple(str(item) for item in raw)
         self.events.append(args)
+        if args[:2] == ("network", "create"):
+            if self.fail_network:
+                raise DeploymentError("network create failed")
+            network = args[-1]
+            if network in self.networks and "--ignore" not in args:
+                raise DeploymentError("network already exists")
+            self.networks.setdefault(network, {"name": network, "driver": "bridge"})
+            return network
         if args[:2] == ("image", "inspect"):
             info = self.images[self.resolve_image(args[2])]
             if "--format" in args:
@@ -180,6 +194,8 @@ class ContainerEngine:
                     return item["Image"]
                 if template == "{{.State.Running}}":
                     return str(item["State"]["Running"]).lower()
+                if template == "{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}":
+                    return "\n".join(item["NetworkSettings"]["Networks"] or {})
                 if template == "{{range .Mounts}}{{println .Source}}{{end}}":
                     return "\n".join(mount["Source"] for mount in item["Mounts"])
                 if template.startswith('{{index .Config.Labels "'):
@@ -198,15 +214,22 @@ class ContainerEngine:
                                if arg == "--volume" and ":/app/config.toml:" in args[i + 1])
                 data = tomllib.loads(Path(mounted).read_text())
                 if not any(item.get("service") == "cfb" for item in data.get("service_whitelist", [])):
-                    return "false none false 45174 45175"
+                    return "none"
                 from src.cfb.layout import layout
                 from src.tools.config_loader import load_config
                 profile = next(args[i + 1].split("=", 1)[1] for i, arg in enumerate(args)
                                if arg == "--env" and args[i + 1].startswith("CCXT_PROXY_PROFILE="))
                 return layout(load_config(Path(mounted), profile=profile))
+            if "src.cfb.migration" in args:
+                from src.cfb.migration import migrate
+
+                mounted = next(args[i + 1].split(":", 1)[0] for i, arg in enumerate(args)
+                               if arg == "--volume" and ":/project-data:" in args[i + 1])
+                migrate(Path(mounted) / "cfb")
+                return ""
             if "--detach" in args:
                 created = self._create(args, running=False)
-                if self.containers[created]["Image"] == self.fail_image:
+                if self.containers[created]["Image"] == self.fail_image or created == self.fail_container:
                     raise DeploymentError("CFB start failed")
                 self.containers[created]["State"]["Running"] = True
                 return created
@@ -265,8 +288,12 @@ class ContainerEngine:
         if name in self.containers:
             raise DeploymentError("container already exists")
         metadata = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "--label")
-        obj = self.container(name, self.resolve_image(args[-1]), Path(metadata[PREFIX + "directory"]),
-                             metadata[PREFIX + "configuration"], running=running)
+        network = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--network=")), None)
+        if network is not None and network not in self.networks:
+            raise DeploymentError("network does not exist")
+        image = args[args.index("-m") - 2] if "src.cfb.daemon" in args else args[-1]
+        obj = self.container(name, self.resolve_image(image), Path(metadata[PREFIX + "directory"]),
+                             metadata[PREFIX + "configuration"], running=running, network=network)
         obj["Mounts"] = [{"Source": args[index + 1].split(":", 1)[0]} for index, arg in enumerate(args) if arg == "--volume"]
         obj["Config"]["Labels"] = metadata
         obj["Config"]["Env"] = [args[index + 1] for index, arg in enumerate(args) if arg == "--env"]

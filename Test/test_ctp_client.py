@@ -17,6 +17,7 @@ from src.types_ctp import (
 from Test.ctp_fakes import QUERY_CASES, FakeFactory, Record, ctp_config, record
 
 ORDER: dict[str, Any] = {
+    "is_live": False,
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
     "side": "buy",
@@ -38,9 +39,9 @@ def test_modes_have_separate_credentials_sessions_and_flow_directories(service):
     for mode in ("sandbox", "live"):
         client = manager.get_client(mode)
         assert manager.get_client(mode) is client
-        result = client.fetch_balance(CtpAccountQuery(mode=mode))
+        result = client.fetch_balance(CtpAccountQuery(is_live=(mode == "live")))
         assert result.mode == mode and result.accounts == []
-        client.fetch_balance(CtpAccountQuery(mode=mode))
+        client.fetch_balance(CtpAccountQuery(is_live=(mode == "live")))
     test, live = factory.apis
     assert test.front.endswith(":10001") and live.front.endswith(":10002")
     assert test.flow.endswith("/sandbox/") and live.flow.endswith("/live/")
@@ -167,13 +168,13 @@ def test_market_order_uses_native_anyprice_without_price_lookup(service):
 @pytest.mark.parametrize(
     "request_data",
     [
-        CtpCancelByExchange(
+        CtpCancelByExchange(is_live=False, 
             by="exchange_order",
             exchange_id="SHFE",
             instrument_id="rb2610",
             order_sys_id="       42",
         ),
-        CtpCancelBySession(
+        CtpCancelBySession(is_live=False, 
             by="session_order",
             exchange_id="SHFE",
             instrument_id="rb2610",
@@ -212,7 +213,7 @@ def test_queries_aggregate_all_rows_without_coalescing(
         "fetch_positions": CtpPositionQuery,
         "fetch_balance": CtpAccountQuery,
     }
-    result = getattr(manager.get_client("sandbox"), name)(requests[name]())
+    result = getattr(manager.get_client("sandbox"), name)(requests[name](is_live=False))
     assert len(getattr(result, key)) == 2
     fields = factory.apis[0].requests[-1][1]
     assert fields["InvestorID"] == "sim-user" and fields["BrokerID"] == "9999"

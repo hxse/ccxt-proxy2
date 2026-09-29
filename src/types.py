@@ -8,7 +8,7 @@ from src.base_types import (
     VALID_PERIODS,
     BaseExchangeRequest,
     BaseSymbolRequest,
-    ModeType,
+    EnvironmentQuery,
     NonEmptyString,
     PositionSide,
     SideType,
@@ -28,15 +28,9 @@ NonBooleanFloat = Annotated[float, BeforeValidator(_reject_boolean_number)]
 NonBooleanInt = Annotated[int, BeforeValidator(_reject_boolean_number)]
 
 
-class BaseOhlcvRequest(BaseSymbolRequest):
+class BaseOhlcvRequest(EnvironmentQuery, BaseSymbolRequest):
     """三个 OHLCV 路由共享的无歧义参数。"""
 
-    mode: ModeType = Field(
-        "live",
-        title="模式",
-        description="live (实盘，默认) 或 sandbox (测试网)",
-        examples=["live", "sandbox"],
-    )
     timeframe: VALID_PERIODS = Field(
         ...,
         title="时间周期",
@@ -220,13 +214,13 @@ class CancelAllOrdersRequest(BaseExchangeRequest):
         return self
 
 
-class BalanceRequest(BaseExchangeRequest):
+class BalanceRequest(EnvironmentQuery, BaseExchangeRequest):
     """获取余额请求参数"""
 
     pass
 
 
-class TickersRequest(BaseExchangeRequest):
+class TickersRequest(EnvironmentQuery, BaseExchangeRequest):
     """获取报价请求参数"""
 
     symbols: str | None = Field(
@@ -244,13 +238,13 @@ class TickersRequest(BaseExchangeRequest):
         return [s.strip() for s in self.symbols.split(",") if s.strip()]
 
 
-class MarketInfoRequest(BaseSymbolRequest):
+class MarketInfoRequest(EnvironmentQuery, BaseSymbolRequest):
     """获取市场信息请求参数"""
 
     pass
 
 
-class FetchOrderRequest(BaseExchangeRequest):
+class FetchOrderRequest(EnvironmentQuery, BaseExchangeRequest):
     """获取特定订单请求参数"""
 
     symbol: NonEmptyString | None = Field(
@@ -264,7 +258,7 @@ class FetchOrderRequest(BaseExchangeRequest):
     )
 
 
-class FetchOpenOrdersRequest(BaseExchangeRequest):
+class FetchOpenOrdersRequest(EnvironmentQuery, BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
@@ -277,7 +271,7 @@ class FetchOpenOrdersRequest(BaseExchangeRequest):
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
-class FetchClosedOrdersRequest(BaseExchangeRequest):
+class FetchClosedOrdersRequest(EnvironmentQuery, BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
@@ -290,7 +284,7 @@ class FetchClosedOrdersRequest(BaseExchangeRequest):
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
-class FetchMyTradesRequest(BaseExchangeRequest):
+class FetchMyTradesRequest(EnvironmentQuery, BaseExchangeRequest):
     symbol: NonEmptyString | None = Field(
         None, description="可选 CCXT canonical symbol"
     )
@@ -303,7 +297,7 @@ class FetchMyTradesRequest(BaseExchangeRequest):
     limit: int | None = Field(None, ge=1, le=100_000, description="最大返回数量")
 
 
-class FetchPositionsRequest(BaseExchangeRequest):
+class FetchPositionsRequest(EnvironmentQuery, BaseExchangeRequest):
     symbols: list[NonEmptyString] | None = Field(
         None,
         min_length=1,

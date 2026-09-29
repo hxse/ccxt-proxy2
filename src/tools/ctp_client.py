@@ -228,7 +228,7 @@ class CtpClient:
     ) -> T:
         fields = {
             QUERY_FIELDS[name]: value if value is not None else ""
-            for name, value in request.model_dump(exclude={"mode"}).items()
+            for name, value in request.model_dump(exclude={"is_live"}).items()
         }
         if method == "ReqQryTradingAccount":
             fields["BizType"] = "1"  # 期货账户。

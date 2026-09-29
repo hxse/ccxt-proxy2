@@ -142,7 +142,7 @@ def test_preorder_reuses_opening_but_confirmation_rereads(form: OrderForm, monke
     monkeypatch.setattr(form.gui, "key", keys.append)
     monkeypatch.setattr(form.gui, "managed_snapshot", lambda: next(snapshots))
     assert form.open_preorder() == dialog
-    request = LimitOrder(exchange_id="DCE", instrument_id="m2701", side="buy", offset="open",
+    request = LimitOrder(is_live=False, exchange_id="DCE", instrument_id="m2701", side="buy", offset="open",
                          volume=1, price=Decimal(3206), time_in_force="IOC")
     with pytest.raises(BridgeError) as error:
         form.confirm_preorder(dialog, request)

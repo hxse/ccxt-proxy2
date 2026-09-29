@@ -1,6 +1,14 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 # === Enums / Literals ===
 ExchangeName = Literal["binance", "kraken"]
@@ -30,11 +38,53 @@ VALID_PERIODS = Literal[
 ]
 
 
-# === Base Request Models ===
-class BaseExchangeRequest(BaseModel):
-    """基础请求包含交易所、市场类型和模式"""
+def parse_is_live(value: object) -> bool:
+    """查询串和 CLI 只接受小写 true/false；不把 0/1、yes 等当作环境。"""
+    if isinstance(value, bool):
+        return value
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError("is_live 必须是 true 或 false")
 
+
+class EnvironmentRequest(BaseModel):
+    """公开环境选择只有布尔值；内部 SDK、缓存及持久化身份保持原样。"""
     model_config = ConfigDict(extra="forbid")
+
+    is_live: StrictBool = Field(
+        description="必填：true=实盘，false=模拟盘；不提供默认环境。",
+        examples=[True, False],
+    )
+
+    @property
+    def mode(self) -> ModeType:
+        return "live" if self.is_live else "sandbox"
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_environment(cls, value):
+        # CCXT 写接口允许扩展参数，旧环境字段也不能借此进入上游。
+        if (
+            cls.model_config.get("extra") == "allow"
+            and isinstance(value, dict)
+            and {"mode", "trading_env"} & value.keys()
+        ):
+            raise ValueError("mode/trading_env 已移除，必须显式填写 is_live")
+        return value
+
+
+class EnvironmentQuery(EnvironmentRequest):
+    @field_validator("is_live", mode="before")
+    @classmethod
+    def parse_query_environment(cls, value):
+        return parse_is_live(value)
+
+
+# === Base Request Models ===
+class BaseExchangeRequest(EnvironmentRequest):
+    """基础请求包含交易所、市场类型和显式环境。"""
 
     exchange_name: ExchangeName = Field(
         ...,
@@ -50,12 +100,6 @@ class BaseExchangeRequest(BaseModel):
             "USDⓈ-M linear Futures。"
         ),
         examples=["future", "spot"],
-    )
-    mode: ModeType = Field(
-        "sandbox",
-        title="模式",
-        description="sandbox (测试网) 或 live (实盘)",
-        examples=["sandbox", "live"],
     )
 
 

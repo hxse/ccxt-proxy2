@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "mode": "sandbox",
+    "is_live": false,
     "exchange_id": "DCE",
     "instrument_id": "m2701",
     "side": "buy",
@@ -55,7 +55,7 @@ tests {
 }
 
 docs {
-  市价开多：side=buy，offset=open，volume=1 手，mode=sandbox。没有 price 参数。
+  市价开多：side=buy，offset=open，volume=1 手，is_live=false。没有 price 参数。
   示例使用 DCE.m2701；执行前换成可交易且支持原生 AnyPrice 市价的合约。
   此请求提交一笔新的模拟市价委托。
   预期 200 校验成功订单。品种/前置不支持原生市价时应返回上游拒绝，不能把拒绝视为测试成功。

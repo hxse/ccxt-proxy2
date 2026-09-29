@@ -16,6 +16,7 @@ from src.types_ctp import (
 from Test.ctp_fakes import FakeFactory, Record, ctp_config, record
 
 ORDER: dict[str, Any] = {
+    "is_live": False,
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
     "side": "buy",
@@ -50,7 +51,7 @@ def test_copy_native_memory_ignore_wrong_request_and_wait_for_last(service):
         api.hooks["ReqQryOrder"] = respond
 
     factory.setup = setup
-    result = manager.get_client("sandbox").fetch_orders(CtpOrderQuery())
+    result = manager.get_client("sandbox").fetch_orders(CtpOrderQuery(is_live=False))
     assert len(result.orders) == 1 and result.orders[0].LimitPrice == 3500
 
 
@@ -73,7 +74,7 @@ def test_query_error_discards_partial_results_and_redacts_credentials(service):
 
     factory.setup = setup
     with pytest.raises(CtpError) as caught:
-        manager.get_client("sandbox").fetch_orders(CtpOrderQuery())
+        manager.get_client("sandbox").fetch_orders(CtpOrderQuery(is_live=False))
     assert caught.value.detail["ctp_error_id"] == 7
     assert caught.value.detail["message"] == "拒绝 *** ***"
 
@@ -156,7 +157,7 @@ def test_timeout_never_returns_partial_success_and_next_request_rebuilds_session
                 client.create_order(CtpLimitOrderRequest(**ORDER))
             elif action == "cancel":
                 client.cancel_order(
-                    CtpCancelByExchange(
+                    CtpCancelByExchange(is_live=False, 
                         by="exchange_order",
                         exchange_id="SHFE",
                         instrument_id="rb2610",
@@ -164,14 +165,14 @@ def test_timeout_never_returns_partial_success_and_next_request_rebuilds_session
                     )
                 )
             else:
-                client.fetch_orders(CtpOrderQuery())
+                client.fetch_orders(CtpOrderQuery(is_live=False))
         assert caught.value.detail["code"] == (
             "CTP_TIMEOUT" if action == "query" else "OPERATION_STATUS_UNKNOWN"
         )
         if action != "query":
             assert caught.value.detail["order_identity"]["instrument_id"] == "rb2610"
         factory.setup = lambda api: None
-        assert client.fetch_orders(CtpOrderQuery()).orders == []
+        assert client.fetch_orders(CtpOrderQuery(is_live=False)).orders == []
         assert len(factory.apis) == 2 and factory.apis[0].released == 1
         # 已释放连接的迟到回报不能完成新连接的请求。
         assert factory.apis[0].callbacks.pending is None
@@ -261,14 +262,14 @@ def test_disconnect_during_write_is_unknown_and_reconnect_logs_in_again(service)
     api = factory.apis[0]
     api.session_id = 19
     api.callbacks.on_connected()
-    client.fetch_balance(CtpAccountQuery())
+    client.fetch_balance(CtpAccountQuery(is_live=False))
     assert sum(m == "ReqUserLogin" for m, _, _ in api.requests) == 2
 
 
 def test_query_pacing_and_serial_execution(service, monkeypatch):
     manager, factory = service
     client = manager.get_client("sandbox")
-    client.fetch_orders(CtpOrderQuery())
+    client.fetch_orders(CtpOrderQuery(is_live=False))
     client._session.config = client._session.config.model_copy(
         update={"query_interval_seconds": 1.1}
     )
@@ -276,8 +277,8 @@ def test_query_pacing_and_serial_execution(service, monkeypatch):
     monkeypatch.setattr("src.tools.ctp_session.time.monotonic", lambda: 100)
     monkeypatch.setattr("src.tools.ctp_session.time.sleep", sleeps.append)
     client._session._next_query_at = 0
-    client.fetch_orders(CtpOrderQuery())
-    client.fetch_orders(CtpOrderQuery())
+    client.fetch_orders(CtpOrderQuery(is_live=False))
+    client.fetch_orders(CtpOrderQuery(is_live=False))
     assert sleeps == pytest.approx([1.1])
 
 
@@ -289,7 +290,7 @@ def test_close_waits_for_active_request_and_closed_client_cannot_reopen(service)
     )
     client = manager.get_client("sandbox")
     with ThreadPoolExecutor(max_workers=2) as executor:
-        read = executor.submit(client.fetch_orders, CtpOrderQuery())
+        read = executor.submit(client.fetch_orders, CtpOrderQuery(is_live=False))
         assert sent.wait(1)
         close = executor.submit(client.close)
         assert not close.done()
@@ -300,5 +301,5 @@ def test_close_waits_for_active_request_and_closed_client_cannot_reopen(service)
     client.close()
     assert api.released == 1
     with pytest.raises(CtpError) as error:
-        client.fetch_orders(CtpOrderQuery())
+        client.fetch_orders(CtpOrderQuery(is_live=False))
     assert error.value.detail["code"] == "CTP_CLIENT_CLOSED"

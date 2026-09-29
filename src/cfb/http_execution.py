@@ -38,7 +38,9 @@ class CfbRoute(APIRoute):
         original = super().get_route_handler()
 
         async def handle(request: Request):
-            request.state.request_id = "cfb-" + uuid4().hex
+            # 主应用已分配编号；独立挂载路由时才在此创建，避免覆盖日志上下文。
+            if not getattr(request.state, "request_id", None):
+                request.state.request_id = "cfb-" + uuid4().hex
             error = None
             try:
                 result = await original(request)

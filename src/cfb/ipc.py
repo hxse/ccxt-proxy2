@@ -9,7 +9,7 @@ from .models import Operation
 
 MAX_REQUEST = 64 * 1024
 MAX_RESPONSE = 8 * 1024 * 1024
-Kind = Literal["execute", "status", "health", "pause", "resume", "clean", "screenshot"]
+Kind = Literal["execute", "ready", "status", "health", "pause", "resume", "clean", "screenshot"]
 
 
 class Request(BaseModel):
@@ -25,8 +25,8 @@ class Request(BaseModel):
     def payload_matches_kind(self):
         if (self.kind == "execute") != (self.operation is not None):
             raise ValueError("execute requires operation")
-        if self.kind == "execute" and self.configuration is None:
-            raise ValueError("execute requires configuration identity")
+        if self.kind in {"execute", "ready"} and self.configuration is None:
+            raise ValueError("execute and ready require configuration identity")
         if self.kind != "execute" and self.idempotency_key is not None:
             raise ValueError("control cannot carry an idempotency key")
         return self

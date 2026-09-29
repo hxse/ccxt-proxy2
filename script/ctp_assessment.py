@@ -1,6 +1,6 @@
 """使用完整 VeighNa Trader 与期货公司联调；通过 just ctp-assessment 临时安装依赖。
 
-默认复用 config.toml 的 ctp.test；窗口打开后点击“系统 → 连接CTP”。
+用 --is-live=true|false 选择 config.toml 的账户；窗口打开后点击“系统 → 连接CTP”。
 加载官方 CTP 网关和风控模块，支持手动报撤单、查询及查看回报。
 测试是否通过由期货公司确认。说明见 docs/ctp/02_assessment.md。
 """
@@ -14,6 +14,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.base_types import parse_is_live  # noqa: E402
 from src.tools.config_loader import ConfigError, load_config  # noqa: E402
 from src.tools.config_types import CtpAccountConfig  # noqa: E402
 
@@ -121,10 +122,11 @@ def main(argv: list[str] | None = None) -> int:
         "--config", type=Path, help="省略时沿用 CCXT_PROXY_CONFIG_PATH/config.toml"
     )
     parser.add_argument(
-        "--mode",
-        choices=("sandbox", "live"),
-        default="sandbox",
-        help="默认 sandbox 读取 ctp.test；live 读取 ctp.live",
+        "--is-live",
+        type=parse_is_live,
+        required=True,
+        metavar="true|false",
+        help="false 读取 ctp.test；true 读取 ctp.live，必须显式选择",
     )
     parser.add_argument(
         "--md-front",
@@ -138,18 +140,19 @@ def main(argv: list[str] | None = None) -> int:
         help="VeighNa 界面设置、风控配置、日志和 flow 的父目录",
     )
     args = parser.parse_args(argv)
+    mode = "live" if args.is_live else "sandbox"
     try:
         config = load_config(args.config)
         ctp = config.ctp
         account = (
-            None if ctp is None else (ctp.test if args.mode == "sandbox" else ctp.live)
+            None if ctp is None else (ctp.live if args.is_live else ctp.test)
         )
         if account is None:
             raise ConfigError("请配置所选模式对应的 [ctp.test] 或 [ctp.live]")
         setting = gateway_setting(account, args.md_front or "")
         del account, ctp, config
         # 一个模式一个 VeighNa 工作目录，和 HTTP 后台的 flow、其他 VeighNa 程序隔离。
-        runtime = (args.output_dir / args.mode / "vnpy").resolve()
+        runtime = (args.output_dir / mode / "vnpy").resolve()
         runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
         (runtime / ".vntrader").mkdir(exist_ok=True, mode=0o700)
     except ConfigError as exc:
@@ -163,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     previous_umask = os.umask(0o077)
     try:
         os.chdir(runtime)
-        return launch_gui(setting, args.mode)
+        return launch_gui(setting, mode)
     except ImportError as exc:
         print(
             f"VeighNa/Qt 依赖未就绪（{type(exc).__name__}）；请使用 just ctp-assessment 启动",

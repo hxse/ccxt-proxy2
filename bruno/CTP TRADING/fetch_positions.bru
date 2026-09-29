@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ctp/fetch_positions?mode=sandbox
+  url: {{baseUrl}}/ctp/fetch_positions?is_live=false
   body: none
   auth: inherit
 }
 
 params:query {
-  mode: sandbox
+  is_live: false
 }
 
 assert {

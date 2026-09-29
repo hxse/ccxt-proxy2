@@ -17,7 +17,7 @@ from Test.test_ctp_http import LocalClient
 BASE = {
     "exchange_name": "kraken",
     "market": "future",
-    "mode": "live",
+    "is_live": True,
     "symbol": "BTC/USD:USD",
 }
 ORDERS = [

@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from src.base_types import EnvironmentQuery, EnvironmentRequest
+
 Exchange = Literal["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"]
 Side = Literal["buy", "sell"]
 Offset = Literal["open", "close", "close_today", "close_yesterday"]
@@ -39,9 +41,8 @@ def price_value(value: object) -> Decimal:
     return result
 
 
-class RequestModel(BaseModel):
+class RequestModel(EnvironmentRequest):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
-    mode: Literal["sandbox", "live"] = Field(default="sandbox", description="必须匹配启动环境；实盘须显式传 live，不触发账户切换。")
 
 
 class MarketOrder(RequestModel):
@@ -85,7 +86,7 @@ class CancelBySession(CancelBase):
 CancelOrder = Annotated[CancelByExchange | CancelBySession, Field(discriminator="by")]
 
 
-class PositionQuery(RequestModel):
+class PositionQuery(EnvironmentQuery, RequestModel):
     exchange_id: Exchange | None = None
     instrument_id: Instrument | None = None
     invest_unit_id: InvestUnit = ""
@@ -133,11 +134,11 @@ class TradeQuery(PositionQuery):
         return self
 
 
-class BalanceQuery(RequestModel):
+class BalanceQuery(EnvironmentQuery, RequestModel):
     currency_id: Annotated[str, Field(pattern=r"^[A-Z]{3}$")] = "CNY"
 
 
-class TradingStatusQuery(RequestModel):
+class TradingStatusQuery(EnvironmentQuery, RequestModel):
     exchange_id: Exchange
     product_id: Product
 

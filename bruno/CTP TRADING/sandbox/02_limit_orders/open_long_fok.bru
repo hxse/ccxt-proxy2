@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "mode": "sandbox",
+    "is_live": false,
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
     "side": "buy",
@@ -57,7 +57,7 @@ tests {
 }
 
 docs {
-  限价开多 FOK：side=buy，offset=open，volume=1 手，mode=sandbox。
+  限价开多 FOK：side=buy，offset=open，volume=1 手，is_live=false。
   执行前替换有效合约和自己选定的 price；3500 只是格式示例。
   此请求提交一笔新的模拟委托。
   FOK：限价立即全部成交，否则全部撤销。

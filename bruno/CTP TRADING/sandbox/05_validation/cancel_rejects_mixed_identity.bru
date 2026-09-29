@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "mode": "sandbox",
+    "is_live": false,
     "by": "exchange_order",
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
@@ -37,7 +37,7 @@ tests {
 }
 
 docs {
-  mode=sandbox。此用例故意包含非法参数，预期 HTTP 422，detail 为字段校验错误数组。
+  is_live=false。此用例故意包含非法参数，预期 HTTP 422，detail 为字段校验错误数组。
   正确实现会在调用 CTP 之前拒绝，不需要 CTP 已登录；仍需本项目 Bearer token。
   保留非法字段用于测试，不要为获得 200 而修正本用例。
 }

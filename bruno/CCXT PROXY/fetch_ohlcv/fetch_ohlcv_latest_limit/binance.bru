@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_ohlcv/latest-limit?exchange_name=binance&market=future&mode=live&symbol=BTC/USDT:USDT&timeframe=15m&limit=3&variant=default&enable_cache=true
+  url: {{baseUrl}}/ccxt/fetch_ohlcv/latest-limit?exchange_name=binance&market=future&is_live=true&symbol=BTC/USDT:USDT&timeframe=15m&limit=3&variant=default&enable_cache=true
   body: none
   auth: inherit
 }
@@ -13,7 +13,7 @@ get {
 params:query {
   exchange_name: binance
   market: future
-  mode: live
+  is_live: true
   symbol: BTC/USDT:USDT
   timeframe: 15m
   limit: 3

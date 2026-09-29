@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/cfb/fetch_orders?mode=sandbox&exchange_id=SHFE&instrument_id=rb2610
+  url: {{baseUrl}}/cfb/fetch_orders?is_live=false&exchange_id=SHFE&instrument_id=rb2610
   body: none
   auth: inherit
 }
 
 params:query {
-  mode: sandbox
+  is_live: false
   exchange_id: SHFE
   instrument_id: rb2610
   ~order_sys_id: REPLACE_ORDER_SYS_ID
@@ -34,7 +34,7 @@ tests {
 }
 
 docs {
-  通过 ccxt-proxy2 的 Bearer 鉴权转发到 CFB；mode 默认 sandbox，必须匹配上游启动环境，否则返回 409；live 不会触发账户切换。
+  通过 ccxt-proxy2 的 Bearer 鉴权交给对应 CFB 执行器；is_live 必填，false 为模拟盘，所选环境必须已启用，否则返回 503；live 不会触发账户切换。
   合约和品种按实际环境修改；查询 URL 和 params:query 同步修改。详细参数及返回模型从 CFB 自动文档同步到本项目 /docs。
   优先把提交响应的 order_id 原样填入 order_sys_id；request_id 不是订单编号。
   没有 order_id 时，可启用完整 identity 查询：交易所、合约、交易日、前置、会话和报单引用六项一起传；此时禁用 order_sys_id。示例日期、负数会话编号和报单引用须替换为真实响应值，字符串前导零原样保留。

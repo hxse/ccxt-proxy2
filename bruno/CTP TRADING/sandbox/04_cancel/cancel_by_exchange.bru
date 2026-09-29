@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "mode": "sandbox",
+    "is_live": false,
     "by": "exchange_order",
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
@@ -46,7 +46,7 @@ tests {
 }
 
 docs {
-  mode=sandbox，只撤指定订单剩余的未成交部分。
+  is_live=false，只撤指定订单剩余的未成交部分。
   先从下单或查询订单响应复制真实订单标识，示例编号不能直接使用。
   原样复制 OrderSysID，保留前导空格；同时填写原订单的 ExchangeID 和 InstrumentID。
   两种方式二选一测试同一笔订单。200 表示收到 OrderStatus=5，已成交部分不会撤回。

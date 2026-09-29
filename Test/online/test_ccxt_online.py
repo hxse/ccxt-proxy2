@@ -39,7 +39,7 @@ def live_future_service(request, tmp_path_factory):
             {
                 "exchange_name": provider,
                 "market": "future",
-                "mode": "live",
+                "is_live": True,
                 "symbol": FUTURE_SYMBOLS[provider],
                 "timeframe": "1m",
             },
@@ -63,11 +63,11 @@ def assert_rows(rows, count=None):
 
 def test_three_modes_tail_cache_and_trusted_history(live_future_service):
     service, params = live_future_service
-    latest = service.get("/ccxt/fetch_ohlcv/latest-limit", **params, limit=4)
+    latest = service.get('/ccxt/fetch_ohlcv/latest-limit', **params, limit=4)
     assert_rows(latest["rows"], 4)
     assert latest["last_bar_completion_confirmed"] is False
     summary = service.get(
-        "/cache/summary",
+        "/cache/summary", is_live=True,
         provider=params["exchange_name"],
         symbol=params["symbol"],
         timeframe="1m",
@@ -76,12 +76,12 @@ def test_three_modes_tail_cache_and_trusted_history(live_future_service):
     assert summary["items"][0]["end"] == latest["rows"][-2][0]
     since = latest["rows"][0][0]
     cached = service.get(
-        "/ccxt/fetch_ohlcv/since-limit", **params, since=since, limit=3
+        '/ccxt/fetch_ohlcv/since-limit', **params, since=since, limit=3
     )
     assert_rows(cached["rows"], 3)
     assert cached["last_bar_completion_confirmed"] is True
     counted = service.get(
-        "/ccxt/fetch_ohlcv/since-limit",
+        '/ccxt/fetch_ohlcv/since-limit',
         **params,
         since=since,
         limit=3,
@@ -89,7 +89,7 @@ def test_three_modes_tail_cache_and_trusted_history(live_future_service):
     )
     assert_rows(counted["rows"], 3)
     assert counted["last_bar_completion_confirmed"] is False
-    snapshot = service.get("/ccxt/fetch_ohlcv/since-latest", **params, since=since)
+    snapshot = service.get('/ccxt/fetch_ohlcv/since-latest', **params, since=since)
     assert_rows(snapshot["rows"])
     assert snapshot["rows"][0][0] == since
     assert snapshot["rows"][-1][0] >= latest["rows"][-1][0]
@@ -101,7 +101,7 @@ def test_binance_public_price_variants(live_future_service):
         pytest.skip("price variants only supported by Binance")
     for variant in ("mark", "index", "premiumIndex"):
         result = service.get(
-            "/ccxt/fetch_ohlcv/latest-limit",
+            '/ccxt/fetch_ohlcv/latest-limit',
             **params,
             limit=2,
             variant=variant,

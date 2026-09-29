@@ -17,7 +17,7 @@ def limit_body(symbol, **extra):
     return {
         "exchange_name": "kraken",
         "market": "future",
-        "mode": "live",
+        "is_live": True,
         "symbol": symbol,
         "side": "buy",
         "amount": 1,
@@ -152,7 +152,7 @@ def test_real_kraken_status_parser_can_return_unknown_order_type(monkeypatch):
             params={
                 "exchange_name": "kraken",
                 "market": "future",
-                "mode": "live",
+                "is_live": True,
                 "symbol": symbol,
                 "id": ORDER_ID,
             },
@@ -190,7 +190,7 @@ def test_real_binance_conditional_cancel_preserves_success_receipt(monkeypatch):
             json={
                 "exchange_name": "binance",
                 "market": "future",
-                "mode": "live",
+                "is_live": True,
                 "symbol": symbol,
                 "id": "2146760",
             },
@@ -218,7 +218,7 @@ def test_cancel_timeout_is_unknown_without_fallback_or_retry(monkeypatch):
             json={
                 "exchange_name": "binance",
                 "market": "future",
-                "mode": "live",
+                "is_live": True,
                 "symbol": symbol,
                 "id": "2146760",
             },

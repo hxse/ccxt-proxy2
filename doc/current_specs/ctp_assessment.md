@@ -3,7 +3,7 @@
 入口：[script/ctp_assessment.py](../../script/ctp_assessment.py)。在有图形桌面的主机上运行：
 
 ```bash
-just ctp-assessment
+just ctp-assessment --is-live=false
 ```
 
 该命令通过 uv 在独立环境中准备 Python 3.13、完整 `vnpy==4.4.0`、官方 `vnpy_ctp==6.7.11.4` 和 `vnpy_riskmanager==2.0.0`，随后打开 VeighNa Trader。首次会下载并可能编译依赖，后续复用 uv 的包缓存；不会把完整框架写入项目的 `pyproject.toml`、`uv.lock` 或后台 `.venv`。
@@ -14,7 +14,7 @@ just ctp-assessment
 uv run --no-project --no-config --isolated --python 3.13 \
   --with vnpy==4.4.0 --with vnpy_ctp==6.7.11.4 \
   --with vnpy_riskmanager==2.0.0 --with 'pydantic>=2,<3' \
-  python script/ctp_assessment.py
+  python script/ctp_assessment.py --is-live=false
 ```
 
 `--with` 是 uv 的临时依赖方式，参见 [uv 脚本说明](https://docs.astral.sh/uv/guides/scripts/#running-a-script-with-dependencies)。`--no-project --no-config --isolated` 让此命令独立于后台的依赖、裁剪包来源和 `exclude-dependencies` 设置。
@@ -22,7 +22,7 @@ uv run --no-project --no-config --isolated --python 3.13 \
 ## 使用方法
 
 1. 在现有 `config.toml` 的 `[ctp.test]` 填入期货公司提供的前置、账号和认证信息。默认也沿用 `CCXT_PROXY_CONFIG_PATH`，不需要另建账号配置文件。
-2. 运行 `just ctp-assessment`，点击“系统 → 连接CTP”。脚本直接使用启动时读取的 TOML 配置，不另存带密码的 `connect_ctp.json`。
+2. 运行 `just ctp-assessment --is-live=false`，点击“系统 → 连接CTP”。脚本直接使用启动时读取的 TOML 配置，不另存带密码的 `connect_ctp.json`。
 3. 在标准界面中查看委托、成交、持仓、资金、日志及合约；在“功能”菜单打开风控模块，按期货公司的测试清单设置规则和执行操作。
 4. 手动退出窗口结束测试。窗口打开本身不会连接前置或报单；点击连接后，官方网关会认证、登录、自动确认结算、查询合约及轮询资金/持仓。下单和撤单由你的界面操作触发。
 
@@ -44,17 +44,17 @@ uv run --no-project --no-config --isolated --python 3.13 \
 
 官方网关把同一个用户名用于 UserID 和 InvestorID，因此可选 `user_id` 必须省略或等于 `investor_id`；两者不同会明确报错。
 
-**`sandbox/live` 选择账号分组，`production_mode` 选择 SDK 密钥环境，两者独立。** SimNow 使用 `production_mode=true`；期货公司穿透式评测按其要求通常使用 `false`。不要因为配置放在 `ctp.test` 就把 SimNow 改为评测密钥。
+**`--is-live=true|false` 显式选择账号分组，`production_mode` 选择 SDK 密钥环境，两者独立。** SimNow 使用 `production_mode=true`；期货公司穿透式评测按其要求通常使用 `false`。不要因为配置放在 `ctp.test` 就把 SimNow 改为评测密钥。
 
 ```bash
 # 查看参数。
 just ctp-assessment --help
 
 # 使用默认 config.toml 的 ctp.live。
-just ctp-assessment --mode live
+just ctp-assessment --is-live=true
 
 # 期货公司同时提供行情前置时，显式传入；替换为实际地址。
-just ctp-assessment --md-front tcp://md-front.example:12345
+just ctp-assessment --is-live=false --md-front tcp://md-front.example:12345
 ```
 
 `--config` 可覆盖配置文件路径，但通常省略；`--output-dir` 可指定界面设置、风控配置、日志及 flow 的父目录，默认 `data/ctp_assessment`。每种模式独立使用 `<父目录>/<sandbox或live>/vnpy/.vntrader`，不会复用后台 flow 或其他 VeighNa 程序的数据目录。账号在启动时读取一次，修改后重启该脚本。

@@ -47,7 +47,7 @@ check 执行类型检查，lint 执行静态规则检查；两者不自动改写
 ctp-assessment 的 Nix/GUI 环境准备在 [ctp_assessment.sh](../../scripts/ctp_assessment.sh)，Just 只转发参数；原有依赖隔离和 GUI 行为不变。update-ctp 仍为显式的升级、构建与验证流程，不被 sync 或 serve 隐式调用。
 
 ```bash
-just ctp-assessment --config=config.toml --mode=sandbox
+just ctp-assessment --config=config.toml --is-live=false
 just debug-cleanup-sandbox
 ```
 
@@ -58,15 +58,15 @@ debug-cleanup-sandbox 沿用既有调试脚本的模拟盘撤单和平仓范围�
 ## CFB 执行容器
 
 ```bash
-just cfb --status
-just cfb --target=remote --logs
-just cfb --pause
-just cfb --resume
-just cfb --clean
-just cfb --screenshot --output=debug/cfb-desktop.png
+just cfb --is-live=false --status
+just cfb --is-live=true --target=remote --logs
+just cfb --is-live=false --pause
+just cfb --is-live=false --resume
+just cfb --is-live=false --clean
+just cfb --is-live=false --screenshot --output=debug/cfb-desktop.png
 just test-cfb-native
 ```
 
-cfb 运维只使用受管执行器的 Unix socket，不管理原 cn-futures-bridge 实例。pause/resume 保留原执行权规则，clean 只清理允许淘汰的日志/工件；截图保存 PNG。test-cfb-native 显式构建验证镜像，运行阶段断网，不启动真实账户；默认 just test 忽略这组镜像依赖测试。
+cfb 运维要求显式 --is-live=true|false，不管理原 cn-futures-bridge 实例。状态、控制与截图使用对应执行器的 Unix socket；--logs 在所选运行容器内跟随受管 JSON 日志，先显示最近 100 条，再跟随所有 writer 的追加和轮转，详见[日志规范](cfb_bootstrap.md)。pause/resume 保留原执行权规则，clean 只清理允许淘汰的日志/工件；截图保存 PNG，未指定 output 时为 debug/cfb-<mode>-desktop.png。test-cfb-native 显式构建验证镜像，运行阶段断网，不启动真实账户；默认 just test 忽略这组镜像依赖测试。
 
 启用白名单 cfb 后 just serve 也准备独立 CFB 容器，主 API 保持宿主运行；启动失败允许其他 SDK 继续。旧 sync-cfb-docs 入口退出，路由文档直接由本仓模型生成。

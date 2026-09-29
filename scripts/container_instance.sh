@@ -70,6 +70,8 @@ activate() {
         config_mount="$snapshot/config.toml"
         plan_mount="$snapshot/market_data.toml"
     fi
+    check_start
+    ensure_network
     gate
     check_start
     if ! cfb_ensure "$config_mount"; then
@@ -79,7 +81,8 @@ activate() {
     if [ "$old" = true ] &&
         [ "$(field "$name" '{{.Image}}' | sed 's/^sha256://')" = "${image#sha256:}" ] &&
         [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$identity" ] &&
-        [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.profile"}}')" = "$app_profile" ]; then
+        [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.profile"}}')" = "$app_profile" ] &&
+        uses_container_network "$name"; then
         gate
         check_start
         if ! running "$name"; then
@@ -103,6 +106,7 @@ activate() {
         fi
         mkdir -p -- "$root/data"
         pm create --name "$name" --pull=never --restart=unless-stopped \
+            --network="$container_network" \
             --publish 127.0.0.1:5123:5123 --label "${prefix}project=$name" \
             --label "${prefix}directory=$root" --label "${prefix}configuration=$identity" \
             --label "${prefix}profile=$app_profile" --env "CCXT_PROXY_PROFILE=$app_profile" \

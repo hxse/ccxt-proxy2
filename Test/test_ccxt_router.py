@@ -47,7 +47,7 @@ def _base() -> dict[str, Any]:
     return {
         "exchange_name": "binance",
         "market": "future",
-        "mode": "sandbox",
+        "is_live": False,
         "symbol": "BTC/USDT",
         "timeframe": "1m",
     }
@@ -87,7 +87,7 @@ def test_router_exposes_only_the_three_unambiguous_ohlcv_paths():
     assert "/ccxt/ohlcv/latest-limit" not in paths
 
 
-def test_openapi_contains_ohlcv_schemas_and_route_mode_defaults():
+def test_openapi_contains_ohlcv_schemas_and_required_environments():
     app = FastAPI()
     app.include_router(trader_router.ccxt_router)
 
@@ -106,18 +106,21 @@ def test_openapi_contains_ohlcv_schemas_and_route_mode_defaults():
             item["name"]: item for item in paths[path]["get"]["parameters"]
         }
         assert "include_last" not in parameters
-        assert parameters["mode"]["schema"]["default"] == "live"
+        assert parameters["is_live"]["required"] is True
+        assert "default" not in parameters["is_live"]["schema"]
 
     for path, operations in paths.items():
         if path.startswith("/ccxt/fetch_ohlcv/"):
             continue
         for parameter in operations.get("get", {}).get("parameters", []):
-            if parameter["name"] == "mode":
-                assert parameter["schema"]["default"] == "sandbox", path
+            if parameter["name"] == "is_live":
+                assert parameter["required"] is True, path
+                assert "default" not in parameter["schema"], path
     for name, definition in schema["components"]["schemas"].items():
-        mode = definition.get("properties", {}).get("mode")
-        if mode is not None:
-            assert mode["default"] == "sandbox", name
+        environment = definition.get("properties", {}).get("is_live")
+        if environment is not None:
+            assert "is_live" in definition["required"], name
+            assert "default" not in environment, name
 
 
 @pytest.mark.parametrize(

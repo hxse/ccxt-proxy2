@@ -81,7 +81,8 @@ def collect_source(root: Path) -> dict[str, bytes]:
     if not (root / "src/main.py").is_file() or not list(vendor.glob("*.tar.gz")):
         raise DeploymentError("构建源码缺少 src/main.py 或 CTP 源码包")
     result = {}
-    for path in sorted(files):
+    # 清单由远端 LC_ALL=C sort 校验；Path 按目录分段排序，会颠倒 terminal.lock.toml 与 terminal/。
+    for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
         relative = path.relative_to(root)
         if (
             not allowed_path(relative.as_posix())

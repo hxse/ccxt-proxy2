@@ -19,7 +19,7 @@ from src.types_ctp import (
 from Test.ctp_fakes import QUERY_CASES, FakeFactory, ctp_config, record
 
 ORDER = {
-    "mode": "sandbox",
+    "is_live": False,
     "exchange_id": "SHFE",
     "instrument_id": "rb2610",
     "side": "buy",
@@ -74,7 +74,7 @@ def http(tmp_path, monkeypatch):
 )
 def test_read_routes_return_detailed_typed_records_and_mode(http, route, key):
     client, factory = http
-    response = client.get("/ctp/" + route, params={"mode": "live"})
+    response = client.get("/ctp/" + route, params={"is_live": True})
     assert response.status_code == 200
     body = response.json()
     assert body["mode"] == "live" and body["trading_day"] == "20260917"
@@ -91,7 +91,7 @@ def test_read_routes_return_detailed_typed_records_and_mode(http, route, key):
         (
             "cancel_order",
             {
-                "mode": "sandbox",
+                "is_live": False,
                 "exchange_id": "SHFE",
                 "instrument_id": "rb2610",
                 "by": "exchange_order",
@@ -101,7 +101,7 @@ def test_read_routes_return_detailed_typed_records_and_mode(http, route, key):
         (
             "cancel_order",
             {
-                "mode": "sandbox",
+                "is_live": False,
                 "exchange_id": "SHFE",
                 "instrument_id": "rb2610",
                 "by": "session_order",
@@ -134,12 +134,12 @@ def test_write_routes_return_native_order_fields(http, route, body):
         ("create_market_order", ORDER | {"volume": True}),
         ("create_market_order", ORDER | {"volume": 1.5}),
         ("create_market_order", ORDER | {"offset": "auto"}),
-        ("create_market_order", ORDER | {"mode": "paper"}),
+        ("create_market_order", ORDER | {"is_live": "paper"}),
         ("create_market_order", ORDER | {"instrument_id": "KQ.m@SHFE.rb"}),
         ("create_market_order", ORDER | {"password": "never-forward"}),
         (
             "cancel_order",
-            {
+            {"is_live": False, 
                 "exchange_id": "SHFE",
                 "instrument_id": "rb2610",
                 "by": "exchange_order",
@@ -148,7 +148,7 @@ def test_write_routes_return_native_order_fields(http, route, body):
         ),
         (
             "cancel_order",
-            {
+            {"is_live": False, 
                 "exchange_id": "SHFE",
                 "instrument_id": "rb2610",
                 "by": "session_order",
@@ -157,7 +157,7 @@ def test_write_routes_return_native_order_fields(http, route, body):
         ),
         (
             "cancel_order",
-            {
+            {"is_live": False, 
                 "exchange_id": "SHFE",
                 "instrument_id": "rb2610",
                 "by": "exchange_order",
@@ -191,7 +191,7 @@ def test_strict_query_validation_precedes_sdk_use(http, path):
 def test_body_routes_reject_query_parameters(http):
     client, factory = http
     assert (
-        client.post("/ctp/create_market_order?mode=live", json=ORDER).status_code == 422
+        client.post('/ctp/create_market_order?is_live=true', json=ORDER).status_code == 422
     )
     assert factory.apis == []
 
@@ -199,7 +199,7 @@ def test_body_routes_reject_query_parameters(http):
 def test_bearer_authentication_is_required(http):
     client, factory = http
     client.app.dependency_overrides.clear()
-    assert client.get("/ctp/fetch_balance").status_code == 401
+    assert client.get('/ctp/fetch_balance?is_live=false').status_code == 401
     assert factory.apis == []
 
 

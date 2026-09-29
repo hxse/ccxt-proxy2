@@ -1,6 +1,7 @@
 import json
 import stat
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,7 @@ MixedCase = '-123'
 service = 'ccxt'
 exchange = 'binance'
 market = 'future'
-mode = 'sandbox'
+is_live = false
 """,
     )
     # 环境变量仅选择配置文件，不能覆盖文件里的账号、密码或签名密钥。
@@ -172,7 +173,8 @@ def test_json_migration_roundtrips_credentials_and_keeps_private_backup(tmp_path
     assert list(actual.users) == list(expected.users)
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
-    assert target.read_text().count("[[service_whitelist]]") == 5
+    assert "[[service_whitelist]]" not in target.read_text()
+    assert len(tomllib.loads(target.read_text())["service_whitelist"]) == 5
 
 
 def test_dotenv_migration_preserves_nested_fields_and_json_collections(
@@ -260,7 +262,7 @@ def test_example_has_only_placeholder_credentials_and_valid_defaults():
     config = load_config(example, environ={"CCXT_PROXY_PROFILE": "dev"})
     assert config.SECRET == "replace-with-a-random-secret"
     assert config.users["admin"].password == "replace-with-your-password"
-    assert [item.service for item in config.service_whitelist] == ["cfb"]
+    assert [item.identity for item in config.service_whitelist] == ["cfb/sandbox", "cfb/live"]
     assert all(
         getattr(config, provider) is None
         for provider in ("binance", "kraken", "tq", "ctp", "telegram")

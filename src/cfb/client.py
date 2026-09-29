@@ -19,7 +19,7 @@ from .models import Operation
 
 
 class Client:
-    def __init__(self, path: Path = Path("data/cfb/run/bridge.sock")):
+    def __init__(self, path: Path):
         self.path = path
         self.timeout = 300.0
         self.enabled = False
@@ -72,6 +72,3 @@ class Client:
                     await writer.wait_closed()
                 except OSError:
                     pass
-
-
-cfb_client = Client()

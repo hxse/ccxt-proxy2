@@ -71,7 +71,7 @@ def _base_query() -> dict[str, str]:
     return {
         "exchange_name": "binance",
         "market": "future",
-        "mode": "sandbox",
+        "is_live": "false",
         "symbol": "BTC/USDT:USDT",
         "timeframe": "1m",
         "variant": "mark",
@@ -81,7 +81,7 @@ def _base_query() -> dict[str, str]:
 
 @pytest.mark.parametrize(
     ("mode", "expected_mode"),
-    [(None, "live"), ("sandbox", "sandbox"), ("live", "live")],
+    [("false", "sandbox"), ("true", "live")],
 )
 @pytest.mark.parametrize(
     ("path", "extra", "operation"),
@@ -108,9 +108,9 @@ def test_three_http_routes_parse_query_and_dispatch(
 ):
     app, fake, identities = ohlcv_http_client
     params = _base_query() | extra
-    params.pop("mode")
+    params.pop("is_live")
     if mode is not None:
-        params["mode"] = mode
+        params["is_live"] = mode
 
     response = _get(app, path, params)
 
@@ -184,7 +184,7 @@ def test_unknown_ohlcv_query_parameter_is_rejected(ohlcv_http_client, unknown):
 
 @pytest.mark.parametrize(
     ("mode", "expected_mode"),
-    [(None, "sandbox"), ("sandbox", "sandbox"), ("live", "live")],
+    [("false", "sandbox"), ("true", "live")],
 )
 def test_fetch_positions_symbols_are_repeated_query_parameters(
     ohlcv_http_client, mode, expected_mode
@@ -197,7 +197,7 @@ def test_fetch_positions_symbols_are_repeated_query_parameters(
         ("symbols", "ETH/USDT:USDT"),
     ]
     if mode is not None:
-        params.append(("mode", mode))
+        params.append(("is_live", mode))
 
     response = _get(app, "/ccxt/fetch_positions", params)
 

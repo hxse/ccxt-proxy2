@@ -30,10 +30,10 @@ def configured(tmp_path):
                     "service": "ccxt",
                     "exchange": "binance",
                     "market": "future",
-                    "mode": "sandbox",
+                    'is_live': False,
                 },
                 {"service": "tq"},
-                {"service": "ctp", "mode": "sandbox"},
+                {"service": "ctp", 'is_live': False},
             ],
         }
     )
@@ -159,7 +159,7 @@ def test_ctp_authentication_still_precedes_client_access(tmp_path):
             "ReqUserLogin",
             "ReqSettlementInfoConfirm",
         ]
-        ctp.get_client("sandbox").fetch_balance(CtpAccountQuery())
+        ctp.get_client("sandbox").fetch_balance(CtpAccountQuery(is_live=False))
         assert sum(m == "ReqUserLogin" for m, _, _ in factory.apis[0].requests) == 1
         with pytest.raises(HTTPException):
             ctp.get_client("live")

@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from src.base_types import ModeType
+
 from .profiles import TerminalProfile, catalog
 
 Positive = Annotated[int, Field(gt=0)]
@@ -25,15 +27,11 @@ class ConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 
 
-class BridgeConfig(ConfigModel):
-    mode: Literal["sandbox", "live"] = "sandbox"
+class BridgeOptions(ConfigModel):
+    """公开终端设置；实例模式只来自服务白名单。"""
+
     data_dir: Path = Path("/data")
     startup_timeout_seconds: Annotated[int, Field(ge=15, le=300)] = 90
-
-    @property
-    def environment(self) -> Literal["simnow", "live"]:
-        # 保持原生 profile、持久化目录及幂等记录的既有身份。
-        return "simnow" if self.mode == "sandbox" else "live"
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -44,6 +42,16 @@ class BridgeConfig(ConfigModel):
         if not path.is_absolute() or path == Path("/") or any(c in str(path) for c in "\r\n\0"):
             raise ValueError("必须是独立的绝对目录")
         return path
+
+
+class BridgeConfig(BridgeOptions):
+    """绑定单个执行器的内部配置，不直接读取用户 TOML。"""
+
+    mode: ModeType = "sandbox"
+
+    @property
+    def environment(self) -> Literal["simnow", "live"]:
+        return "simnow" if self.mode == "sandbox" else "live"
 
 
 class AccountConfig(ConfigModel):
@@ -115,16 +123,22 @@ class ArtifactConfig(ConfigModel):
     min_free_bytes: Positive = 536870912
 
 
-class Settings(ConfigModel):
-    _proxy_config: str | None = PrivateAttr(default=None)
-    bridge: BridgeConfig = Field(default_factory=BridgeConfig)
+class CommonSettings(ConfigModel):
     accounts: AccountsConfig = Field(default_factory=AccountsConfig)
     desktop: DesktopConfig = Field(default_factory=DesktopConfig)
-    vnc: VncConfig = Field(default_factory=VncConfig)
     reconnect: ReconnectConfig = Field(default_factory=ReconnectConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     artifacts: ArtifactConfig = Field(default_factory=ArtifactConfig)
+    enable_proxy: bool = False
+    vnc_enabled: bool = True
+    request_timeout_seconds: float = Field(300.0, gt=0, le=300, allow_inf_nan=False)
+
+
+class Settings(CommonSettings):
+    _proxy_config: str | None = PrivateAttr(default=None)
+    bridge: BridgeConfig = Field(default_factory=BridgeConfig)
+    vnc: VncConfig = Field(default_factory=VncConfig)
 
     @property
     def request_mode(self) -> Literal["sandbox", "live"]:
@@ -190,3 +204,23 @@ class Settings(ConfigModel):
             raise ValueError("必须明确选择该券商的原生站点，live 不自动选择站点")
         return self
 
+
+class ModeVncConfig(ConfigModel):
+    sandbox: VncConfig = Field(default_factory=VncConfig)
+    live: VncConfig = Field(default_factory=lambda: VncConfig(port=45176, web_port=45177))
+
+
+class CfbConfig(CommonSettings):
+    """公共配置只保存两组账户；按白名单生成互不共享的运行快照。"""
+
+    bridge: BridgeOptions = Field(default_factory=BridgeOptions)
+    vnc: ModeVncConfig = Field(default_factory=ModeVncConfig)
+
+    def for_mode(self, mode: ModeType) -> Settings:
+        if mode not in {"sandbox", "live"}:
+            raise ValueError("CFB mode 必须是 sandbox 或 live")
+        return Settings(
+            **self.model_dump(exclude={"bridge", "vnc"}),
+            bridge=BridgeConfig(**self.bridge.model_dump(), mode=mode),
+            vnc=self.vnc.sandbox if mode == "sandbox" else self.vnc.live,
+        )

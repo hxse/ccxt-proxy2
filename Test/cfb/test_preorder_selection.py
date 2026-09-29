@@ -25,7 +25,7 @@ def row(contract: str = "m2701") -> dict[str, str]:
 def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     settings = Settings(bridge=BridgeConfig(data_dir=tmp_path))
     journal = Journal(settings)
-    request = LimitOrder(exchange_id="DCE", instrument_id="m2701", side="buy", offset="open", volume=1, price=Decimal(3206))
+    request = LimitOrder(is_live=False, exchange_id="DCE", instrument_id="m2701", side="buy", offset="open", volume=1, price=Decimal(3206))
     journal.admit("cfb-selection", Operation(action="create_limit_order", parameters=request.model_dump(mode="json")), None)
     steps = Steps("cfb-selection", "create_limit_order", journal, tmp_path)
     steps.owned_row = row()

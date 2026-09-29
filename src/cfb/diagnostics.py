@@ -3,28 +3,31 @@
 import base64
 import binascii
 from collections.abc import Callable
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
+
+from src.base_types import EnvironmentQuery, ModeType
 
 from .client import Client
 from .errors import BridgeError, ServiceStatus
 from .http_execution import CfbRoute
 
 
-def diagnostic_router(get_client: Callable[[], Client]) -> APIRouter:
+def diagnostic_router(get_client: Callable[[Request, ModeType], Client]) -> APIRouter:
     router = APIRouter(route_class=CfbRoute)
 
     @router.get("/status", response_model=ServiceStatus, summary="CFB 终端详细状态")
-    async def status(request: Request):
+    async def status(request: Request, params: Annotated[EnvironmentQuery, Query()]):
         """读取执行器状态、队列及自动重连信息；不触发重新登录。"""
-        reply = await get_client().call("status", request_id=request.state.request_id)
+        reply = await get_client(request, params.mode).call("status", request_id=request.state.request_id)
         return JSONResponse(reply.body, status_code=reply.status, headers=reply.headers)
 
     @router.get("/readyz", response_model=ServiceStatus, summary="CFB 终端交易就绪")
-    async def ready(request: Request):
-        """终端交易就绪返回 200，未就绪返回 503；主应用及其他 SDK 不受影响。"""
-        reply = await get_client().call("status", request_id=request.state.request_id)
+    async def ready(request: Request, params: Annotated[EnvironmentQuery, Query()]):
+        """配置身份匹配且终端交易就绪返回 200，否则 503；不触发登录。"""
+        reply = await get_client(request, params.mode).call("ready", request_id=request.state.request_id)
         if reply.status != 200:
             return JSONResponse(reply.body, status_code=reply.status, headers=reply.headers)
         value = ServiceStatus.model_validate(reply.body)
@@ -32,16 +35,16 @@ def diagnostic_router(get_client: Callable[[], Client]) -> APIRouter:
                             headers=reply.headers)
 
     @router.get("/healthz", summary="CFB 执行进程存活")
-    async def health(request: Request):
+    async def health(request: Request, params: Annotated[EnvironmentQuery, Query()]):
         """检查独立执行进程的协议连通性；成功不代表已登录或允许交易。"""
-        reply = await get_client().call("health", request_id=request.state.request_id)
+        reply = await get_client(request, params.mode).call("health", request_id=request.state.request_id)
         return JSONResponse(reply.body, status_code=reply.status, headers=reply.headers)
 
     @router.get("/desktop/screenshot", response_class=Response, summary="CFB 虚拟桌面截图",
                 responses={200: {"content": {"image/png": {}}}})
-    async def screenshot(request: Request):
+    async def screenshot(request: Request, params: Annotated[EnvironmentQuery, Query()]):
         """读取当前虚拟桌面的 PNG，失败明确报错；不操作终端控件。"""
-        reply = await get_client().call("screenshot", request_id=request.state.request_id)
+        reply = await get_client(request, params.mode).call("screenshot", request_id=request.state.request_id)
         if reply.status != 200:
             return JSONResponse(reply.body, status_code=reply.status, headers=reply.headers)
         try:

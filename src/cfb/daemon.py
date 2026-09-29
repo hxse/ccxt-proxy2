@@ -6,6 +6,7 @@ import logging
 import signal
 from pathlib import Path
 
+from src.base_types import ModeType, parse_is_live
 from src.tools.config_loader import load_config
 
 from .network import prepare_proxy
@@ -13,11 +14,11 @@ from .server import Server
 from .service import BridgeService
 
 
-async def run(config_path: Path) -> None:
+async def run(config_path: Path, mode: ModeType) -> None:
     config = load_config(config_path)
-    if not any(item.service == "cfb" for item in config.service_whitelist) or config.cfb is None:
+    if not any(item.service == "cfb" and item.mode == mode for item in config.service_whitelist) or config.cfb is None:
         raise ValueError("CFB is not enabled")
-    settings = config.cfb
+    settings = config.cfb.for_mode(mode)
     if settings.enable_proxy:
         assert config.proxy.effective_http is not None
         prepare_proxy(settings, config.proxy.effective_http)
@@ -42,9 +43,10 @@ async def run(config_path: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="CFB Unix socket 执行器")
     parser.add_argument("--config", type=Path, default=Path("/app/config.toml"))
+    parser.add_argument("--is-live", type=parse_is_live, required=True, metavar="true|false")
     args = parser.parse_args()
     try:
-        asyncio.run(run(args.config))
+        asyncio.run(run(args.config, "live" if args.is_live else "sandbox"))
     except Exception as exc:
         logging.error("CFB 执行器启动失败：%s；配置值不输出", type(exc).__name__)
         return 1

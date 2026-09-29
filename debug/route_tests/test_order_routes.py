@@ -17,7 +17,7 @@ def tracked_order_ids(client: TestClient):
             json={
                 "exchange_name": EXCHANGE,
                 "market": MARKET,
-                "mode": MODE,
+                "is_live": MODE == "live",
                 "symbol": SYMBOL,
                 "id": order_id,
             },
@@ -32,7 +32,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
         params={
             "exchange_name": EXCHANGE,
             "market": MARKET,
-            "mode": MODE,
+            "is_live": MODE == "live",
             "symbols": SYMBOL,
         },
     )
@@ -44,7 +44,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     limit_payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "side": "buy",
         "amount": 0.005,
@@ -67,7 +67,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     stop_payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "side": "sell",
         "amount": 0.005,
@@ -86,7 +86,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     fetch_params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
     }
     res_o = client.get("/ccxt/fetch_open_orders", params=fetch_params)
@@ -99,7 +99,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     fetch_single_params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "id": order_id,
     }
@@ -112,7 +112,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     cancel_payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "id": order_id,
     }
@@ -123,7 +123,7 @@ def test_order_lifecycle(client: TestClient, tracked_order_ids: list[str]):
     stop_cancel_payload = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "id": stop_order_id,
     }

@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_positions?exchange_name=kraken&market=future&mode=live&symbols=BTC/USD:USD
+  url: {{baseUrl}}/ccxt/fetch_positions?exchange_name=kraken&market=future&is_live=true&symbols=BTC/USD:USD
   body: none
   auth: inherit
 }
@@ -13,7 +13,7 @@ get {
 params:query {
   exchange_name: kraken
   market: future
-  mode: live
+  is_live: true
   symbols: BTC/USD:USD
 }
 

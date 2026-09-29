@@ -17,7 +17,7 @@ def status_client(tmp_path):
 
 def request(**values):
     return CtpTradingStatusQuery.model_validate(
-        {"exchange_id": "SHFE", "product_id": "rb"} | values
+        {"is_live": False, "exchange_id": "SHFE", "product_id": "rb"} | values
     )
 
 
@@ -65,7 +65,7 @@ def test_ctp_status_is_latest_per_exchange_product_and_mode(status_client):
     client.fetch_trading_status(request())
     manager.initialize("live")
     live = manager.get_client("live")
-    live.fetch_trading_status(request(mode="live"))
+    live.fetch_trading_status(request(is_live=True))
     sandbox_api, live_api = factory.apis
     sandbox_api.callbacks.on_instrument_status(status_record("2"))
     sandbox_api.callbacks.on_instrument_status(status_record("6", "DCE"))
@@ -79,7 +79,7 @@ def test_ctp_status_is_latest_per_exchange_product_and_mode(status_client):
         client.fetch_trading_status(request(product_id="rb2610")).reason
         == "not_received"
     )
-    assert live.fetch_trading_status(request(mode="live")).is_open is False
+    assert live.fetch_trading_status(request(is_live=True)).is_open is False
     sandbox_api.callbacks.on_instrument_status(status_record("6"))
     assert client.fetch_trading_status(request()).raw_status == "6"
 

@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_tickers?exchange_name=binance&market=future&mode=live&symbols=BTC/USDT:USDT,ETH/USDT:USDT
+  url: {{baseUrl}}/ccxt/fetch_tickers?exchange_name=binance&market=future&is_live=true&symbols=BTC/USDT:USDT,ETH/USDT:USDT
   body: json
   auth: inherit
 }
 
 params:query {
-  mode: live
+  is_live: true
   market: future
   exchange_name: binance
   symbols: BTC/USDT:USDT,ETH/USDT:USDT

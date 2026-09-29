@@ -48,6 +48,22 @@ enable_proxy = true
 
 保留共享 proxy 地址；覆盖不会自行启用未列入 service_whitelist 的服务。三个场景的地址/凭据选择不改变路由里的 live/sandbox 语义。上传端不再修改代理字段或做第二次配置合并。
 
+
+公共及远端白名单统一使用内联数组。远端覆盖写在 overrides.remote 本身，不能放在 overrides.remote.cfb 内；它是完整数组替换，不按条目增删。本地 CCXT/CFB 两环境保留，远端仅保留它们的 live，其他已启用服务照常列入：
+
+```toml
+[overrides.remote]
+# 完整远端清单；各服务须有对应账号配置。
+service_whitelist = [
+    { service = "ccxt", exchange = "binance", market = "future", is_live = true },
+    { service = "ccxt", exchange = "kraken", market = "future", is_live = true },
+    { service = "tq" },
+    { service = "cfb", is_live = true },
+]
+```
+
+公开示例默认只启用 CFB：公共数组含两种环境，remote 数组只含 live；其他服务作为注释行，填写凭据后按需启用。代理覆盖仍位于 overrides.remote.<service>，不承担白名单筛选。
+
 ## HTTP 鉴权
 
 业务接口使用 `/auth/token` 的 OAuth2 Password Grant 和 Bearer JWT，登录账号来自 `[users.<username>]`，与交易所和期货账号独立。
@@ -58,51 +74,49 @@ Bruno collection 共享变量仅为 `baseUrl` 与 secret `user/password`；请�
 
 ## 统一服务白名单
 
-只有 `[[service_whitelist]]` 列出的身份会初始化。填写账户或上游地址本身不会启用服务；缺省白名单为空。所有路由仍保留在 OpenAPI 中，未启用服务返回 `503 SERVICE_NOT_ENABLED`；已启用但初始化中、失败、关闭或已知 SDK 不可用时返回 `503 SERVICE_NOT_READY`，detail 同时包含 service 身份。
+只有根级 `service_whitelist = [...]` 列出的身份会初始化。填写账户或上游地址本身不会启用服务；缺省白名单为空。所有路由仍保留在 OpenAPI 中，未启用服务返回 `503 SERVICE_NOT_ENABLED`；已启用但初始化中、失败、关闭或已知 SDK 不可用时返回 `503 SERVICE_NOT_READY`，detail 同时包含 service 身份。
 
 | service | 白名单字段 | 身份 | 必需配置与初始化 |
 | --- | --- | --- | --- |
-| ccxt | exchange、market、mode | ccxt/交易所/市场/模式 | 对应 test/live 凭证，创建客户端并加载 markets |
+| ccxt | exchange、market、is_live | ccxt/交易所/市场/模式 | 对应 test/live 凭证，创建客户端并加载 markets |
 | tq | 仅 service | tq | [tq]，在专用线程创建并初始化 TqApi |
-| ctp | mode | ctp/sandbox 或 ctp/live | [ctp.test] 或 [ctp.live]，认证、登录、确认结算 |
-| cfb | 仅 service | cfb | [cfb]，创建轻量 socket 客户端；正式入口自动准备执行容器 |
+| ctp | is_live | ctp/sandbox 或 ctp/live | [ctp.test] 或 [ctp.live]，认证、登录、确认结算 |
+| cfb | service、is_live | cfb/{mode} | [cfb]，创建轻量 socket 客户端；正式入口自动准备执行容器 |
 
-ccxt 的 exchange 为 binance/kraken，market 为 spot/future，mode 为 sandbox/live；Kraken spot sandbox 身份在配置阶段拒绝。CCXT 的 test 对应 sandbox，live 对应实盘。开启交易所代理时必须同时存在可用的 [proxy] 地址。Binance、Kraken Futures/Spot 的同步客户端通过同一个 proxies 字典将该地址映射到 HTTP 和 HTTPS 目标；关闭时 proxies 为 None。地址优先级保持 proxy.effective_http 的既有规则，不同时设置 SDK 的 httpProxy/httpsProxy；代理地址自身可用 http:// 或 https://，不会按目标协议改写。
+ccxt 的 exchange 为 binance/kraken，market 为 spot/future，is_live 为严格布尔值，true 对应 live、false 对应 sandbox；Kraken spot sandbox 身份在配置阶段拒绝。CCXT 的 test 对应 sandbox，live 对应实盘。开启交易所代理时必须同时存在可用的 [proxy] 地址。Binance、Kraken Futures/Spot 的同步客户端通过同一个 proxies 字典将该地址映射到 HTTP 和 HTTPS 目标；关闭时 proxies 为 None。地址优先级保持 proxy.effective_http 的既有规则，不同时设置 SDK 的 httpProxy/httpsProxy；代理地址自身可用 http:// 或 https://，不会按目标协议改写。
 
 公共取时使用独立 CCXT 异步 Binance 客户端，读取同一 binance.enable_proxy 和 proxy.effective_http，通过 SDK aiohttp_proxy 传递；关闭时禁用环境代理。该能力不依赖交易白名单或账号，因此即使没有启用 Binance 交易身份，开启币安代理也必须提供地址。详见[公共时间](system_time.md)。
 
-TQ 和 CFB 的白名单项不接受 exchange/market/mode。CFB 请求中的 mode 必须匹配 cfb.bridge.mode，不切换启动账户。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
+TQ 的白名单项不接受 exchange/market/is_live。CFB 白名单项要求 is_live，最多 true/false 各一项，不接受 exchange/market；请求中的必填 is_live 选择对应实例。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
 
 Binance、Kraken、TQ 的 enable_proxy 均默认 false。TQ 配置 `[tq] enable_proxy=true` 时使用同一 proxy.effective_http 地址；启用的 TQ 服务缺少代理地址会在配置阶段拒绝。该开关同时覆盖 SDK 认证/查询 HTTP、行情/交易状态 WebSocket 和自有日历/主连源下载，关闭时显式直连，不继承环境代理。代理绑定启动快照和 TQ 调用上下文，不修改进程环境或其他 SDK 的配置；详细传输边界见 [TQ 规范](tq_data.md)。
 
 CFB 最小启用示例：
 
 ```toml
+# 服务白名单；is_live 必填，true=实盘，false=模拟盘；TQ 不带此字段。
+service_whitelist = [
+    { service = "cfb", is_live = false },
+]
+
 [cfb]
 enable_proxy = false
 vnc_enabled = true
 request_timeout_seconds = 300
-
-[[service_whitelist]]
-service = "cfb"
 ```
 
 其他服务的白名单写法如下；使用前需填写对应账号分组：
 
 ```toml
-[[service_whitelist]]
-service = "ccxt"
-exchange = "binance"
-market = "future"
-mode = "sandbox"
-
-[[service_whitelist]]
-service = "tq"
-
-[[service_whitelist]]
-service = "ctp"
-mode = "sandbox"
+# 服务白名单；is_live 必填，true=实盘，false=模拟盘；TQ 不带此字段。
+service_whitelist = [
+    { service = "ccxt", exchange = "binance", market = "future", is_live = false },
+    { service = "tq" },
+    { service = "ctp", is_live = false },
+]
 ```
+
+白名单 is_live 必填，不接受 0/1、字符串或 null，false 不是缺省值。旧 mode/trading_env 字段拒绝；内部规范化为既有 live/sandbox 身份，不修改缓存键、CFB 目录和幂等记录。HTTP/CLI 也统一为必填 is_live，详见 [统一环境选择](environment_selection.md)。
 
 同一身份不得重复，白名单不得引用缺失的配置。身份和账号字段校验在启动时完成；上游初始化失败保留为 failed 身份，不从白名单静默删除，也不切换到另一个模式。
 
@@ -119,10 +133,10 @@ ServiceRuntime 统一持有 initializing/ready/failed/stopped 状态；只有 re
 `GET /healthz` 只表示应用进程能处理请求，返回 `{"status":"ok"}`。`GET /readyz` 的 200 表示 HTTP 应用已就绪，不要求全体 SDK 成功；initialized 是当前 ready 身份按白名单顺序生成的视图，services 是逐身份状态，例如：
 
 ```json
-{"status":"ready","initialized":["cfb"],"services":{"tq":"failed","cfb":"ready"}}
+{"status":"ready","initialized":["cfb/sandbox"],"services":{"tq":"failed","cfb/sandbox":"ready","cfb/live":"failed"}}
 ```
 
-进入或退出基础生命周期期间返回 503/not_ready，仍带 initialized 和 services。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB ready 只表示socket 客户端已创建，不等于终端已登录或交易就绪。访问上述失败的 TQ 路由返回 `{"detail":{"code":"SERVICE_NOT_READY","service":"tq"}}`；健康的 CFB 路由照常执行。
+进入或退出基础生命周期期间返回 503/not_ready，仍带 initialized 和 services。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB 各模式 ready 只表示socket 客户端已创建，不等于终端已登录或交易就绪。访问上述失败的 TQ 路由返回 `{"detail":{"code":"SERVICE_NOT_READY","service":"tq"}}`；健康的 CFB 路由照常执行。
 
 ## 本地缓存配置
 
@@ -167,4 +181,4 @@ just deploy --target=remote --upload --build --start
 
 TQ 自有元数据源沿用集中读取的 TQ_CHINESE_HOLIDAY_URL、TQ_CONT_TABLE_URL。不新增登录配置或 refresh_source 开关；下载头取自已初始化 SDK，应用关闭时先停止元数据任务并释放 HTTP 客户端。
 
-CFB 原账户、桌面、执行、重连、日志与工件配置均迁入 cfb 子表；不再接收 cfb.base_url 或 cfb.api。完整字段见 config.example.toml 与 [CFB 运行规范](cfb_bootstrap.md)。cfb.enable_proxy 使用公共 HTTP CONNECT 代理，开启时严格校验，关闭不继承环境代理。默认示例明确启用 CFB，但省略 service_whitelist 仍为空白名单。
+CFB 原账户、桌面、执行、重连、日志与工件配置均迁入 cfb 子表；不再接收 cfb.base_url、cfb.api 或 cfb.bridge.mode。完整字段见 config.example.toml 与 [CFB 运行规范](cfb_bootstrap.md)。cfb.enable_proxy 使用公共 HTTP CONNECT 代理，开启时严格校验，关闭不继承环境代理。默认示例明确启用 cfb/sandbox 和 cfb/live，但省略 service_whitelist 仍为空白名单。

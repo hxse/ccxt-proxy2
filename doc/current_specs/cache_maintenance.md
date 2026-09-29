@@ -7,10 +7,10 @@ GET /cache/summary 只读本地数据，POST /cache/prune 会删除本地缓存�
 ## 概况
 
 ```text
-GET /cache/summary?provider=tq&symbol=KQ.m@SHFE.rb&timeframe=300s&kind=ohlcv
+GET /cache/summary?is_live=true&provider=tq&symbol=KQ.m@SHFE.rb&timeframe=300s&kind=ohlcv
 ```
 
-可选精确过滤 provider（binance/kraken/tq）、mode（live/sandbox）、market、symbol、timeframe、variant、kind（ohlcv/calendar/main_mapping/transition）。未知/空参数拒绝；TQ 周期身份为秒数字加 s。
+is_live 为必填布尔查询参数，true 选择 live、false 选择 sandbox；旧 mode 参数拒绝。可选精确过滤 provider（binance/kraken/tq）、market、symbol、timeframe、variant、kind（ohlcv/calendar/main_mapping/transition）。未知/空参数拒绝；TQ 周期身份为秒数字加 s。
 
 items 中每项包含 kind、identity、time_unit、start、end、count、total_count、segment_count。count 是最新实际片段的数量，total_count 是全序列的 distinct 时间数；start 是实际首行，不是 covered_from。最新按实际时间排序，不按 ID。片段真实交集唯一化保证元数据计数不会重复计同一业务时间。
 
@@ -18,7 +18,7 @@ items 中每项包含 kind、identity、time_unit、start、end、count、total_
 {"items":[{"kind":"ohlcv","identity":{"provider":"tq","mode":"live","market":"future","symbol":"KQ.m@SHFE.rb","timeframe":"300s","variant":"default"},"time_unit":"ns","start":1790211600000000000,"end":1790211900000000000,"count":2,"total_count":30000,"segment_count":2}]}
 ```
 
-不存在的身份返回 items=[]。日期类端点为 ISO date；CCXT 为毫秒、TQ 行情与过渡为纳秒。日期身份和过渡身份见各主题规范；不返回 segment_id、数据库路径、凭据或隐式保留 K。概况不取在线时间、不访问 SDK、不读取后台计划。
+不存在的身份返回 items=[]。日期类端点为 ISO date；CCXT 为毫秒、TQ 行情与过渡为纳秒。日期身份和过渡身份见各主题规范；不返回 segment_id、数据库路径、凭据或隐式保留 K。响应 identity.mode 保留内部 live/sandbox 身份。概况不取在线时间、不访问 SDK、不读取后台计划。
 
 ## 显式清理规则
 

@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ccxt/fetch_positions?exchange_name=binance&market=future&mode=sandbox&symbols=BTC/USDT:USDT
+  url: {{baseUrl}}/ccxt/fetch_positions?exchange_name=binance&market=future&is_live=false&symbols=BTC/USDT:USDT
   body: none
   auth: inherit
 }
@@ -13,7 +13,7 @@ get {
 params:query {
   exchange_name: binance
   market: future
-  mode: sandbox
+  is_live: false
   symbols: BTC/USDT:USDT
 }
 

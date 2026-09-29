@@ -59,7 +59,7 @@ remote_dir = "dev/ccxt-proxy2"
 
 源码白名单包含 Dockerfile、.dockerignore、锁文件、项目声明、src 的 Python/约定 JSON、vendor/vnpy_ctp 构建资料及三个后台脚本。包含当前工作区未提交源码；配置、虚拟环境、数据库、日志、历史和草稿不属于源码树。
 
-上传先通过 inventory 取得当前版本和实际文件摘要。新 source.manifest 是完整且排序的 SHA256/相对路径清单，其摘要为版本身份；source.base 固定本轮基线，source.delta.tar.gz 只包含内容改变或新增的文件。无变化时差异包为空。首次部署及旧整包格式没有文件清单，第一次新上传完整传输，后续增量。
+上传先通过 inventory 取得当前版本和实际文件摘要。新 source.manifest 是完整的 SHA256/相对路径清单，按完整相对路径的 ASCII 字典序排序，与远端 LC_ALL=C sort 一致；不能用 Path 的目录分段排序。清单摘要为版本身份；source.base 固定本轮基线，source.delta.tar.gz 只包含内容改变或新增的文件。无变化时差异包为空。首次部署及旧整包格式没有文件清单，第一次新上传完整传输，后续增量。
 
 远端在操作锁内核对基线；其他发布者已更新则拒绝本次上传。临时受管树从旧源码复制、按完整清单删除旧文件、写入差异，再校验文件集合、普通文件类型和全部摘要。拒绝穿越路径、链接、重复、额外文件和损坏内容。删除不涉及配置与业务数据。
 
@@ -85,10 +85,22 @@ Dockerfile 固定 Python slim 摘要与 uv 版本，不强制 --platform；镜�
 
 固定容器名 ccxt-proxy2，并通过项目/目录标签确认所有权。同名非本项目容器或其他目录的实例明确拒绝操作。
 
-- 相同镜像、配置及运行规范：复用实例并检查 readyz；停止状态则启动原实例。
+主服务与启用的 CFB 执行器统一加入目标机的 trading-net。正式启动先执行：
+
+```bash
+podman network create --ignore trading-net
+```
+
+`--ignore` 的已有网络复用行为见 [Podman 官方说明](https://docs.podman.io/en/latest/markdown/podman-network-create.1.html#ignore)。
+
+不存在时创建；存在时复用，不改其参数、不删除重建。网络准备失败时保留旧运行实例并停止本次部署。主服务 create 与 CFB run 都带 --network=trading-net；just serve 准备 CFB 时使用同一规则。构建、配置预检及数据迁移容器继续 --network=none；单独 build 不创建运行网络。stop、日志查看和镜像清理不删除或修改这个共享网络。
+
+- 相同镜像、配置及运行规范，且已加入 trading-net：复用实例并检查 readyz；停止状态则启动原实例。
 - 有变化：先正常停止旧实例，再启用新实例，不允许两个进程同时访问同一 DuckDB。
 - 就绪成功：删除旧实例并清理无用版本。
 - 普通失败：停止并移除失败实例，恢复旧实例及原运行状态。本次命令仍返回失败；恢复失败明确报告。
+
+旧实例缺少 trading-net 时，下一次 start 使用上述替换流程迁移并保留数据；不另用 network connect 绕过实例更新。已有网络的其他设置保持原状，宿主端口仍仅发布到 127.0.0.1。
 
 本地构建/启动持本地项目操作锁；远端 upload/build/start 持目标目录操作锁，等待时提示并可取消。status/logs 不入队；stop 使用独立生命周期门禁更新停止代次并停止本项目实例，不删除配置、容器或数据。
 
@@ -117,10 +129,14 @@ ssh -N -L 15123:127.0.0.1:5123 rn
 
 ## CFB 配套执行器
 
-白名单启用 cfb 时，build 同时准备独立 CFB 镜像，记录主镜像与执行镜像的配套关系；start 只消费对应版本，自动启动或复用 ccxt-proxy2-cfb。CFB 当前固定 Wine/Q72 原生资产仅支持 linux/amd64，主镜像的原生平台规则不因此改变。CFB 不启用时不准备此镜像。
+白名单启用 cfb 时，build 同时准备独立 CFB 镜像，记录主镜像与执行镜像的配套关系；start 只消费对应版本，按白名单自动启动或复用 ccxt-proxy2-cfb-sandbox、ccxt-proxy2-cfb-live，共用一份镜像，每种最多一个。CFB 当前固定 Wine/Q72 原生资产仅支持 linux/amd64，主镜像的原生平台规则不因此改变。CFB 不启用时不准备此镜像。
 
-CFB 代码源码、锁文件和构建资产进入既有增量清单；配置仍原样上传、内存应用场景覆盖。宿主 data/cfb 挂到执行器 /data，主容器已有 /app/data 挂载用于访问 socket。VNC/noVNC 默认 45174/45175，仅发布 127.0.0.1；不发布旧 45173。
+CFB 代码源码、锁文件和构建资产进入既有增量清单；配置仍原样上传、内存应用场景覆盖。宿主 data/cfb/<mode> 分别挂到对应执行器 /data，主容器已有 /app/data 挂载用于访问 socket。VNC/noVNC 默认 sandbox=45174/45175、live=45176/45177，仅发布 127.0.0.1；不发布旧 45173。
 
-按镜像和所选配置摘要复用，主服务重启不重启匹配 CFB；需要替换时先停止旧 owner。失败保留或恢复旧实例，协议身份检查阻止误用不匹配的账户。CFB 启动失败允许主应用继续；终端就绪由 /cfb/readyz 表示。显式项目 stop 停止两个受管实例；不会操作原 cn-futures-bridge 容器和卷。
+按镜像、所选配置摘要及已加入 trading-net 复用，主服务重启不重启匹配 CFB；需要替换时先停止旧 owner。失败保留或恢复旧实例，协议身份检查阻止误用不匹配的账户。CFB 一个模式启动失败仍继续启动另一模式及主应用；终端就绪由 /cfb/readyz 查询，实盘传 is_live=true，模拟盘传 is_live=false。显式项目 stop 停止主应用和两个模式的执行器；不会操作原 cn-futures-bridge 容器和卷。
 
 镜像清理保留配套版本、运行实例和依赖祖先，删除失效配套记录及无用本项目版本；不全局 prune，不删除数据。CFB 原生验证镜像不视作生产旧版本。just serve 使用同一准备/启动实现，但主 API 仍运行在宿主。控制命令见 [命令规范](commands.md)，CFB 特有规则见 [运行规范](cfb_bootstrap.md)。
+
+部署 start 会停止不再启用的本项目模式，保留其数据。旧单实例先停止并迁移数据后退出，避免出现第三个 CFB owner；失败不恢复为与新模式并行的旧实例。数据迁移规范见 [CFB 运行规范](cfb_bootstrap.md)。serve 在白名单没有 CFB 时不调用 Podman；已有执行器可用显式 deploy --stop 停止。
+
+公共与 remote 的 service_whitelist 均使用内联数组，环境字段为必填布尔值 is_live；远端配置完整覆盖时保留这一原始写法，由统一加载器选择场景。默认 remote 清单排除 CCXT/CFB sandbox；本地清单继续保留两种环境。

@@ -26,10 +26,10 @@ def test_whitelist_types_have_distinct_strict_fields(tmp_path):
             "service": "ccxt",
             "exchange": "binance",
             "market": "future",
-            "mode": "sandbox",
+            'is_live': False,
         },
         {"service": "tq"},
-        {"service": "ctp", "mode": "sandbox"},
+        {"service": "ctp", 'is_live': False},
     ]
     config = AppConfig.model_validate(payload | {"service_whitelist": entries})
     assert [item.identity for item in config.service_whitelist] == [
@@ -46,8 +46,8 @@ def test_whitelist_types_have_distinct_strict_fields(tmp_path):
         {"service": "tq", "mode": "live"},
         {"service": "tq", "exchange": "binance"},
         {"service": "ctp"},
-        {"service": "ctp", "mode": "test"},
-        {"service": "ctp", "mode": "sandbox", "market": "future"},
+        {"service": "ctp", 'is_live': 'test'},
+        {"service": "ctp", 'is_live': False, "market": "future"},
         {"service": "unknown"},
         {"service": "ccxt", "exchange": "binance"},
     ],
@@ -58,7 +58,7 @@ def test_invalid_service_fields_are_rejected(tmp_path, entry):
 
 
 @pytest.mark.parametrize(
-    "entry", [{"service": "tq"}, {"service": "ctp", "mode": "live"}]
+    "entry", [{"service": "tq"}, {"service": "ctp", 'is_live': True}]
 )
 def test_missing_or_duplicate_service_configuration_is_rejected(tmp_path, entry):
     with pytest.raises(ValidationError, match="missing"):

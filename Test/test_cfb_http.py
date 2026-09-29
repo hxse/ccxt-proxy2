@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI
 
-from src.cfb.client import Client
 from src.cfb.errors import ServiceStatus
 from src.cfb.ipc import Response
+from src.cfb.manager import Manager
 from src.cfb.results import OrderIdentity, SubmissionResult
 from src.main import app as main_app
 from src.router.auth_handler import manager
@@ -32,6 +32,22 @@ def normalized(value, document):
     return value
 
 
+def migrate_environment_schema(value):
+    """来源样本保留原状；只允许已批准的环境输入迁移。"""
+    if isinstance(value, list):
+        return [migrate_environment_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {key: migrate_environment_schema(item) for key, item in value.items()}
+    if result.get("in") == "query" and result.get("name") == "mode":
+        result.update(name="is_live", required=True, schema={"type": "boolean"})
+    if "mode" in result.get("properties", {}):
+        result["properties"].pop("mode")
+        result["properties"]["is_live"] = {"type": "boolean"}
+        result["required"] = ["is_live", *result.get("required", [])]
+    return result
+
+
 def test_original_eight_route_models_are_equivalent():
     before = json.loads(Path("Test/fixtures/cfb_source_contract.json").read_text())
     after = main_app.openapi()
@@ -39,17 +55,18 @@ def test_original_eight_route_models_are_equivalent():
         old = before["paths"]["/cfb/" + name][method]
         new = after["paths"]["/cfb/" + name][method]
         assert new["security"]
-        assert normalized(old.get("parameters", []), before) == normalized(new.get("parameters", []), after), name
-        assert normalized(old.get("requestBody"), before) == normalized(new.get("requestBody"), after), name
+        assert migrate_environment_schema(normalized(old.get("parameters", []), before)) == normalized(new.get("parameters", []), after), name
+        assert migrate_environment_schema(normalized(old.get("requestBody"), before)) == normalized(new.get("requestBody"), after), name
         code = "202" if method == "post" else "200"
         assert normalized(old["responses"][code], before) == normalized(new["responses"][code], after), name
 
 
 def setup(monkeypatch, call):
-    client = Client()
-    client.initialize(CfbConfig())
+    registry = Manager()
+    registry.initialize(CfbConfig(), "sandbox")
+    client = registry.get("sandbox")
     monkeypatch.setattr(client, "call", call)
-    monkeypatch.setattr("src.router.cfb_router.cfb_client", client)
+    monkeypatch.setattr("src.router.cfb_router.cfb_manager", registry)
     app = FastAPI()
     app.state.service_runtime = SimpleNamespace(require=lambda service: None)
     app.include_router(cfb_router)
@@ -60,7 +77,7 @@ def test_authentication_precedes_ipc(monkeypatch):
     async def forbidden(*args, **kwargs):
         raise AssertionError("未鉴权不应进入 IPC")
     http = setup(monkeypatch, forbidden)
-    result = http.get("/cfb/fetch_balance")
+    result = http.get('/cfb/fetch_balance?is_live=false')
     assert result.status_code == 401
 
 
@@ -77,7 +94,7 @@ def test_failure_keeps_submission_identity_and_replayed_request_id(monkeypatch):
 
     http = setup(monkeypatch, call)
     http.app.dependency_overrides[manager] = lambda: {"sub": "offline"}
-    result = http.post("/cfb/create_limit_order", headers={"Idempotency-Key": "one"}, json={
+    result = http.post("/cfb/create_limit_order", headers={"Idempotency-Key": "one"}, json={"is_live": False, 
         "exchange_id": "DCE", "instrument_id": "m2701", "side": "buy", "offset": "open", "volume": 1, "price": 3514.25})
     assert result.status_code == 503 and result.json() == payload
     assert result.headers["X-Request-ID"] == "cfb-original" and result.headers["Retry-After"] == "600"
@@ -91,5 +108,50 @@ def test_diagnostics_preserve_terminal_readiness_separately(monkeypatch):
         return Response(status=200, body=ServiceStatus(trading_ready=False).model_dump(mode="json"))
     http = setup(monkeypatch, call)
     http.app.dependency_overrides[manager] = lambda: {"sub": "offline"}
-    assert http.get("/cfb/status").status_code == 200
-    assert http.get("/cfb/readyz").status_code == 503
+    assert http.get('/cfb/status?is_live=false').status_code == 200
+    assert http.get('/cfb/readyz?is_live=false').status_code == 503
+
+
+def test_configuration_mismatch_cannot_report_ready(tmp_path, monkeypatch):
+    from src.cfb.errors import BridgeError
+    from src.cfb.server import response
+    from Test.test_cfb_ipc import fixture
+
+    service, dispatcher, server, client = fixture(tmp_path)
+    client.settings = client.settings.model_copy(update={"vnc_enabled": False})
+    assert client.settings.identity_signature != service.settings.identity_signature
+    assert service.status().trading_ready is True
+
+    async def through_server(kind, **kwargs):
+        import asyncio
+
+        from src.cfb.ipc import Request
+        from src.cfb.results import Reply
+
+        request = Request(kind=kind, request_id=kwargs["request_id"],
+                          operation=kwargs.get("operation"),
+                          configuration=client.settings.identity_signature)
+        disconnected = asyncio.create_task(asyncio.Event().wait())
+        try:
+            return await server.handle(request, disconnected)
+        except BridgeError as exc:
+            return response(service, Reply(request_id=request.request_id, status=exc.status,
+                body=exc.response(request.request_id).model_dump(mode="json")))
+        finally:
+            disconnected.cancel()
+            await asyncio.gather(disconnected, return_exceptions=True)
+
+    http = setup(monkeypatch, through_server)
+    http.app.dependency_overrides[manager] = lambda: {"sub": "offline"}
+    status = http.get('/cfb/status?is_live=false')
+    assert status.status_code == 200 and status.json()["trading_ready"] is True
+    for path in ('/cfb/readyz?is_live=false', '/cfb/fetch_positions?is_live=false'):
+        result = http.get(path)
+        assert result.status_code == 503
+        assert result.json()["error"]["code"] == "SERVICE_NOT_READY"
+        assert "配置与执行器不一致" in result.json()["error"]["message"]
+    assert not dispatcher.queue
+    client.settings = service.settings
+    assert http.get('/cfb/readyz?is_live=false').status_code == 200
+    dispatcher.state.trading_ready = False
+    assert http.get('/cfb/readyz?is_live=false').status_code == 503

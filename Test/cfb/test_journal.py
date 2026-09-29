@@ -12,7 +12,7 @@ from src.cfb.terminal.steps import Steps
 
 def test_replay_conflict_and_interrupted_import(tmp_path: Path) -> None:
     settings = Settings(bridge=BridgeConfig(data_dir=tmp_path))
-    operation = Operation(action="create_limit_order", parameters={
+    operation = Operation(action="create_limit_order", parameters={"is_live": False, 
         "exchange_id": "CZCE", "instrument_id": "RM701", "side": "buy",
         "offset": "open", "volume": 1, "price": 2323})
     journal = Journal(settings)
@@ -39,7 +39,7 @@ def test_replay_conflict_and_interrupted_import(tmp_path: Path) -> None:
 
 def test_captured_identity_survives_worker_and_service_restart(tmp_path: Path) -> None:
     settings = Settings(bridge=BridgeConfig(data_dir=tmp_path))
-    operation = Operation(action="create_market_order", parameters={
+    operation = Operation(action="create_market_order", parameters={"is_live": False, 
         "exchange_id": "DCE", "instrument_id": "m2701", "side": "buy", "offset": "open", "volume": 1})
     identity = OrderIdentity(exchange_id="DCE", instrument_id="m2701", trading_day="20260924",
                              front_id=3, session_id=-12, order_ref="18")
@@ -57,7 +57,7 @@ def test_captured_identity_survives_worker_and_service_restart(tmp_path: Path) -
 
 def test_normalized_price_survives_interruption_and_legacy_migration(tmp_path: Path) -> None:
     settings=Settings(bridge=BridgeConfig(data_dir=tmp_path))
-    operation=Operation(action='create_limit_order',parameters={'exchange_id':'DCE','instrument_id':'m2701',
+    operation=Operation(action='create_limit_order',parameters={"is_live": False, 'exchange_id':'DCE','instrument_id':'m2701',
         'side':'buy','offset':'open','volume':1,'price':3514.35})
     journal=Journal(settings)
     journal.admit('legacy',operation,'old')

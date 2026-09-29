@@ -85,11 +85,11 @@ def render_toml(config: AppConfig) -> str:
     whitelist = payload.pop("service_whitelist")
     content = (
         "# 本地实际配置，请勿提交；字段说明见 config.example.toml。\n"
-        "# 修改后重启服务。未配置的可选字段/分组直接省略。\n\n" + tomli_w.dumps(payload)
+        "# 修改后重启服务。未配置的可选字段/分组直接省略。\n\n"
+        + tomli_w.dumps({"service_whitelist": whitelist})
+        + "\n"
+        + tomli_w.dumps(payload)
     )
-    # 显式使用数组表，避免把白名单挤成内联对象；值的转义仍交给 TOML writer。
-    for item in whitelist:
-        content += "\n[[service_whitelist]]\n" + tomli_w.dumps(item)
     return content
 
 

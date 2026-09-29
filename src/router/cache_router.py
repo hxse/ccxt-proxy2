@@ -53,7 +53,8 @@ async def _finish_prune(cache, policy, cutoff):
 def summary(request: Request, filters: Annotated[CacheSummaryQuery, Query()]):
     return {
         "items": _cache(request).list_series_summaries(
-            filters.model_dump(exclude_none=True)
+            filters.model_dump(exclude_none=True, exclude={"is_live"})
+            | {"mode": filters.mode}
         )
     }
 

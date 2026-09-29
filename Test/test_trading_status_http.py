@@ -31,7 +31,7 @@ def http(tmp_path, monkeypatch):
     ctp.close()
 
 
-def test_status_http_returns_null_and_ctp_defaults_to_sandbox(http):
+def test_status_http_returns_null_and_ctp_uses_explicit_environment(http):
     client, factory = http
     # 初始化发生在启动阶段，不由 HTTP 状态读取触发。
     from src.router.ctp_router import ctp_manager
@@ -46,11 +46,12 @@ def test_status_http_returns_null_and_ctp_defaults_to_sandbox(http):
         "raw_status": None,
         "reason": "not_received",
     }
-    params = {"exchange_id": "SHFE", "product_id": "rb"}
+    params = {"is_live": False, "exchange_id": "SHFE", "product_id": "rb"}
     ctp = client.get("/ctp/fetch_trading_status", params=params)
     assert ctp.status_code == 200
     assert ctp.json() == {
-        **params,
+        "exchange_id": "SHFE",
+        "product_id": "rb",
         "mode": "sandbox",
         "is_open": None,
         "raw_status": None,
@@ -61,7 +62,7 @@ def test_status_http_returns_null_and_ctp_defaults_to_sandbox(http):
     body = client.get("/ctp/fetch_trading_status", params=params).json()
     assert body["is_open"] is True and body["raw_status"] == "2"
     assert body["data"]["InstrumentID"] == "rb" and body["reason"] is None
-    live = client.get("/ctp/fetch_trading_status", params={**params, "mode": "live"})
+    live = client.get("/ctp/fetch_trading_status", params={**params, "is_live": True})
     assert live.json()["mode"] == "live" and live.json()["is_open"] is None
 
 
@@ -70,11 +71,11 @@ def test_status_http_returns_null_and_ctp_defaults_to_sandbox(http):
     [
         ("tq", {}),
         ("tq", {"symbol": " "}),
-        ("tq", {"symbol": "SHFE.rb2610", "mode": "sandbox"}),
-        ("ctp", {"exchange_id": "SHFE"}),
-        ("ctp", {"exchange_id": "SHFE", "product_id": "SHFE.rb2610"}),
-        ("ctp", {"exchange_id": "SHFE", "product_id": "rb", "instrument_id": "rb2610"}),
-        ("ctp", {"exchange_id": "SHFE", "product_id": "rb", "mode": "test"}),
+        ("tq", {"symbol": "SHFE.rb2610", "is_live": False}),
+        ("ctp", {"is_live": False, "exchange_id": "SHFE"}),
+        ("ctp", {"is_live": False, "exchange_id": "SHFE", "product_id": "SHFE.rb2610"}),
+        ("ctp", {"is_live": False, "exchange_id": "SHFE", "product_id": "rb", "instrument_id": "rb2610"}),
+        ("ctp", {"exchange_id": "SHFE", "product_id": "rb", "is_live": "test"}),
     ],
 )
 def test_status_http_rejects_missing_invalid_or_undeclared_params(
@@ -91,7 +92,7 @@ def test_status_routes_require_bearer_auth(http):
     client.app.dependency_overrides.clear()
     for provider, params in [
         ("tq", {"symbol": "SHFE.rb2610"}),
-        ("ctp", {"exchange_id": "SHFE", "product_id": "rb"}),
+        ("ctp", {"is_live": False, "exchange_id": "SHFE", "product_id": "rb"}),
     ]:
         assert (
             client.get(f"/{provider}/fetch_trading_status", params=params).status_code
@@ -115,7 +116,7 @@ def test_status_openapi_exposes_nullable_types_parameters_and_original_ctp_field
     schema = main_app.openapi()
     for provider, fields in [
         ("tq", {"symbol"}),
-        ("ctp", {"mode", "exchange_id", "product_id"}),
+        ("ctp", {"is_live", "exchange_id", "product_id"}),
     ]:
         operation = schema["paths"][f"/{provider}/fetch_trading_status"]["get"]
         params = {field["name"]: field for field in operation["parameters"]}
@@ -132,7 +133,8 @@ def test_status_openapi_exposes_nullable_types_parameters_and_original_ctp_field
         }
         assert all(field["description"] for field in model["properties"].values())
         if provider == "ctp":
-            assert params["mode"]["schema"]["default"] == "sandbox"
+            assert params["is_live"]["required"] is True
+            assert params["is_live"]["schema"]["type"] == "boolean"
         else:
             assert "403" in operation["responses"]
     native = schema["components"]["schemas"]["CtpInstrumentStatus"]["properties"]

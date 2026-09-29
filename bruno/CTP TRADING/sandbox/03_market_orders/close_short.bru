@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "mode": "sandbox",
+    "is_live": false,
     "exchange_id": "DCE",
     "instrument_id": "m2701",
     "side": "buy",
@@ -55,7 +55,7 @@ tests {
 }
 
 docs {
-  市价平空：side=buy，offset=close，volume=1 手，mode=sandbox。没有 price 参数。
+  市价平空：side=buy，offset=close，volume=1 手，is_live=false。没有 price 参数。
   示例使用 DCE.m2701；执行前换成可交易且支持原生 AnyPrice 市价的合约。
   先确认模拟账户有对应方向的可平仓位；其他交易所可能要求显式平今或平昨。
   预期 200 校验成功订单。品种/前置不支持原生市价时应返回上游拒绝，不能把拒绝视为测试成功。

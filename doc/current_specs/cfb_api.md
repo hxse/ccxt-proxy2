@@ -4,7 +4,7 @@
 
 FastAPI 提供三个 POST、五个 GET 业务路由，统一使用 `/cfb` 前缀。方法、名称及常用输入对齐参考 CTP 服务，返回使用 CFB 自己的必要字段，不承诺原始 CTP 结构。参考服务不是运行依赖。
 
-每个实例只支持一个启动时选定的 SimNow 或华安实盘账户。config.toml 可保存 cfb.accounts.sandbox/live 两组凭证，cfb.bridge.mode 选择其中一组；请求 mode 必须与启动选择一致，否则返回 409/ENVIRONMENT_MISMATCH，不触发登录、切换、入队或幂等重放。sandbox 内部仍对应 simnow；/cfb/status 的 environment 保留 simnow/live，request_mode 为 sandbox/live。HTTP 使用 ccxt-proxy2 的 Bearer 鉴权，Podman 发布端口仅绑定宿主 127.0.0.1，默认文档入口为 http://127.0.0.1:5123/docs；完整参数、枚举和返回模型由 /openapi.json 提供。
+白名单按 cfb/sandbox 和 cfb/live 启用最多两个独立实例；每个实例固定对应的 SimNow 或华安实盘账户，凭据位于 cfb.accounts.sandbox/live。业务请求用必填 is_live 选择实例，true 为实盘、false 为模拟盘；未启用返回 503 SERVICE_NOT_ENABLED，不回退其他模式。执行器收到错误模式仍返回 409/ENVIRONMENT_MISMATCH，不触发登录、切换、入队或幂等重放。用户配置不再提供 cfb.bridge.mode。sandbox 内部仍对应 simnow；/cfb/status 的 environment 保留 simnow/live，request_mode 为 sandbox/live。HTTP 使用 ccxt-proxy2 的 Bearer 鉴权，Podman 发布端口仅绑定宿主 127.0.0.1，默认文档入口为 http://127.0.0.1:5123/docs；完整参数、枚举和返回模型由 /openapi.json 提供。
 
 CFB 执行器保持独立容器；启用白名单后 just serve 或部署 --start 自动联动，VNC 由 cfb.vnc_enabled 控制。配置、生命周期及容量治理见 [bootstrap.md](cfb_bootstrap.md)，内部动作、会话和复位见 [terminal_execution.md](cfb_terminal_execution.md)。
 
@@ -12,20 +12,20 @@ CFB 执行器保持独立容器；启用白名单后 just serve 或部署 --star
 
 | 方法 | 路径 | 参数 |
 | --- | --- | --- |
-| POST | /cfb/create_market_order | mode、exchange_id、instrument_id、side、offset、volume、hedge_flag、invest_unit_id |
+| POST | /cfb/create_market_order | is_live、exchange_id、instrument_id、side、offset、volume、hedge_flag、invest_unit_id |
 | POST | /cfb/create_limit_order | 市价请求的公共字段，加 price、time_in_force |
-| POST | /cfb/cancel_order | mode、exchange_id、instrument_id、invest_unit_id，以及 by 指定的一组身份字段 |
-| GET | /cfb/fetch_orders | mode；可选 exchange_id、instrument_id、order_sys_id，或完整引用组 trading_day/front_id/session_id/order_ref；insert_time_start、insert_time_end；invest_unit_id |
-| GET | /cfb/fetch_trades | mode；可选 exchange_id、instrument_id、trade_id、trade_time_start、trade_time_end；invest_unit_id |
-| GET | /cfb/fetch_positions | mode；可选 exchange_id、instrument_id；invest_unit_id |
-| GET | /cfb/fetch_balance | mode、currency_id |
-| GET | /cfb/fetch_trading_status | mode；必填 exchange_id、product_id |
+| POST | /cfb/cancel_order | is_live、exchange_id、instrument_id、invest_unit_id，以及 by 指定的一组身份字段 |
+| GET | /cfb/fetch_orders | is_live；可选 exchange_id、instrument_id、order_sys_id，或完整引用组 trading_day/front_id/session_id/order_ref；insert_time_start、insert_time_end；invest_unit_id |
+| GET | /cfb/fetch_trades | is_live；可选 exchange_id、instrument_id、trade_id、trade_time_start、trade_time_end；invest_unit_id |
+| GET | /cfb/fetch_positions | is_live；可选 exchange_id、instrument_id；invest_unit_id |
+| GET | /cfb/fetch_balance | is_live、currency_id |
+| GET | /cfb/fetch_trading_status | is_live；必填 exchange_id、product_id |
 
 POST 只接受 application/json 对象；GET 使用 query。未知 JSON/query 字段、重复单值 query、重复幂等头或 POST 中夹带 query 均拒绝，不静默忽略条件。
 
-公共默认值：mode=sandbox、hedge_flag=speculation、invest_unit_id=""、time_in_force=GFD、currency_id=CNY。交易所为 SHFE/INE/DCE/CZCE/CFFEX/GFEX；下单、撤单和状态查询必填交易所，其他查询可省略。
+is_live 没有默认值。其他公共默认值：hedge_flag=speculation、invest_unit_id=""、time_in_force=GFD、currency_id=CNY。交易所为 SHFE/INE/DCE/CZCE/CFFEX/GFEX；下单、撤单和状态查询必填交易所，其他查询可省略。
 
-实盘必须明确传 mode=live，省略时按 sandbox 校验并报环境不匹配。环境匹配在 HTTP、调度准入和执行器复核；实盘与模拟盘使用同一能力规则，当前限价 GFD 等基础分支不会因 live 被禁用，未核验分支仍返回 501。AI 的实盘交易测试需用户明确授权，该约束不是只读 API 权限。
+is_live 必填；查询串只接受 true/false，JSON 只接受布尔值。省略、旧 mode 字段或非法值返回 422，规则见 [统一环境选择](environment_selection.md)。环境匹配在 HTTP、调度准入和执行器复核；实盘与模拟盘使用同一能力规则，当前限价 GFD 等基础分支不会因 live 被禁用，未核验分支仍返回 501。AI 的实盘交易测试需用户明确授权，该约束不是只读 API 权限。
 
 合约格式为 `^[A-Za-z][A-Za-z0-9]{0,79}$`，保留大小写；品种为 `^[A-Za-z][A-Za-z0-9_]{0,79}$`，同样区分大小写。执行时与终端实际标的及所属交易所精确核对，不能以自动补全或模糊匹配替代；资料未就绪与标的不匹配分别报错。
 
@@ -66,7 +66,7 @@ execution.price 为实际采用的提交限价，requested_price 为显式限价
 ```bash
 curl -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:5123/cfb/create_limit_order \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: price-example-001' \
-  -d '{"mode":"sandbox","exchange_id":"DCE","instrument_id":"m2701","side":"buy","offset":"open","volume":1,"price":3514.35,"time_in_force":"GFD"}'
+  -d '{"is_live":false,"exchange_id":"DCE","instrument_id":"m2701","side":"buy","offset":"open","volume":1,"price":3514.35,"time_in_force":"GFD"}'
 ```
 
 在上述示例资料下，响应中的 execution 为：
@@ -114,18 +114,18 @@ POST 的 execution.kind 为 limit/emulated_market/cancel，price 和 time_in_for
 
 ### 调用方再次确认订单状态
 
-开仓和平仓使用同一套查询方式，不需要新的确认路由。优先将下单响应的 **order_id 原样传给 GET /cfb/fetch_orders 的 order_sys_id**，同时带原请求的 mode、exchange_id、instrument_id。两个字段名称不同，但值是同一个真实交易所编号；CFB 的 request_id 仅供日志追踪，不能作为订单编号。
+开仓和平仓使用同一套查询方式，不需要新的确认路由。优先将下单响应的 **order_id 原样传给 GET /cfb/fetch_orders 的 order_sys_id**，同时带原请求的 is_live、exchange_id、instrument_id。两个字段名称不同，但值是同一个真实交易所编号；CFB 的 request_id 仅供日志追踪，不能作为订单编号。
 
 以下编号仅展示格式，须替换为实际响应值：
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:5123/cfb/fetch_orders?mode=sandbox&exchange_id=DCE&instrument_id=m2701&order_sys_id=648294'
+curl -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:5123/cfb/fetch_orders?is_live=false&exchange_id=DCE&instrument_id=m2701&order_sys_id=648294'
 ```
 
-order_id 为 null 不代表提交失败。若已返回 identity，就完整传入其中的六个字段（exchange_id、instrument_id、trading_day、front_id、session_id、order_ref），另带原 mode，且不传 order_sys_id。两种查询方式互斥；不能只凭 order_ref 定位订单。按引用查询只支持当前终端交易日，缺少成组字段报 422，其他交易日报 501，不用空列表掩盖不支持的历史查询。结果附 identity，source=terminal_csv_and_native；引用存在但 CSV 尚未更新时返回原生事实及 changing。
+order_id 为 null 不代表提交失败。若已返回 identity，就完整传入其中的六个字段（exchange_id、instrument_id、trading_day、front_id、session_id、order_ref），另带原 is_live，且不传 order_sys_id。两种查询方式互斥；不能只凭 order_ref 定位订单。按引用查询只支持当前终端交易日，缺少成组字段报 422，其他交易日报 501，不用空列表掩盖不支持的历史查询。结果附 identity，source=terminal_csv_and_native；引用存在但 CSV 尚未更新时返回原生事实及 changing。
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:5123/cfb/fetch_orders?mode=sandbox&exchange_id=DCE&instrument_id=m2701&trading_day=20260924&front_id=3&session_id=123&order_ref=18'
+curl -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:5123/cfb/fetch_orders?is_live=false&exchange_id=DCE&instrument_id=m2701&trading_day=20260924&front_id=3&session_id=123&order_ref=18'
 ```
 
 使用实际响应里的 identity，不能照抄示例编号。原生编号的定长前置空格在适配边界去除，以对齐 CSV；外部传入的 order_sys_id 保持原样，不擅自改变其身份。
@@ -148,6 +148,8 @@ orders=[] 只表示当前终端快照未找到，读取失败则报错；两者�
 同 Idempotency-Key 重试 POST 只重放保存的旧响应，不刷新订单状态；确认最新状态必须调用 GET /cfb/fetch_orders。/docs 和 /openapi.json 的路由描述、查询参数与响应字段说明应直接呈现上述映射、两种查询示例及状态含义。
 
 每个响应携带 X-Request-ID 和 Cache-Control: no-store，头中编号与正文一致。幂等重放保留原编号；CFB 编号不能用作订单编号。后续通过订单、成交确认结果，持仓未变本身不能证明下单失败。
+
+CFB 编号在主 HTTP 入口生成一次，路由和执行器直接复用；不会把调用方传入的 X-Request-ID 用作 Journal 主键。HTTP 完成日志的 request_id 与响应编号一致，包括参数错误和业务失败。幂等重放仍返回保存的原正文和原编号，完成日志另记 http_request_id 关联本次调用；其他路由的编号规则不受影响。
 
 查询返回 request_id、observed_at、source、trading_day，加 orders/trades/positions 数组或 balance 对象。observed_at 是读取时间，trading_day 来自终端且允许 null；缺少可信交易日时写操作不就绪。读取失败不返回旧快照、默认零或空数组。三个 CSV GET 至少读取两次、最多配置轮数，以委托状态/数量、成交记录、持仓数量等业务字段核对；返回最新完整快照及 consistency=stable/changing，浮动盈亏不参与持仓稳定判断。changing 表示读取期间数据仍有变化，不是空数据或读取失败。
 

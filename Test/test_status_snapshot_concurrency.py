@@ -65,7 +65,7 @@ def test_ctp_snapshot_ignores_business_lock_and_disconnect_invalidates_before_ca
     client = manager.get_client("sandbox")
     callbacks = factory.apis[0].callbacks
     callbacks.on_instrument_status(status_record())
-    request = CtpTradingStatusQuery(exchange_id="SHFE", product_id="rb")
+    request = CtpTradingStatusQuery(is_live=False, exchange_id="SHFE", product_id="rb")
     entered, release = threading.Event(), threading.Event()
 
     def locked():
@@ -142,7 +142,7 @@ def test_status_http_and_auth_do_not_wait_for_exhausted_sync_thread_pool(
             ) as http:
                 for route, params in [
                     ("tq", {"symbol": SYMBOL}),
-                    ("ctp", {"exchange_id": "SHFE", "product_id": "rb"}),
+                    ("ctp", {"is_live": False, "exchange_id": "SHFE", "product_id": "rb"}),
                 ]:
                     response = await asyncio.wait_for(
                         http.get(

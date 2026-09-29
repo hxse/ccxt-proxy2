@@ -1,6 +1,6 @@
 # CTP 模拟盘 Bruno 场景测试
 
-25 个请求，全部显式使用 `mode=sandbox`，读取服务端 `ctp.test`（SimNow/期货公司仿真账户）。原有 CTP 示例仍保留在父目录。
+25 个请求，全部显式使用 `is_live=false`，读取服务端 `ctp.test`（SimNow/期货公司仿真账户）。原有 CTP 示例仍保留在父目录。
 
 在 Bruno 打开项目的 `bruno` 集合，选择 `ccxt-proxy2` 环境，展开 **CTP TRADING → 模拟盘场景测试 (sandbox)**。
 `user/password` 是本服务的登录账号；CTP 账号、密码、前置和认证码沿用服务端配置，不填进 Bruno。

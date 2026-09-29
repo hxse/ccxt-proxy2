@@ -268,24 +268,28 @@ class Runtime:
             return path.read_bytes()
 
     def _stop_processes(self) -> None:
-        for process in reversed(list(self.processes.values())):
-            if process.poll() is None:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=3)
-                except ProcessLookupError:
-                    pass
-        if self.settings.wine_prefix.exists():
-            self._command(["wineserver", "-k"], 5)
+        # 与重连及监控线程的 finally 互斥，避免同时终止同一组进程。
+        with self.lifecycle_lock:
+            for process in reversed(list(self.processes.values())):
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=3)
+                    except ProcessLookupError:
+                        pass
+            if self.settings.wine_prefix.exists():
+                self._command(["wineserver", "-k"], 5)
+            with self.lock:
+                self.window_visible = False
 
-    def stop(self) -> None:
+    def stop(self, *, release_session: bool = True) -> None:
         self.stop_event.set()
         if self.worker is not None:
             self.worker.join(timeout=self.settings.bridge.startup_timeout_seconds + 10)
         self._stop_processes()
-        if self.session_lock is not None:
+        if release_session and self.session_lock is not None:
             self.session_lock.close()
             self.session_lock = None

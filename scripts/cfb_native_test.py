@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from scripts.cfb_pair_check import check_pair
 from scripts.container_common import command, project_lock, require_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ def main() -> None:
         command(["podman", "run", "--rm", "--pull=never", "--network=none",
                  "--tmpfs", "/data:rw", "--shm-size=256m",
                  "localhost/ccxt-proxy2-cfb:verification"], capture=False, timeout=None)
+        check_pair()
 
 
 if __name__ == "__main__":

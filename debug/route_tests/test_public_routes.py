@@ -10,7 +10,7 @@ def test_fetch_tickers(client: TestClient):
     params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbols": SYMBOL,
     }
     response = client.get("/ccxt/fetch_tickers", params=params)
@@ -34,7 +34,7 @@ def test_fetch_ohlcv_latest_limit(client: TestClient):
     params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
         "timeframe": "1h",
         "limit": 5,
@@ -58,7 +58,7 @@ def test_fetch_market_info(client: TestClient):
     params = {
         "exchange_name": EXCHANGE,
         "market": MARKET,
-        "mode": MODE,
+        "is_live": MODE == "live",
         "symbol": SYMBOL,
     }
     response = client.get("/ccxt/fetch_market_info", params=params)

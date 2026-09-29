@@ -19,7 +19,7 @@ from src.types import (
 EXCHANGE: dict[str, object] = {
     "exchange_name": "binance",
     "market": "future",
-    "mode": "live",
+    "is_live": True,
 }
 SYMBOL = EXCHANGE | {"symbol": "BTC/USDT:USDT"}
 

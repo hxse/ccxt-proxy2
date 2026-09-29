@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/ctp/fetch_balance?mode=sandbox&currency_id=CNY
+  url: {{baseUrl}}/ctp/fetch_balance?is_live=false&currency_id=CNY
   body: none
   auth: inherit
 }
 
 params:query {
-  mode: sandbox
+  is_live: false
   currency_id: CNY
 }
 

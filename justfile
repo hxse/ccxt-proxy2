@@ -22,8 +22,8 @@ debug name:
 debug-route-test name:
     CCXT_STATEFUL_DEBUG=1 uv run --no-sync pytest -v -ra debug/route_tests/"$1".py
 
-# 运行单个交易调试动作，默认 binance/future/sandbox/BTC/USDT:USDT
-# 例: just debug-trade open-long --amount 0.005
+# 运行单个交易调试动作，默认 binance/future/BTC/USDT:USDT；--is-live 必填
+# 例: just debug-trade open-long --amount 0.005 --is-live=false
 [positional-arguments]
 debug-trade action *args:
     uv run --no-sync python debug/trade_action.py "$@"
@@ -55,7 +55,7 @@ market-data-prune:
 market-data-once:
     uv run --no-sync python scripts/market_data_pipeline.py
 
-# 临时安装完整 VeighNa Trader + 官方 CTP + 风控；默认使用 TOML 的 ctp.test
+# 临时安装完整 VeighNa Trader + 官方 CTP + 风控；--is-live 必填，false 选择 ctp.test
 [positional-arguments]
 ctp-assessment *args:
     bash scripts/ctp_assessment.sh "$@"
@@ -148,65 +148,69 @@ debug-route-report:
     CCXT_STATEFUL_DEBUG=1 uv run --no-sync python debug/route_tests/run_tests.py
 
 # 15. 查余额
-debug-balance:
-    just debug-trade balance
+[positional-arguments]
+debug-balance *args:
+    just debug-trade balance "$@"
 
 # 16. 查持仓
-debug-positions:
-    just debug-trade positions
+[positional-arguments]
+debug-positions *args:
+    just debug-trade positions "$@"
 
 # 17. 查挂单
-debug-open-orders:
-    just debug-trade open-orders
+[positional-arguments]
+debug-open-orders *args:
+    just debug-trade open-orders "$@"
 
 # 18. 撤掉当前 symbol 全部挂单
-debug-cancel-all:
-    just debug-trade cancel-all
+[positional-arguments]
+debug-cancel-all *args:
+    just debug-trade cancel-all "$@"
 
 # 19. 市价开多
 [positional-arguments]
-debug-open-long amount="0.005":
-    just debug-trade open-long --amount "$1"
+debug-open-long amount="0.005" *args:
+    value="$1"; shift; just debug-trade open-long --amount "$value" "$@"
 
 # 20. 市价开空
 [positional-arguments]
-debug-open-short amount="0.005":
-    just debug-trade open-short --amount "$1"
+debug-open-short amount="0.005" *args:
+    value="$1"; shift; just debug-trade open-short --amount "$value" "$@"
 
 # 21. 平仓，可选 side=long/short，不传则全平
 [positional-arguments]
-debug-close side="":
-    just debug-trade close-position --side "$1"
+debug-close side="" *args:
+    value="$1"; shift; just debug-trade close-position --side "$value" "$@"
 
 # 22. 给多仓挂止损，触发后 sell reduceOnly
 [positional-arguments]
-debug-stop-loss-long trigger amount="0.005":
-    just debug-trade stop-loss-long --amount "$2" --trigger-price "$1"
+debug-stop-loss-long trigger amount="0.005" *args:
+    trigger="$1"; amount="$2"; shift 2; just debug-trade stop-loss-long --amount "$amount" --trigger-price "$trigger" "$@"
 
 # 23. 给空仓挂止损，触发后 buy reduceOnly
 [positional-arguments]
-debug-stop-loss-short trigger amount="0.005":
-    just debug-trade stop-loss-short --amount "$2" --trigger-price "$1"
+debug-stop-loss-short trigger amount="0.005" *args:
+    trigger="$1"; amount="$2"; shift 2; just debug-trade stop-loss-short --amount "$amount" --trigger-price "$trigger" "$@"
 
 # 24. 给多仓挂止盈，触发后 sell reduceOnly
 [positional-arguments]
-debug-take-profit-long trigger amount="0.005":
-    just debug-trade take-profit-long --amount "$2" --trigger-price "$1"
+debug-take-profit-long trigger amount="0.005" *args:
+    trigger="$1"; amount="$2"; shift 2; just debug-trade take-profit-long --amount "$amount" --trigger-price "$trigger" "$@"
 
 # 25. 给空仓挂止盈，触发后 buy reduceOnly
 [positional-arguments]
-debug-take-profit-short trigger amount="0.005":
-    just debug-trade take-profit-short --amount "$2" --trigger-price "$1"
+debug-take-profit-short trigger amount="0.005" *args:
+    trigger="$1"; amount="$2"; shift 2; just debug-trade take-profit-short --amount "$amount" --trigger-price "$trigger" "$@"
 
 # 26. 设置杠杆
 [positional-arguments]
-debug-set-leverage leverage:
-    just debug-trade set-leverage --leverage "$1"
+debug-set-leverage leverage *args:
+    value="$1"; shift; just debug-trade set-leverage --leverage "$value" "$@"
 
 # 27. 设置保证金模式 cross/isolated
 [positional-arguments]
-debug-set-margin-mode mode:
-    just debug-trade set-margin-mode --margin-mode "$1"
+debug-set-margin-mode mode *args:
+    value="$1"; shift; just debug-trade set-margin-mode --margin-mode "$value" "$@"
 
 # 28. 调试所有常用项 (按顺序运行)
 debug-all:
@@ -217,17 +221,17 @@ debug-all:
 
 # ==================== Podman ====================
 
-# 按目标组合 --upload/--build/--start；远端上传源码后构建，或单独 --stop/--status/--logs
+# 按目标组合 --upload/--build/--start；启动自动准备 trading-net，控制动作可独立执行
 [positional-arguments]
 deploy *args:
     uv run --no-sync python -m scripts.container_cli "$@"
 
-# 独立 CFB 运维：--status/--logs/--pause/--resume/--clean/--screenshot。
+# CFB 运维必须显式 --is-live=true|false：--status/--logs/--pause/--resume/--clean/--screenshot。
 [positional-arguments]
 cfb *args:
     uv run --no-sync python -m scripts.cfb_cli "$@"
 
-# 显式构建 Wine 验证镜像；运行时断网，不挂载真实配置或账户数据。
+# 显式构建 Wine 验证镜像；断网验证原生能力及两个模式的容器隔离，不挂真实账户。
 test-cfb-native:
     uv run --no-sync python -m scripts.cfb_native_test
 

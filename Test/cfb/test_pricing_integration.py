@@ -65,7 +65,7 @@ def execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def operation(price: float = 3514.35, tif: str = 'GFD') -> Operation:
-    return Operation(action='create_limit_order',parameters={'mode':'sandbox','exchange_id':'DCE',
+    return Operation(action='create_limit_order',parameters={"is_live":False,'exchange_id':'DCE',
         'instrument_id':'m2701','side':'buy','offset':'open','volume':1,'price':price,'time_in_force':tif})
 
 
