@@ -21,7 +21,6 @@ from src.responses_system import (  # noqa: E402
 )
 from src.router.auth_handler import auth_router  # noqa: E402
 from src.router.cache_router import cache_router  # noqa: E402
-from src.router.cfb_docs import install_cfb_openapi  # noqa: E402
 from src.router.cfb_router import cfb_router  # noqa: E402
 from src.router.ctp_router import ctp_router  # noqa: E402
 from src.router.file_handler import file_router  # noqa: E402
@@ -85,7 +84,7 @@ def healthz():
     summary="服务就绪检查",
     description=(
         "检查 HTTP 应用是否可服务，并列出 service_whitelist 各身份的独立初始化状态。"
-        "CFB 初始化仅创建 HTTP 客户端，不代表上游终端已登录或交易就绪。"
+        "CFB 初始化只建立 IPC 客户端，终端交易就绪由 /cfb/readyz 单独展示。"
         "单个 SDK 初始化中或失败不阻断其他身份和 HTTP；配置只在进程启动时读取。"
         "这是启动就绪检查，不会发起实时网络探测。"
     ),
@@ -130,5 +129,3 @@ async def scalar_html():
         # scalar_proxy_url="https://proxy.scalar.com",
     )
 
-
-install_cfb_openapi(app)

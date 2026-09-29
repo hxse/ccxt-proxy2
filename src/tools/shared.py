@@ -67,7 +67,7 @@ async def _wait_for_cleanup(cleanup: asyncio.Task[None]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.service_runtime = service_runtime
-    from src.tools.cfb_proxy import cfb_proxy
+    from src.cfb.client import cfb_client
     from src.tools.ctp_manager import ctp_manager
     from src.tools.telegram_manager import telegram_manager
     from src.tools.tq_manager import tq_manager
@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             exchange_manager,
             tq_manager,
             ctp_manager,
-            cfb_proxy,
+            cfb_client,
             stop=stop,
         )
     )
@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         stop.set()
         service_runtime.begin_shutdown()
         cleanup = asyncio.create_task(
-            _finish_lifespan(startup, telegram_manager.close, cfb_proxy.close)
+            _finish_lifespan(startup, telegram_manager.close, cfb_client.close)
         )
         await _wait_for_cleanup(cleanup)
 
@@ -109,8 +109,8 @@ OPENAPI_TAGS = [
     {"name": "Auth", "description": "OAuth2 Password Grant 与 Bearer JWT。"},
     {
         "name": "CFB",
-        "description": "cn-futures-bridge HTTP 薄转发。参数、响应和业务说明同步自 CFB OpenAPI；"
-        "复用本项目 Bearer 鉴权。sandbox/live 均原样转发，由上游决定支持范围。"
+        "description": "CFB 独立终端执行器，通过 Unix socket 复用唯一队列和防重发记录；"
+        "复用本项目 Bearer 鉴权。sandbox/live 必须匹配启动环境。"
         "配置只在启动时读取；请求不自动重试。",
     },
     {

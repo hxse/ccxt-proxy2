@@ -18,6 +18,10 @@ BUILD_FILES = (
     "scripts/collect_market_data.py",
     "scripts/prune_market_data.py",
     "scripts/market_data_pipeline.py",
+    "src/cfb/terminal.lock.toml",
+    "containers/cfb/Containerfile",
+    "containers/cfb/pyproject.toml",
+    "containers/cfb/uv.lock",
 )
 
 
@@ -36,6 +40,8 @@ def allowed_path(name: str) -> bool:
         name in BUILD_FILES
         or (name.startswith("src/") and name.endswith(".py"))
         or (name.startswith("src/openapi/") and name.endswith(".json"))
+        or (name.startswith("containers/cfb/native/") and name.endswith((".c", ".h")))
+        or (name.startswith("containers/cfb/container/") and name.endswith((".py", ".c", ".reg", ".xml")))
         or (
             name.startswith("vendor/vnpy_ctp/")
             and len(name.split("/")) == 3
@@ -67,6 +73,8 @@ def collect_source(root: Path) -> dict[str, bytes]:
         path for path in (root / "src").rglob("*.py") if "__pycache__" not in path.parts
     )
     files.update((root / "src/openapi").glob("*.json"))
+    for folder in ("native", "container"):
+        files.update(path for path in (root / "containers/cfb" / folder).glob("*") if path.is_file())
     vendor = root / "vendor/vnpy_ctp"
     for pattern in ("*.tar.gz", "*.patch", "README.md", "upstream.json", "SHA256SUMS"):
         files.update(vendor.glob(pattern))

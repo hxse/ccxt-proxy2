@@ -1,0 +1,29 @@
+# 来源为厂商产品页提供的普通快期2完整包，内含上期技术 / 9999 站点。
+# 不包含用户凭证；升级此文件必须重新检查包内容及启动兼容性。
+source_page = "https://www.shinnytech.com/products/q72"
+url = "https://publish2.shinnytech.com/web/exe/Q72_beta_shinny_21990_2.93.405.1998.exe"
+sha256 = "f6ada4ed84f0b6622c1575571a3d8872eba94a935d0f8f9bc5c0aaa120d3508e"
+version = "2.93.405.1998"
+payload = "userappdata/Q72_shinny_21990_beta/00000000000000"
+executable = "q7_release.exe"
+
+[wine_gecko]
+# Wine 11.0 appwiz.cpl/addons.c 声明的 x86 Gecko，构建时验证后共享使用。
+version = "2.47.4"
+architecture = "x86"
+url = "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.msi"
+sha256 = "26cecc47706b091908f7f814bddb074c61beb8063318e9efc5a7f789857793d6"
+
+[profiles.simnow]
+environment = "simnow"
+broker_id = "9999"
+broker_name = "上期技术"
+sites = ["电信1", "电信2", "全天站点"]
+title_names = ["上期技术"]
+
+[profiles.huaan]
+environment = "live"
+broker_id = "6020"
+broker_name = "H华安期货"
+sites = ["一套", "二套"]
+title_names = ["H华安期货", "华安期货"]

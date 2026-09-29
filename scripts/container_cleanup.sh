@@ -25,7 +25,7 @@ uploaded_config=''
 uploaded_source=''
 if [ -f "$metadata/prepared" ]; then read_prepared; keep_ancestry "$prepared_image"; fi
 if [ -f "$metadata/uploaded" ]; then read_uploaded; fi
-for tag in "$image_tag" "$dependency_tag"; do
+for tag in "$image_tag" "$dependency_tag" localhost/ccxt-proxy2-cfb:latest; do
     if pm image exists "$tag"; then
         keep_ancestry "$(pm image inspect "$tag" --format '{{.Id}}')"
     fi
@@ -65,15 +65,29 @@ for item in $candidates; do
             if [ "$(pm image inspect "$item" --format '{{index .Labels "io.ccxt-proxy2.release"}}')" != true ]; then
                 keep_ancestry "$item"; continue
             fi ;;
-        build-cache) ;;
+        build-cache|cfb-runtime) ;;
         *) keep_ancestry "$item"; continue ;;
     esac
     tags=$(pm image inspect "$item" --format '{{range .RepoTags}}{{println .}}{{end}}')
-    if printf '%s\n' "$tags" | grep -v '^$' | grep -qv '^localhost/ccxt-proxy2:'; then keep_ancestry "$item"; fi
+    if printf '%s\n' "$tags" | grep -v '^$' | grep -Eqv '^localhost/ccxt-proxy2(:|-cfb:(latest|build-[0-9]+)$)'; then keep_ancestry "$item"; fi
     parent=$(pm image inspect "$item" --format '{{.Parent}}')
     parent=${parent#sha256:}
     printf '%s\n' "$item" >> "$work/candidates"
     if valid_hash "$parent"; then printf '%s %s\n' "$item" "$parent"; else printf '%s %s\n' "$item" "$item"; fi >> "$work/graph"
+done
+# 主服务准备版本或运行实例对应的 CFB 镜像也必须保留；清理失效的配套记录。
+for mapping in "$metadata/cfb-images/"*; do
+    [ -f "$mapping" ] && [ ! -L "$mapping" ] || continue
+    valid_hash "${mapping##*/}" || continue
+    if grep -Fxq "${mapping##*/}" "$work/keep"; then
+        cfb_image=$(cat "$mapping")
+        if [ "$cfb_image" != none ]; then
+            valid_hash "${cfb_image#sha256:}" || fail 'CFB 镜像配套记录无效'
+            keep_ancestry "$cfb_image"
+        fi
+    else
+        rm -- "$mapping"
+    fi
 done
 tsort "$work/graph" > "$work/ordered"
 while IFS= read -r item; do

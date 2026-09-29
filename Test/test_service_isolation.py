@@ -6,12 +6,12 @@ import time
 from contextlib import contextmanager
 
 import ccxt
-import httpx
 import pytest
 
+from src.cfb.client import Client as CfbClient
+from src.cfb.ipc import Response as CfbResponse
 from src.main import app
 from src.router.auth_handler import manager as auth_manager
-from src.tools.cfb_proxy import CfbProxy
 from src.tools.config_types import AppConfig
 from src.tools.exchange_manager import ExchangeManager
 from src.tools.service_runtime import ServiceRuntime
@@ -31,7 +31,7 @@ def request_service(client, provider):
     if provider == "tq":
         return client.get("/tq/fetch_tick", params={"symbol": "SHFE.rb2610"})
     if provider == "cfb":
-        return client.get("/cfb/fetch_balance", params={"mode": "live"})
+        return client.get("/cfb/fetch_balance", params={"mode": "sandbox"})
     return client.get(
         "/ccxt/fetch_balance",
         params={"exchange_name": provider, "market": "future", "mode": "live"},
@@ -60,7 +60,7 @@ def environment(tmp_path, monkeypatch):
                 "binance": {"live": {"api_key": "offline", "secret": "offline"}},
                 "kraken": {"live": {"api_key": "offline", "secret": "offline"}},
                 "tq": {"username": "offline", "password": "offline"},
-                "cfb": {"base_url": "http://cfb.invalid"},
+                "cfb": {},
                 "service_whitelist": [
                     {"service": "tq"},
                     {"service": "cfb"},
@@ -133,7 +133,7 @@ def environment(tmp_path, monkeypatch):
             return api
 
         monkeypatch.setattr(tq._client, "_create_api", create_api)
-        proxy = CfbProxy()
+        proxy = CfbClient()
         original_initialize = proxy.initialize
 
         def initialize_cfb(settings):
@@ -141,23 +141,18 @@ def environment(tmp_path, monkeypatch):
             original_initialize(settings)
 
         monkeypatch.setattr(proxy, "initialize", initialize_cfb)
-        monkeypatch.setattr(
-            "src.tools.cfb_proxy.AsyncClient",
-            lambda **kwargs: httpx.AsyncClient(
-                transport=httpx.MockTransport(
-                    lambda request: httpx.Response(200, json={"upstream": True})
-                ),
-                **kwargs,
-            ),
-        )
+        async def call(*args, **kwargs):
+            return CfbResponse(status=200, body={"upstream": True})
+
+        monkeypatch.setattr(proxy, "call", call)
         monkeypatch.setattr("src.tools.shared.service_runtime", runtime)
         monkeypatch.setattr(app.state, "service_runtime", runtime)
         monkeypatch.setattr("src.tools.shared.exchange_manager", registry)
         monkeypatch.setattr("src.router.trader_router.exchange_manager", registry)
         monkeypatch.setattr("src.tools.tq_manager.tq_manager", tq)
         monkeypatch.setattr("src.router.tq_router.tq_manager", tq)
-        monkeypatch.setattr("src.tools.cfb_proxy.cfb_proxy", proxy)
-        monkeypatch.setattr("src.router.cfb_router.cfb_proxy", proxy)
+        monkeypatch.setattr("src.cfb.client.cfb_client", proxy)
+        monkeypatch.setattr("src.router.cfb_router.cfb_client", proxy)
         monkeypatch.setattr(
             "src.tools.telegram_manager.telegram_manager.close", lambda: None
         )
@@ -173,7 +168,7 @@ def environment(tmp_path, monkeypatch):
                 release.set()
                 runner.run(lifecycle.__aexit__(None, None, None))
         assert all(api.closed.is_set() for api in apis)
-        assert proxy._client is None
+        assert not proxy.is_ready() and not proxy.writers
 
     return install
 

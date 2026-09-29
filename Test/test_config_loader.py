@@ -260,7 +260,7 @@ def test_example_has_only_placeholder_credentials_and_valid_defaults():
     config = load_config(example, environ={"CCXT_PROXY_PROFILE": "dev"})
     assert config.SECRET == "replace-with-a-random-secret"
     assert config.users["admin"].password == "replace-with-your-password"
-    assert config.service_whitelist == []
+    assert [item.service for item in config.service_whitelist] == ["cfb"]
     assert all(
         getattr(config, provider) is None
         for provider in ("binance", "kraken", "tq", "ctp", "telegram")

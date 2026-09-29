@@ -51,6 +51,7 @@ def test_test_selectors_remain_single_arguments(invoke_just):
         "pytest",
         "Test",
         "--ignore=Test/online",
+        "--ignore=Test/cfb_native",
         "-k",
         "alpha or beta",
         "-q",

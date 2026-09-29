@@ -25,6 +25,7 @@ CONTROL_FILES = {
     "scripts/container_build.sh",
     "scripts/container_cleanup.sh",
     "scripts/container_smoke.py",
+    "scripts/container_cfb.sh",
 }
 UPLOAD_FILES = {
     "source.delta.tar.gz",

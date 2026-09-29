@@ -33,6 +33,7 @@ build_uploaded() {
     cp -a -- "$version/files/." "$build_context/"
     build_candidate "$build_context"
     validate_config
+    cfb_prepare_image "$build_context" "$source/config.toml" || fail 'CFB 配套镜像构建失败，保留原准备版本'
     publish_image
     printf '%s\n%s\n' "$image" "$uploaded_config" > "$metadata/prepared.tmp"
     mv -f -- "$metadata/prepared.tmp" "$metadata/prepared"

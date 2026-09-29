@@ -20,7 +20,7 @@ enable_proxy = false
 username = "offline"
 password = "common-password"
 [cfb]
-base_url = "http://127.0.0.1:45173"
+enable_proxy = false
 request_timeout_seconds = 10
 [deployment]
 ssh_host = "rn"
@@ -31,7 +31,7 @@ enable_proxy = true
 [overrides.remote.tq]
 enable_proxy = true
 [overrides.remote.cfb]
-base_url = "http://cn-futures-bridge:45173"
+enable_proxy = true
 """
 
 
@@ -51,8 +51,7 @@ def test_three_profiles_share_source_and_preserve_other_fields(tmp_path, profile
         getattr(config, name).enable_proxy is (profile == "remote")
         for name in ("binance", "kraken", "tq")
     )
-    host = "cn-futures-bridge" if profile == "remote" else "127.0.0.1"
-    assert str(config.cfb.base_url).rstrip("/") == f"http://{host}:45173"
+    assert config.cfb.enable_proxy is (profile == "remote")
     assert config.cfb.request_timeout_seconds == 10
     assert config.tq.password == "common-password"
     assert path.read_bytes() == original

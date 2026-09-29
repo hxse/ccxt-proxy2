@@ -8,7 +8,10 @@ validate_source_names() {
             Dockerfile|.dockerignore|pyproject.toml|uv.lock|src/*.py|src/openapi/*.json|\
             vendor/vnpy_ctp/*.tar.gz|vendor/vnpy_ctp/*.patch|vendor/vnpy_ctp/README.md|\
             vendor/vnpy_ctp/upstream.json|vendor/vnpy_ctp/SHA256SUMS|\
-            scripts/collect_market_data.py|scripts/prune_market_data.py|scripts/market_data_pipeline.py) ;;
+            scripts/collect_market_data.py|scripts/prune_market_data.py|scripts/market_data_pipeline.py|\
+            src/cfb/terminal.lock.toml|containers/cfb/Containerfile|containers/cfb/pyproject.toml|containers/cfb/uv.lock|\
+            containers/cfb/native/*.c|containers/cfb/native/*.h|containers/cfb/container/*.py|\
+            containers/cfb/container/*.c|containers/cfb/container/*.reg|containers/cfb/container/*.xml) ;;
             *) fail '源码清单包含非构建文件' ;;
         esac
     done < "$1"
@@ -21,7 +24,8 @@ validate_manifest() {
     LC_ALL=C sort "$2/names" > "$2/sorted"
     cmp -s "$2/names" "$2/sorted" || fail '源码清单必须按路径排序'
     for required in Dockerfile .dockerignore pyproject.toml uv.lock src/main.py \
-        scripts/collect_market_data.py scripts/prune_market_data.py scripts/market_data_pipeline.py; do
+        scripts/collect_market_data.py scripts/prune_market_data.py scripts/market_data_pipeline.py \
+        src/cfb/terminal.lock.toml containers/cfb/Containerfile containers/cfb/pyproject.toml containers/cfb/uv.lock; do
         grep -Fxq "$required" "$2/names" || fail '源码清单缺少构建文件'
     done
     grep -Eq '^vendor/vnpy_ctp/[^/]+\.tar\.gz$' "$2/names" || fail '源码清单缺少 CTP 源码包'

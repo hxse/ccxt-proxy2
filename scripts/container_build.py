@@ -7,7 +7,7 @@ from scripts.container_common import command
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_image():
+def build_image(config_path: Path):
     # 调用方已持有本地项目操作锁。
     command(
         [
@@ -20,6 +20,7 @@ def build_image():
             "false",
             "",
             "local",
+            config_path.resolve(),
         ],
         capture=False,
         timeout=None,

@@ -33,7 +33,7 @@ user = "admin"
 
 Just 的源码、测试和辅助入口注入 dev；本地生产预检和运行注入 local；远端上传预检、镜像预检和运行注入 remote。后台子进程继承父进程场景。直接启动应用必须设置 CCXT_PROXY_PROFILE，例如 `CCXT_PROXY_PROFILE=dev uv run --no-sync uvicorn src.main:app --host 127.0.0.1 --port 5123`。
 
-公共配置中三个 enable_proxy 默认 false，CFB 为 http://127.0.0.1:45173。远端差异使用以下写法，上传文件原样保留，最终生效值由 remote 场景决定：
+公共配置中 Binance、Kraken、TQ、CFB 的 enable_proxy 默认 false。远端差异使用以下写法，上传文件原样保留，最终生效值由 remote 场景决定：
 
 ```toml
 [overrides.remote.binance]
@@ -43,7 +43,7 @@ enable_proxy = true
 [overrides.remote.tq]
 enable_proxy = true
 [overrides.remote.cfb]
-base_url = "http://cn-futures-bridge:45173"
+enable_proxy = true
 ```
 
 保留共享 proxy 地址；覆盖不会自行启用未列入 service_whitelist 的服务。三个场景的地址/凭据选择不改变路由里的 live/sandbox 语义。上传端不再修改代理字段或做第二次配置合并。
@@ -65,13 +65,13 @@ Bruno collection 共享变量仅为 `baseUrl` 与 secret `user/password`；请�
 | ccxt | exchange、market、mode | ccxt/交易所/市场/模式 | 对应 test/live 凭证，创建客户端并加载 markets |
 | tq | 仅 service | tq | [tq]，在专用线程创建并初始化 TqApi |
 | ctp | mode | ctp/sandbox 或 ctp/live | [ctp.test] 或 [ctp.live]，认证、登录、确认结算 |
-| cfb | 仅 service | cfb | [cfb]，创建复用的 HTTP 客户端 |
+| cfb | 仅 service | cfb | [cfb]，创建轻量 socket 客户端；正式入口自动准备执行容器 |
 
 ccxt 的 exchange 为 binance/kraken，market 为 spot/future，mode 为 sandbox/live；Kraken spot sandbox 身份在配置阶段拒绝。CCXT 的 test 对应 sandbox，live 对应实盘。开启交易所代理时必须同时存在可用的 [proxy] 地址。Binance、Kraken Futures/Spot 的同步客户端通过同一个 proxies 字典将该地址映射到 HTTP 和 HTTPS 目标；关闭时 proxies 为 None。地址优先级保持 proxy.effective_http 的既有规则，不同时设置 SDK 的 httpProxy/httpsProxy；代理地址自身可用 http:// 或 https://，不会按目标协议改写。
 
 公共取时使用独立 CCXT 异步 Binance 客户端，读取同一 binance.enable_proxy 和 proxy.effective_http，通过 SDK aiohttp_proxy 传递；关闭时禁用环境代理。该能力不依赖交易白名单或账号，因此即使没有启用 Binance 交易身份，开启币安代理也必须提供地址。详见[公共时间](system_time.md)。
 
-TQ 和 CFB 的白名单项不接受 exchange/market/mode。CFB 请求中的 mode 原样转发，由上游决定支持范围。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
+TQ 和 CFB 的白名单项不接受 exchange/market/mode。CFB 请求中的 mode 必须匹配 cfb.bridge.mode，不切换启动账户。Telegram 与公共时间不属于这份服务白名单，分别遵循自己的模块规范。
 
 Binance、Kraken、TQ 的 enable_proxy 均默认 false。TQ 配置 `[tq] enable_proxy=true` 时使用同一 proxy.effective_http 地址；启用的 TQ 服务缺少代理地址会在配置阶段拒绝。该开关同时覆盖 SDK 认证/查询 HTTP、行情/交易状态 WebSocket 和自有日历/主连源下载，关闭时显式直连，不继承环境代理。代理绑定启动快照和 TQ 调用上下文，不修改进程环境或其他 SDK 的配置；详细传输边界见 [TQ 规范](tq_data.md)。
 
@@ -79,7 +79,8 @@ CFB 最小启用示例：
 
 ```toml
 [cfb]
-base_url = "http://127.0.0.1:45173"
+enable_proxy = false
+vnc_enabled = true
 request_timeout_seconds = 300
 
 [[service_whitelist]]
@@ -111,9 +112,9 @@ mode = "sandbox"
 
 ServiceRuntime 统一持有 initializing/ready/failed/stopped 状态；只有 ready 身份可进入业务。初始化失败不触发其他身份清理，请求也不重建失败 SDK。TQ 工作线程退出后本地可用性检查立即拒绝新请求。首次发生但尚未被 SDK 识别的断网，仍需正常调用或原有超时发现；不增加每请求健康探测、自动重建或全局熔断。
 
-明确的 CCXT 只读网络失败、旧客户端关闭、CFB 代理网络失败/超时和 TQ 网络/线程不可用统一为 503 SERVICE_NOT_READY。数据完整性、权限、业务拒绝及 OPERATION_STATUS_UNKNOWN 保留原错误；运行中请求失败不代表写操作未执行，不自动重发。CFB 已收到的上游业务响应继续原样转发，TQ 休市缓存兜底先按原逻辑处理。
+明确的 CCXT 只读网络失败、旧客户端关闭、TQ 网络/线程不可用统一为 503 SERVICE_NOT_READY。数据完整性、权限、业务拒绝及 OPERATION_STATUS_UNKNOWN 保留原错误；运行中请求失败不代表写操作未执行，不自动重发。CFB 通信失败使用自身错误模型并保留可能已提交的 unknown，执行响应保留提交事实；TQ 休市缓存兜底先按原逻辑处理。
 
-退出先禁止新业务和新初始化、停止后台任务，再等待已发起的 SDK 初始化结束，关闭元数据任务和 Provider，最后关闭共享缓存；晚到的初始化成功不能恢复已关闭状态。不能强行中断 SDK；其当前调用仍受 SDK 自身等待规则约束。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话，CFB 在应用事件循环关闭 HTTP 客户端，Telegram 关闭自己持有的客户端。
+退出先禁止新业务和新初始化、停止后台任务，再等待已发起的 SDK 初始化结束，关闭元数据任务和 Provider，最后关闭共享缓存；晚到的初始化成功不能恢复已关闭状态。不能强行中断 SDK；其当前调用仍受 SDK 自身等待规则约束。关闭重复调用须安全；TQ 在所属线程关闭 SDK，CTP 释放原生连接，CCXT 关闭会话，CFB 在应用事件循环关闭 socket 客户端，不停止独立执行器，Telegram 关闭自己持有的客户端。
 
 `GET /healthz` 只表示应用进程能处理请求，返回 `{"status":"ok"}`。`GET /readyz` 的 200 表示 HTTP 应用已就绪，不要求全体 SDK 成功；initialized 是当前 ready 身份按白名单顺序生成的视图，services 是逐身份状态，例如：
 
@@ -121,7 +122,7 @@ ServiceRuntime 统一持有 initializing/ready/failed/stopped 状态；只有 re
 {"status":"ready","initialized":["cfb"],"services":{"tq":"failed","cfb":"ready"}}
 ```
 
-进入或退出基础生命周期期间返回 503/not_ready，仍带 initialized 和 services。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB ready 只表示代理客户端已创建，不等于上游终端已登录或交易就绪。访问上述失败的 TQ 路由返回 `{"detail":{"code":"SERVICE_NOT_READY","service":"tq"}}`；健康的 CFB 路由照常执行。
+进入或退出基础生命周期期间返回 503/not_ready，仍带 initialized 和 services。readyz 不做实时网络探测，也不保证某个合约已经订阅。CFB ready 只表示socket 客户端已创建，不等于终端已登录或交易就绪。访问上述失败的 TQ 路由返回 `{"detail":{"code":"SERVICE_NOT_READY","service":"tq"}}`；健康的 CFB 路由照常执行。
 
 ## 本地缓存配置
 
@@ -152,7 +153,7 @@ just deploy --target=remote --upload --build --start
 
 两份运行配置均不进入镜像。本地生产直接只读挂所选原 config.toml 与项目 market_data.toml，不复制第二套；远端默认原样完整上传两份配置到待发布快照，运行时采用 remote 场景。--keep-remote-config 不读取或上传本地运行配置，复用远端完整快照。源码按白名单和摘要增量同步。数据库独立保留在宿主 data 目录，宿主只绑定 `127.0.0.1:5123`，后台自身 base_url 同为 `http://127.0.0.1:5123`，保持单 Uvicorn 进程。
 
-可选 `[deployment]` 分组定义 `ssh_host` 和 `remote_dir`，只由显式远端操作使用。配置模块对只构建/控制远端实例或保留远端配置上传的命令，按 remote 场景合并后仅校验这一分组，无需本机应用账号或白名单有效；应用启动和上传仍进行完整配置校验。完整字段、示例、快照、防重复及恢复契约见 [Podman 部署](container_deployment.md)。CFB 上游地址见 [CFB 代理](cfb_proxy.md)。
+可选 `[deployment]` 分组定义 `ssh_host` 和 `remote_dir`，只由显式远端操作使用。配置模块对只构建/控制远端实例或保留远端配置上传的命令，按 remote 场景合并后仅校验这一分组，无需本机应用账号或白名单有效；应用启动和上传仍进行完整配置校验。完整字段、示例、快照、防重复及恢复契约见 [Podman 部署](container_deployment.md)。CFB 配置、代理与执行容器见 [CFB 集成](cfb_integration.md)。
 
 ## 已提供的一次性配置迁移工具
 
@@ -165,3 +166,5 @@ just deploy --target=remote --upload --build --start
 工具核对后保留原文件备份；配置和备份权限为 0600，既有目标或备份不覆盖。白名单迁移保留原 CCXT 身份，并显式列出原已配置的 TQ/CTP 模式。新旧白名单不能混用；旧 CCXT_PROXY_ENV_FILE 应改为 CCXT_PROXY_CONFIG_PATH。迁移后核对内容并重启应用。
 
 TQ 自有元数据源沿用集中读取的 TQ_CHINESE_HOLIDAY_URL、TQ_CONT_TABLE_URL。不新增登录配置或 refresh_source 开关；下载头取自已初始化 SDK，应用关闭时先停止元数据任务并释放 HTTP 客户端。
+
+CFB 原账户、桌面、执行、重连、日志与工件配置均迁入 cfb 子表；不再接收 cfb.base_url 或 cfb.api。完整字段见 config.example.toml 与 [CFB 运行规范](cfb_bootstrap.md)。cfb.enable_proxy 使用公共 HTTP CONNECT 代理，开启时严格校验，关闭不继承环境代理。默认示例明确启用 CFB，但省略 service_whitelist 仍为空白名单。

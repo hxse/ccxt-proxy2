@@ -2,7 +2,6 @@ import re
 from typing import Annotated, Literal
 
 from pydantic import (
-    AnyHttpUrl,
     BaseModel,
     ConfigDict,
     Field,
@@ -12,6 +11,7 @@ from pydantic import (
 )
 
 from src.base_types import ExchangeName, MarketType, ModeType
+from src.cfb.config import Settings as CfbSettings
 from src.tools.deployment_types import DeploymentConfig
 from src.tools.market_data_types import MarketDataClientConfig
 
@@ -111,22 +111,12 @@ class CtpConfig(BaseModel):
     query_interval_seconds: float = Field(1.1, ge=1, le=60, allow_inf_nan=False)
 
 
-class CfbConfig(BaseModel):
-    """CFB HTTP 服务地址；账户及模拟盘/实盘能力由上游维护。"""
+class CfbConfig(CfbSettings):
+    """独立 CFB 执行容器的配置，与主服务共用场景覆盖。"""
 
-    model_config = ConfigDict(extra="forbid")
-
-    base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:45173")
-    request_timeout_seconds: float = Field(300, gt=0, allow_inf_nan=False)
-
-    @field_validator("base_url")
-    @classmethod
-    def validate_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
-        if value.username or value.password or value.query or value.fragment:
-            raise ValueError(
-                "cfb.base_url must not contain credentials, query or fragment"
-            )
-        return value
+    enable_proxy: bool = False
+    vnc_enabled: bool = True
+    request_timeout_seconds: float = Field(300.0, gt=0, le=300, allow_inf_nan=False)
 
 
 class OhlcvCacheConfig(BaseModel):
@@ -262,6 +252,12 @@ class AppConfig(BaseModel):
                     raise ValueError(
                         "missing cfb config referenced by service_whitelist"
                     )
+                if str(self.cfb.bridge.data_dir) != "/data":
+                    raise ValueError("cfb.bridge.data_dir must be /data in the execution container")
+                if self.cfb.enable_proxy:
+                    from src.cfb.network import parse_proxy
+
+                    parse_proxy(self.proxy.effective_http)
                 continue
             if item.service == "tq":
                 if self.tq is None:

@@ -2,6 +2,7 @@
 
 import copy
 import json
+import tomllib
 from pathlib import Path
 
 from scripts.container_common import NAME, PREFIX, DeploymentError
@@ -10,6 +11,7 @@ OLD_IMAGE = "sha256:" + "a" * 64
 NEW_IMAGE = "sha256:" + "b" * 64
 CACHE_IMAGE = "sha256:" + "c" * 64
 DEPENDENCY_IMAGE = "sha256:" + "d" * 64
+CFB_IMAGE = "sha256:" + "e" * 64
 
 
 class ContainerEngine:
@@ -29,6 +31,7 @@ class ContainerEngine:
         self.fail_cleanup = False
         self.fail_build = False
         self.fail_smoke = False
+        self.fail_cfb_build = False
 
     @staticmethod
     def image(identity):
@@ -114,6 +117,17 @@ class ContainerEngine:
             if self.fail_build:
                 raise DeploymentError("build failed")
             tag = args[args.index("--tag") + 1]
+            if "--file" in args and "cfb/Containerfile" in args[args.index("--file") + 1]:
+                if self.fail_cfb_build:
+                    raise DeploymentError("CFB build failed")
+                info = self.images.setdefault(CFB_IMAGE, self.image(CFB_IMAGE))
+                info["Labels"][PREFIX + "kind"] = "cfb-runtime"
+                for index, arg in enumerate(args):
+                    if arg == "--label":
+                        key, value = args[index + 1].split("=", 1)
+                        info["Labels"][key] = value
+                self.tag(CFB_IMAGE, tag)
+                return CFB_IMAGE
             if "--target=dependencies" in args:
                 identity = DEPENDENCY_IMAGE
                 info = self.images.setdefault(identity, self.image(identity))
@@ -179,6 +193,23 @@ class ContainerEngine:
                 raise DeploymentError("smoke failed")
             if "--tmpfs" not in args and self.invalid_config:
                 raise DeploymentError("配置校验失败")
+            if "src.cfb.layout" in args:
+                mounted = next(args[i + 1].split(":", 1)[0] for i, arg in enumerate(args)
+                               if arg == "--volume" and ":/app/config.toml:" in args[i + 1])
+                data = tomllib.loads(Path(mounted).read_text())
+                if not any(item.get("service") == "cfb" for item in data.get("service_whitelist", [])):
+                    return "false none false 45174 45175"
+                from src.cfb.layout import layout
+                from src.tools.config_loader import load_config
+                profile = next(args[i + 1].split("=", 1)[1] for i, arg in enumerate(args)
+                               if arg == "--env" and args[i + 1].startswith("CCXT_PROXY_PROFILE="))
+                return layout(load_config(Path(mounted), profile=profile))
+            if "--detach" in args:
+                created = self._create(args, running=False)
+                if self.containers[created]["Image"] == self.fail_image:
+                    raise DeploymentError("CFB start failed")
+                self.containers[created]["State"]["Running"] = True
+                return created
             return ""
         if args[0] == "exec":
             if self.hold_ready:
@@ -199,30 +230,7 @@ class ContainerEngine:
             self.containers[args[2]]["Name"] = args[2]
             return ""
         if args[0] == "create":
-            if NAME in self.containers:
-                raise DeploymentError("container already exists")
-            metadata = dict(
-                args[index + 1].split("=", 1)
-                for index, arg in enumerate(args)
-                if arg == "--label"
-            )
-            obj = self.container(
-                NAME,
-                args[-1],
-                Path(metadata[PREFIX + "directory"]),
-                metadata[PREFIX + "configuration"],
-                running=False,
-            )
-            obj["Mounts"] = [
-                {"Source": args[index + 1].split(":", 1)[0]}
-                for index, arg in enumerate(args)
-                if arg == "--volume"
-            ]
-            obj["Config"]["Labels"] = metadata
-            obj["Config"]["Env"] = [
-                args[index + 1] for index, arg in enumerate(args) if arg == "--env"
-            ]
-            return NAME
+            return self._create(args, running=False)
         if args[0] == "rm":
             assert not self.containers[args[1]]["State"]["Running"]
             del self.containers[args[1]]
@@ -251,6 +259,18 @@ class ContainerEngine:
         if args[0] == "logs":
             return "startup failure details"
         raise AssertionError(f"unexpected Podman call: {args}")
+
+    def _create(self, args, *, running):
+        name = args[args.index("--name") + 1]
+        if name in self.containers:
+            raise DeploymentError("container already exists")
+        metadata = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "--label")
+        obj = self.container(name, self.resolve_image(args[-1]), Path(metadata[PREFIX + "directory"]),
+                             metadata[PREFIX + "configuration"], running=running)
+        obj["Mounts"] = [{"Source": args[index + 1].split(":", 1)[0]} for index, arg in enumerate(args) if arg == "--volume"]
+        obj["Config"]["Labels"] = metadata
+        obj["Config"]["Env"] = [args[index + 1] for index, arg in enumerate(args) if arg == "--env"]
+        return name
 
 
 if __name__ == "__main__":

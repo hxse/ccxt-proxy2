@@ -54,3 +54,19 @@ just debug-cleanup-sandbox
 debug-cleanup-sandbox 沿用既有调试脚本的模拟盘撤单和平仓范围，具有真实副作用；原裸 cleanup 名称退出。其他交易调试、Telegram 发送及数据清理入口仍须明确调用，命令规范调整不扩大其授权或账户范围。
 
 宿主开发任务保持独立，前台 serve 不持有部署队列锁；容器操作的锁和停止协调由部署模块统一管理。旧 image-build、container-start 和裸 deploy 自动部署行为退出，不维护并行公开入口。
+
+## CFB 执行容器
+
+```bash
+just cfb --status
+just cfb --target=remote --logs
+just cfb --pause
+just cfb --resume
+just cfb --clean
+just cfb --screenshot --output=debug/cfb-desktop.png
+just test-cfb-native
+```
+
+cfb 运维只使用受管执行器的 Unix socket，不管理原 cn-futures-bridge 实例。pause/resume 保留原执行权规则，clean 只清理允许淘汰的日志/工件；截图保存 PNG。test-cfb-native 显式构建验证镜像，运行阶段断网，不启动真实账户；默认 just test 忽略这组镜像依赖测试。
+
+启用白名单 cfb 后 just serve 也准备独立 CFB 容器，主 API 保持宿主运行；启动失败允许其他 SDK 继续。旧 sync-cfb-docs 入口退出，路由文档直接由本仓模型生成。

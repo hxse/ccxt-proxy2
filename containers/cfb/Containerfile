@@ -1,0 +1,74 @@
+FROM docker.io/library/python:3.13-slim-bookworm@sha256:3e2de9c40ca4e3d73240059f9d48baff27908f10293e985a2f382a0378e6df4a AS base
+
+FROM base AS dependencies
+WORKDIR /app
+RUN pip install --no-cache-dir uv==0.12.17
+COPY containers/cfb/pyproject.toml containers/cfb/uv.lock ./
+RUN uv sync --locked --no-dev
+
+FROM dependencies AS gecko-assets
+RUN apt-get update && apt-get install -y --no-install-recommends msitools && rm -rf /var/lib/apt/lists/*
+COPY src/cfb/terminal.lock.toml containers/cfb/container/prepare_gecko.py /tmp/
+RUN /app/.venv/bin/python /tmp/prepare_gecko.py /tmp/terminal.lock.toml /opt/gecko
+
+FROM base AS native-build
+RUN test "$(dpkg --print-architecture)" = amd64 \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       gcc-mingw-w64-i686-posix gcc libc6-dev libx11-dev libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY containers/cfb/native ./native
+COPY containers/cfb/container/capture.c ./capture.c
+RUN mkdir /native && i686-w64-mingw32-gcc -Wall -Wextra -Werror -Wno-unused-parameter -O2 -static-libgcc -shared \
+    native/hook.c native/import_scope.c native/common.c native/query.c native/gui.c native/grid.c native/startup.c native/browser.c native/market.c native/receipt.c native/tracking.c native/readiness.c \
+    -o /native/cfb-hook.dll -Wl,--kill-at -lole32 -loleaut32 -luuid \
+    && i686-w64-mingw32-gcc -Wall -Wextra -Werror -Wno-unused-parameter -O2 -static-libgcc -municode \
+       native/controller.c -o /native/cfb-controller.exe \
+    && gcc -std=c11 -Wall -Wextra -Werror -O2 -s capture.c -o /native/cfb-capture -lX11 -lpng
+
+FROM base AS payload
+RUN apt-get update && apt-get install -y --no-install-recommends innoextract && rm -rf /var/lib/apt/lists/*
+COPY src/cfb/terminal.lock.toml containers/cfb/container/prepare_terminal.py containers/cfb/container/fetch_terminal.py /tmp/
+RUN --mount=type=cache,id=ccxt-proxy2-cfb-installer,target=/downloads \
+    python /tmp/fetch_terminal.py /tmp/terminal.lock.toml /downloads/installer.exe \
+    && innoextract --silent --extract --output-dir /tmp/extracted /downloads/installer.exe \
+    && python /tmp/prepare_terminal.py /tmp/extracted /opt/terminal /tmp/terminal.lock.toml
+
+FROM base AS vnc-assets
+RUN apt-get update && cd /tmp && apt-get download novnc=1:1.3.0-1 \
+    && dpkg-deb --extract /tmp/novnc*.deb /opt/novnc-assets
+
+FROM base AS runtime
+LABEL io.ccxt-proxy2.project="ccxt-proxy2" io.ccxt-proxy2.kind="cfb-runtime"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN test "$(dpkg --print-architecture)" = amd64 && dpkg --add-architecture i386 && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       tini libfontconfig1:i386 libfreetype6:i386 libxrender1:i386 libgnutls30:i386 \
+       xvfb xauth x11-utils xdotool libpng16-16 openbox fonts-wqy-microhei locales tzdata ca-certificates \
+       libproxychains4:amd64 libproxychains4:i386 x11vnc websockify \
+    && python -c "from pathlib import Path; import hashlib,urllib.request; key=urllib.request.urlopen('https://dl.winehq.org/wine-builds/winehq.key', timeout=30).read(); assert hashlib.sha256(key).hexdigest() == 'd965d646defe94b3dfba6d5b4406900ac6c81065428bf9d9303ad7a72ee8d1b8'; Path('/usr/share/keyrings/winehq.asc').write_bytes(key); Path('/etc/apt/sources.list.d/winehq.list').write_text('deb [arch=i386 signed-by=/usr/share/keyrings/winehq.asc] https://dl.winehq.org/wine-builds/debian bookworm main\\n')" \
+    && apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=30 update \
+    && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends \
+       wine-stable:i386=11.0.0.0~bookworm-1 wine-stable-i386:i386=11.0.0.0~bookworm-1 \
+    && /opt/wine-stable/bin/wine --version \
+    && sed -i 's/^# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen && locale-gen \
+    && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && useradd --create-home --uid 1000 bridge && mkdir -p /data /app /opt/bridge/container \
+    && install -d -m 1777 /tmp/.X11-unix && rm -rf /var/lib/apt/lists/*
+ENV LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8 TZ=Asia/Shanghai PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:/opt/wine-stable/bin:${PATH}"
+WORKDIR /app
+COPY --from=dependencies /app/.venv /app/.venv
+COPY --from=native-build /native /opt/bridge/native
+COPY --from=native-build /native/cfb-capture /usr/local/bin/
+COPY --from=gecko-assets /opt/gecko /usr/share/wine/gecko
+COPY --from=payload /opt/terminal /opt/terminal
+COPY --from=vnc-assets /opt/novnc-assets/usr/share/novnc /usr/share/novnc
+COPY --from=vnc-assets /opt/novnc-assets/usr/share/doc/novnc /usr/share/doc/novnc
+COPY containers/cfb/container/fonts.reg containers/cfb/container/openbox.xml /opt/bridge/container/
+COPY src/cfb ./src/cfb
+COPY src/base_types.py ./src/
+COPY src/tools/config_types.py src/tools/config_loader.py src/tools/config_profiles.py src/tools/market_data_types.py src/tools/deployment_types.py ./src/tools/
+EXPOSE 45174 45175
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "src.cfb.daemon", "--config", "/app/config.toml"]

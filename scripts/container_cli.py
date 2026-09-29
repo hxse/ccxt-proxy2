@@ -61,7 +61,7 @@ def parse_args(argv=None):
     args.control = controls[0] if controls else None
     args.remote = args.target == "remote" and bool(pipeline or controls)
     args.runtime_config = (args.upload and not args.keep_remote_config) or (
-        args.target == "local" and args.start
+        args.target == "local" and (args.start or args.build)
     )
     if args.config is not None and not (args.remote or args.runtime_config):
         parser.error("当前动作不使用 --config")
@@ -120,7 +120,8 @@ def run_pipeline(args, config_path, target):
     with project_lock(ROOT, check_cancel=guard.check if guard else None):
         require_runtime()
         if args.build:
-            build_image()
+            assert config_path is not None
+            build_image(config_path)
         if args.start:
             image = inspect_image(IMAGE)["Id"]
             assert config_path is not None

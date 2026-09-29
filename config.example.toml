@@ -73,10 +73,6 @@ password = "replace-with-your-password"
 # request_timeout_seconds = 10
 # query_interval_seconds = 1.1
 
-# CFB HTTP 薄转发；账户在独立 CFB 项目配置，sandbox/live 参数原样转发。
-# [cfb]
-# base_url = "http://127.0.0.1:45173"
-# request_timeout_seconds = 300
 
 # Telegram：每个 chat alias 单独一行，chat_id 保持字符串。
 # [telegram]
@@ -121,9 +117,7 @@ max_rows_total = 20000000
 # service = "ctp"
 # mode = "live"
 
-# CFB 启动时创建 HTTP 客户端；不触发上游登录，不按 mode 限制转发。
-# [[service_whitelist]]
-# service = "cfb"
+# CFB 在下方明确启用；账户配置也在同一文件的 cfb 子表。
 
 # 文件：现有私有 config.toml；以下只是新增片段，不是完整文件。
 [market_data_client]
@@ -142,13 +136,113 @@ request_timeout_seconds = 60
 # remote_dir = "dev/ccxt-proxy2"
 
 # 按运行场景覆盖；公共配置用于 dev/local，远端由加载器合并，不改原文件。
-# 三个服务在远端使用上方同一 [proxy] 地址。
+# 四个服务在远端使用上方同一 [proxy] 地址。
 [overrides.remote.binance]
 enable_proxy = true
 [overrides.remote.kraken]
 enable_proxy = true
 [overrides.remote.tq]
 enable_proxy = true
-# 同一个启用 DNS 的 Podman 网络内，通过 CFB 容器名访问。
+# CFB 与主服务通过项目数据目录的 Unix socket 通信。
+
+[[service_whitelist]]
+# 正式启动入口自动准备独立 CFB 执行容器。
+service = "cfb"
+
+[cfb]
+# 本地直连；远端由 overrides.remote.cfb 开启公共 HTTP CONNECT 代理。
+enable_proxy = false
+# 启用 VNC/noVNC，仅发布宿主回环端口。
+vnc_enabled = true
+# 等待执行器的秒数；超时不表示已开始的交易取消。
+request_timeout_seconds = 300.0
+
+[cfb.bridge]
+# 启动账户环境，sandbox 或 live；请求不能切换环境。
+mode = "sandbox"
+# 执行容器内固定目录；宿主对应本项目 data/cfb。
+data_dir = "/data"
+# 终端和登录启动预算，单位秒。
+startup_timeout_seconds = 90
+
+[cfb.desktop]
+# 虚拟桌面宽度，单位像素。
+width = 1280
+# 虚拟桌面高度，单位像素。
+height = 800
+# 虚拟桌面 DPI。
+dpi = 96
+
+[cfb.vnc]
+# VNC 端口，仅发布 127.0.0.1。
+port = 45174
+# noVNC 网页端口，仅发布 127.0.0.1。
+web_port = 45175
+
+[cfb.execution]
+# 唯一业务队列容量。
+queue_capacity = 32
+# 未执行排队等待上限，毫秒。
+queue_timeout_ms = 5000
+# 单个 GUI 步骤期限，毫秒。
+step_timeout_ms = 3000
+# 等待状态变化时的轮询间隔，毫秒。
+poll_interval_ms = 10
+# GUI 动作之间的最小间隔，毫秒。
+gui_action_gap_ms = 10
+# CSV 核对的最多轮数。
+csv_confirmation_attempts = 3
+# CSV 核对轮次间隔，毫秒。
+csv_confirmation_interval_ms = 100
+# 限价允许截断的最大超界比例；0 关闭截断。
+price_max_deviation_ratio = 0.05
+# 正常已结束幂等记录的保护小时数；unknown 不自动过期。
+idempotency_ttl_hours = 168
+# 防重发数据库及 WAL 的字节预算。
+journal_max_bytes = 134217728
+
+[cfb.reconnect]
+# 启用已核验连接故障的自动恢复。
+enabled = true
+# 每次连接失败后等待的秒数。
+interval_seconds = 600
+
+[cfb.logging]
+# CFB 执行器日志级别。
+level = "INFO"
+# 单个日志文件字节预算。
+max_file_bytes = 20971520
+# 该类存储的总字节预算。
+max_total_bytes = 209715200
+
+[cfb.artifacts]
+# 该类存储的总字节预算。
+max_total_bytes = 314572800
+# 文件治理检查间隔，秒。
+cleanup_interval_seconds = 60
+# 允许新工件前必须保留的磁盘字节数。
+min_free_bytes = 536870912
+
+[cfb.accounts.sandbox]
+# 受支持的原生券商编号。
+broker_id = "9999"
+# 明确选择原生站点，不自动切换。
+site = "电信2"
+# 账户名；仅保存在私有配置。
+username = ""
+# 账户密码；与 username 一起填写。
+password = ""
+
+[cfb.accounts.live]
+# 受支持的原生券商编号。
+broker_id = "6020"
+# 明确选择原生站点，不自动切换。
+site = "一套"
+# 账户名；仅保存在私有配置。
+username = ""
+# 账户密码；与 username 一起填写。
+password = ""
+
 [overrides.remote.cfb]
-base_url = "http://cn-futures-bridge:45173"
+# 远端 CFB 使用公共 HTTP CONNECT 代理，本地默认关闭。
+enable_proxy = true

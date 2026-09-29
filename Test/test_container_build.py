@@ -88,6 +88,7 @@ def test_cleanup_keeps_current_dependencies_external_and_active_ancestors(
     write_upload(source)
     result = engine.run("upload-build-start", source)
     assert result.returncode == 0, result.stderr
+    assert "warning:" not in result.stderr
     state = engine.read()
     ids = {
         name: "sha256:" + char * 64

@@ -55,11 +55,6 @@ market-data-prune:
 market-data-once:
     uv run --no-sync python scripts/market_data_pipeline.py
 
-# 直接从 CFB 自动文档同步固定八条路由的参数、响应与说明；之后重启代理
-[positional-arguments]
-sync-cfb-docs url="http://127.0.0.1:45173/openapi.json":
-    uv run --no-sync python scripts/sync_cfb_openapi.py "$1"
-
 # 临时安装完整 VeighNa Trader + 官方 CTP + 风控；默认使用 TOML 的 ctp.test
 [positional-arguments]
 ctp-assessment *args:
@@ -227,6 +222,15 @@ debug-all:
 deploy *args:
     uv run --no-sync python -m scripts.container_cli "$@"
 
+# 独立 CFB 运维：--status/--logs/--pause/--resume/--clean/--screenshot。
+[positional-arguments]
+cfb *args:
+    uv run --no-sync python -m scripts.cfb_cli "$@"
+
+# 显式构建 Wine 验证镜像；运行时断网，不挂载真实配置或账户数据。
+test-cfb-native:
+    uv run --no-sync python -m scripts.cfb_native_test
+
 # ==================== Bruno CLI ====================
 
 # 运行单个 Bruno 请求或单个文件夹
@@ -248,7 +252,7 @@ bru-error-contract:
 bru-public-time:
     uv run --no-sync python scripts/run_bruno.py 'SYSTEM/fetch_time.bru'
 
-# 只跑 CFB 五条 GET，默认 sandbox；上游地址由服务端 TOML 配置
+# 只跑 CFB 五条 GET，默认 sandbox；模式必须匹配配置所选账户
 bru-cfb-readonly:
     uv run --no-sync python scripts/run_bruno.py 'CFB/fetch_orders.bru' 'CFB/fetch_trades.bru' 'CFB/fetch_positions.bru' 'CFB/fetch_balance.bru' 'CFB/fetch_trading_status.bru'
 
@@ -264,7 +268,7 @@ bru-telegram-send:
 
 [positional-arguments]
 test *args:
-    uv run --no-sync pytest Test --ignore=Test/online "$@"
+    uv run --no-sync pytest Test --ignore=Test/online --ignore=Test/cfb_native "$@"
 
 # 聚合运行 public live market-data tests；不会检查私有账户或初始化 sandbox
 [positional-arguments]
@@ -312,7 +316,7 @@ fmt:
     uvx ruff format .
 
 lint:
-    uvx ruff check --select E4,E7,E9,F,I src Test scripts/container_*.py scripts/serve.py
+    uvx ruff check --select E4,E7,E9,F,I src Test scripts/container_*.py scripts/cfb_*.py scripts/serve.py
 
 fix:
     uvx ruff check --select E4,E7,E9,F,I --fix src Test

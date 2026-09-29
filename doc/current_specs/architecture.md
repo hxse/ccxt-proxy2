@@ -1,6 +1,6 @@
 # 项目架构与模块边界
 
-ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所接口、CTP 交易、CFB HTTP 转发、TQ 行情和 Telegram 消息发送。本目录规定当前有效的接口、行为、约束和验证规则；详细 HTTP 参数与响应类型同时由 /openapi.json、/docs、/redoc 和 /scalar 展示。
+ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所接口、CTP 交易、CFB 终端交易、TQ 行情和 Telegram 消息发送。本目录规定当前有效的接口、行为、约束和验证规则；详细 HTTP 参数与响应类型同时由 /openapi.json、/docs、/redoc 和 /scalar 展示。
 
 ## 正式调用链
 
@@ -13,11 +13,11 @@ ccxt-proxy2 是带 Bearer 鉴权的 FastAPI 服务，统一提供 CCXT 交易所
 | TQ 行情和状态 | Route → TqManager → TqWorker/TqClient → TqSdk | 专用线程处理 SDK，状态接口读取内存快照 |
 | TQ 日历、历史映射与过渡 | Route → TqMetadataQuery → 自有源转换/SDK 原始窗口 → 缓存高级 API | 每请求固定可信时间，禁用旧 SDK 元数据入口，过渡仅保存完整目标窗 |
 | CTP 交易与查询 | Route → CtpManager → session/SPI → vnpy_ctp 交易扩展 | 原生请求、回调关联和账户生命周期 |
-| CFB 业务接口 | Route → CfbProxy → cn-futures-bridge HTTP | 原样转发参数、状态码与正文，只增加鉴权和超时 |
+| CFB 业务接口 | Route → CFB socket Client → 独立容器 Dispatcher/worker | 主服务负责 HTTP；独立执行器独占 GUI、Journal 与业务 FIFO |
 | Telegram 文本消息 | Route → TelegramManager → Telegram Bot API | 从配置解析目标 chat，逐目标返回发送结果 |
 | 公共时间 | System Route → 币安公共时间 HTTP | 每次请求读取上游时间，返回原始毫秒时间戳 |
 
-路由负责 HTTP 契约和入口鉴权，业务规则由对应模块承担。中国期货行情与价格继续走 TQ。CFB 自身的终端、账户及业务能力由独立项目维护。查询完整性、缓存连续性和可持久化资格分别定义于[行情数据契约](market_data_contract.md)，不能用其中一种保证代替另一种。
+路由负责 HTTP 契约和入口鉴权，业务规则由对应模块承担。中国期货行情与价格继续走 TQ。CFB 终端、账户及业务能力由本仓 src/cfb 独立模块维护，Wine 依赖留在独立执行镜像。查询完整性、缓存连续性和可持久化资格分别定义于[行情数据契约](market_data_contract.md)，不能用其中一种保证代替另一种。
 
 ## 共同运行约束
 
@@ -29,7 +29,7 @@ TOML、白名单、启动和健康检查遵循[配置与生命周期](configurat
 
 各模块的锁只保护自己的资源：CCXT 对单次底层请求加锁，DuckDB 对写事务加锁，TQ 通过专用线程和 FileLock 管理 SDK，CTP 串行处理同账户操作。网络请求不得在 DuckDB 写锁内执行。
 
-TQ/CTP 交易状态接口通过异步 HTTP 入口读取独立短锁保护的快照，鉴权不占用同步线程池。CFB 状态查询仍原样转发，由 CFB 决定其执行方式；不承诺三个来源具有相同延迟或未知状态表达。
+TQ/CTP 交易状态接口通过异步 HTTP 入口读取独立短锁保护的快照，鉴权不占用同步线程池。CFB 业务状态查询仍进入其唯一执行器；不承诺三个来源具有相同延迟或未知状态表达。
 
 应用本身不注册响应压缩中间件。需要压缩时由部署入口按内容类型处理。资源在应用退出时关闭，关闭规则由各模块的现行规范定义；不能只依赖进程退出回收连接。
 
@@ -75,7 +75,7 @@ DuckDbOhlcvCache 只进行计算、本地 SQL 和文件操作，不导入 CCXT/T
 | 缓存概况、显式保留与辅助清理 | [缓存维护](cache_maintenance.md) |
 | CTP 原生交易、回调和状态 | [CTP 交易](ctp_trading.md) |
 | 独立完整 VeighNa 联调入口 | [CTP 联调脚本](ctp_assessment.md) |
-| CFB 转发、配置与自动文档 | [CFB 代理](cfb_proxy.md) |
+| CFB 协议、配置与自动文档 | [CFB 集成](cfb_integration.md) |
 | Telegram 请求、发送和错误 | [Telegram 文本消息](telegram.md) |
 | 币安公共时间转发 | [公共时间](system_time.md) |
 | 离线、在线、Bruno 与有状态调试 | [验证约束](verification.md) |

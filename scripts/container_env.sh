@@ -8,7 +8,7 @@ python=/app/.venv/bin/python
 metadata="$root/.container"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
-pm() { timeout --kill-after=10 60 podman "$@" 8>&- 9>&-; }
+pm() { timeout --kill-after=10 60 podman "$@" 7>&- 8>&- 9>&-; }
 hash_file() { sha256sum -- "$1" | cut -d ' ' -f 1; }
 valid_hash() { [ "${#1}" = 64 ] && ! printf '%s' "$1" | LC_ALL=C grep -q '[^0-9a-f]'; }
 

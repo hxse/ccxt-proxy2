@@ -98,7 +98,7 @@ def test_missing_image_never_triggers_implicit_build_or_ssh(
         (["--target=local", "--build", "--help"], 0),
         (["--target=remote", "--help"], 0),
         (["--target=local", "--start", "--unknown"], 2),
-        (["--target=local", "--build", "--config=private.toml"], 2),
+        (["--target=local", "--status", "--config=private.toml"], 2),
     ],
 )
 def test_help_and_invalid_arguments_have_no_side_effects(monkeypatch, args, code):

@@ -70,6 +70,12 @@ activate() {
         config_mount="$snapshot/config.toml"
         plan_mount="$snapshot/market_data.toml"
     fi
+    gate
+    check_start
+    if ! cfb_ensure "$config_mount"; then
+        printf '%s\n' 'CFB 执行器未就绪，相关路由将报错；继续启动其他服务。' >&2
+    fi
+    ungate
     if [ "$old" = true ] &&
         [ "$(field "$name" '{{.Image}}' | sed 's/^sha256://')" = "${image#sha256:}" ] &&
         [ "$(field "$name" '{{index .Config.Labels "io.ccxt-proxy2.configuration"}}')" = "$identity" ] &&
@@ -145,6 +151,7 @@ stop() {
     for item in "$name" "$backup"; do
         if exists "$item" && running "$item"; then pm stop --time=30 "$item" >/dev/null; fi
     done
+    cfb_stop || fail 'CFB 停止失败，请检查受管实例'
     ungate
     state=absent
     if [ "$present" = true ]; then state=stopped; fi

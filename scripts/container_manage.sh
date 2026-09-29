@@ -9,6 +9,7 @@ expected=$4
 keep_config=$5
 image=$6
 app_profile=${7:-}
+build_config=${8:-$root/config.toml}
 case "$app_profile" in local|remote) ;; *) echo '必须明确部署配置场景' >&2; exit 1 ;; esac
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$script_dir/container_env.sh"
@@ -16,6 +17,7 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$script_dir/container_source.sh"
 . "$script_dir/container_manifest.sh"
 . "$script_dir/container_build.sh"
+. "$script_dir/container_cfb.sh"
 pending=false
 created=false
 renamed=false
@@ -49,6 +51,7 @@ case "$action" in upload|upload-build|upload-build-start) upload_source ;; esac
 case "$action" in build|build-start|upload-build|upload-build-start) build_uploaded ;; esac
 if [ "$action" = build-local ]; then
     build_candidate "$source"
+    cfb_prepare_image "$source" "$build_config" || fail 'CFB 配套镜像构建失败，保留原准备版本'
     publish_image
     clean_resources
     printf '%s\n' "本地镜像构建完成：$image_tag"

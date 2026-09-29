@@ -45,9 +45,9 @@ remote_dir = "dev/ccxt-proxy2"
 
 字段为严格字符串，未知字段拒绝。ssh_host 只接受别名，不接受内嵌用户名、选项或整条命令。缺省分组不影响应用或本地容器；远程操作必须填写。SSH 保留 BatchMode、主机密钥校验及有限连接超时，不新增密码存储。
 
---config 缺省沿用 CCXT_PROXY_CONFIG_PATH/config.toml，相对项目根目录解析。默认 remote upload、本地 start 校验完整应用配置和后台计划。remote build/start/control 及保留配置的上传只读取本地 deployment 分组，不要求本机应用账号有效；本地纯 build 不读取运行配置，也不接受 --config。
+--config 缺省沿用 CCXT_PROXY_CONFIG_PATH/config.toml，相对项目根目录解析。默认 remote upload、本地 build/start 校验完整应用配置和后台计划。remote build/start/control 及保留配置的上传只读取本地 deployment 分组，不要求本机应用账号有效；本地 build 接受 --config，读取白名单以确定是否构建配套 CFB，不启动账户。
 
-每次 upload 默认原样完整上传所选 config.toml 与项目根目录 market_data.toml，生成待发布配置快照。CFB 和三个代理开关的远端差异由 overrides.remote 声明，配置加载器在内存中合并；上传端不修改任何运行字段。具体场景规则见[配置规范](configuration.md)。
+每次 upload 默认原样完整上传所选 config.toml 与项目根目录 market_data.toml，生成待发布配置快照。四个 SDK 的代理开关及 CFB 所选设置的远端差异由 overrides.remote 声明，配置加载器在内存中合并；上传端不修改任何运行字段。具体场景规则见[配置规范](configuration.md)。
 
 配置预检和应用运行必须使用同一场景：local 或 remote。启用代理但缺地址、非法 TOML、未知覆盖字段或合并后配置非法，在上传/启动前报错并隐藏值。配置身份按原始文件内容计算；实例另有场景标记，不能因原文件相同误复用另一场景。
 
@@ -106,7 +106,7 @@ status 返回 container/state/image_id/prepared_image_id。state 可为 absent/s
 
 ## 端口与验证
 
-宿主固定发布 `127.0.0.1:5123:5123`；容器内 Uvicorn 监听 0.0.0.0:5123。宿主与容器不能同时占用 5123，冲突明确失败，不杀其他进程。CFB、代理等上游仍使用用户配置的可达地址，容器回环不自动指向宿主。
+宿主固定发布 `127.0.0.1:5123:5123`；容器内 Uvicorn 监听 0.0.0.0:5123。宿主与容器不能同时占用 5123，冲突明确失败，不杀其他进程。代理仍使用用户配置的可达地址，容器回环不自动指向宿主。CFB 通过共享数据目录的 Unix socket 连接，不使用容器 HTTP 地址。
 
 ```bash
 ssh -N -L 15123:127.0.0.1:5123 rn
@@ -114,3 +114,13 @@ ssh -N -L 15123:127.0.0.1:5123 rn
 ```
 
 `just test` 为离线验证，包括真实 Shell/SDK 配合隔离替身的正反用例、归档安全、资源清理、锁和恢复。实际构建/上传/启停不进入默认测试；额外在线测试通过独立入口显式运行，只请求 live 只读数据。部署启动会正常初始化配置启用的 Provider 和后台计划，包括缓存清理。宿主命令见 [Just 命令规范](commands.md)。
+
+## CFB 配套执行器
+
+白名单启用 cfb 时，build 同时准备独立 CFB 镜像，记录主镜像与执行镜像的配套关系；start 只消费对应版本，自动启动或复用 ccxt-proxy2-cfb。CFB 当前固定 Wine/Q72 原生资产仅支持 linux/amd64，主镜像的原生平台规则不因此改变。CFB 不启用时不准备此镜像。
+
+CFB 代码源码、锁文件和构建资产进入既有增量清单；配置仍原样上传、内存应用场景覆盖。宿主 data/cfb 挂到执行器 /data，主容器已有 /app/data 挂载用于访问 socket。VNC/noVNC 默认 45174/45175，仅发布 127.0.0.1；不发布旧 45173。
+
+按镜像和所选配置摘要复用，主服务重启不重启匹配 CFB；需要替换时先停止旧 owner。失败保留或恢复旧实例，协议身份检查阻止误用不匹配的账户。CFB 启动失败允许主应用继续；终端就绪由 /cfb/readyz 表示。显式项目 stop 停止两个受管实例；不会操作原 cn-futures-bridge 容器和卷。
+
+镜像清理保留配套版本、运行实例和依赖祖先，删除失效配套记录及无用本项目版本；不全局 prune，不删除数据。CFB 原生验证镜像不视作生产旧版本。just serve 使用同一准备/启动实现，但主 API 仍运行在宿主。控制命令见 [命令规范](commands.md)，CFB 特有规则见 [运行规范](cfb_bootstrap.md)。

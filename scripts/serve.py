@@ -38,8 +38,15 @@ def main(argv=None):
     try:
         selected = args.config or resolve_config_path()
         selected = selected if selected.is_absolute() else ROOT / selected
-        load_config(selected)
+        config = load_config(selected)
         os.environ[CONFIG_PATH_VARIABLE] = str(selected.resolve())
+        from scripts.cfb_host import ensure_cfb
+        from scripts.container_common import DeploymentError
+
+        try:
+            ensure_cfb(selected, config, os.environ.get("CCXT_PROXY_PROFILE", "dev"))
+        except DeploymentError:
+            print("CFB 容器准备失败，继续启动其他服务；CFB 请求将明确报错。", file=sys.stderr)
         os.execvp(
             "uvicorn",
             [

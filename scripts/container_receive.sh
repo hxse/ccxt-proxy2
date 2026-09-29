@@ -29,6 +29,7 @@ scripts/container_manifest.sh
 scripts/container_build.sh
 scripts/container_cleanup.sh
 scripts/container_smoke.py
+scripts/container_cfb.sh
 FILES
 case "$action" in upload|upload-build|upload-build-start)
     printf '%s\n' source.delta.tar.gz source.manifest source.base >> "$incoming/required"

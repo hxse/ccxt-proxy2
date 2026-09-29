@@ -1,0 +1,11 @@
+*
+!containers/
+!containers/cfb/
+!containers/cfb/native/
+!containers/cfb/native/**
+!containers/cfb/pyproject.toml
+!containers/cfb/uv.lock
+!Test/
+!Test/cfb_native/
+!Test/cfb_native/**
+**/__pycache__/
